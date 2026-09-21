@@ -45,7 +45,7 @@ webull:
     watchlist-path: "classpath:tickers.txt"
     warmup-bars: 700
     ema-period: 600
-    order-quantity: 1
+    order-quantity: 10
     # EMA periods returned by the GET /api/ema/{ticker} endpoint
     ema-periods: [20, 100, 200, 600]
     # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):

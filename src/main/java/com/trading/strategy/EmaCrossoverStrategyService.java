@@ -160,8 +160,10 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
-        // 7. Fixed-dollar bracket prices
-        BigDecimal fill   = candle.open().setScale(PRICE_SCALE, RoundingMode.HALF_UP);
+        // 7. Fixed-dollar bracket prices, anchored on the ACTUAL market fill price
+        //    (falls back to the candle open if the snapshot is unavailable).
+        BigDecimal fill   = orderService.fetchFillPrice(candle.ticker(), candle.open())
+                               .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         BigDecimal target = fill.add(TAKE_PROFIT_OFFSET).setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         BigDecimal stop   = fill.subtract(STOP_LOSS_OFFSET).setScale(PRICE_SCALE, RoundingMode.HALF_UP);
 

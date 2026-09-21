@@ -124,8 +124,10 @@ public class EmaStrategyService implements TradingStrategy {
             return;
         }
 
-        // 5. Compute bracket prices (percentage-based)
-        BigDecimal fill   = candle.open().setScale(PRICE_SCALE, RoundingMode.HALF_UP);
+        // 5. Compute bracket prices (percentage-based), anchored on the ACTUAL
+        //    market fill price (falls back to the candle open if unavailable).
+        BigDecimal fill   = orderService.fetchFillPrice(candle.ticker(), candle.open())
+                               .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         BigDecimal stop   = fill.multiply(BigDecimal.ONE.subtract(STOP_LOSS_PCT, MC), MC)
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         BigDecimal target = fill.multiply(BigDecimal.ONE.add(TAKE_PROFIT_PCT, MC), MC)
