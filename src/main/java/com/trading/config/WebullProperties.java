@@ -92,7 +92,14 @@ public record WebullProperties(
 
     public record Strategies(
             @DefaultValue("true") boolean ema600Enabled,
-            @DefaultValue("true") boolean emaCrossoverEnabled
+            @DefaultValue("true") boolean emaCrossoverEnabled,
+
+            /**
+             * Trailing-stop percentage used by the golden-cross strategy, expressed
+             * as a fraction (0.01 = 1%). On entry the strategy places a single
+             * TRAILING_STOP_LOSS sell and holds the position until it triggers.
+             */
+            @DefaultValue("0.01") java.math.BigDecimal crossoverTrailingStopPct
     ) {}
 
     /**

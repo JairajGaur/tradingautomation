@@ -63,6 +63,9 @@ webull:
   strategies:
     ema600-enabled: true
     ema-crossover-enabled: true
+    # Golden-cross exit: single trailing stop, held until it triggers.
+    # Fraction of price to trail by (0.01 = 1%).
+    crossover-trailing-stop-pct: 0.01
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────
   diagnostics:

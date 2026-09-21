@@ -38,13 +38,17 @@ public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
     // ── Webull-supported standalone order types ──────────────────────────────
-    //   LIMIT | MARKET | STOP | TRAILING_STOP | STOP_LIMIT
-    // (STOP_LOSS / STOP_PROFIT are combo-leg types, not standalone order_types.)
-    public static final String TYPE_MARKET        = "MARKET";
-    public static final String TYPE_LIMIT         = "LIMIT";
-    public static final String TYPE_STOP          = "STOP";
-    public static final String TYPE_STOP_LIMIT    = "STOP_LIMIT";
-    public static final String TYPE_TRAILING_STOP = "TRAILING_STOP";
+    //   LIMIT | MARKET | STOP | STOP_LIMIT | TRAILING_STOP_LOSS
+    // (STOP_LOSS / STOP_PROFIT are also combo-leg types when used inside a MASTER.)
+    public static final String TYPE_MARKET             = "MARKET";
+    public static final String TYPE_LIMIT              = "LIMIT";
+    public static final String TYPE_STOP               = "STOP";
+    public static final String TYPE_STOP_LIMIT         = "STOP_LIMIT";
+    public static final String TYPE_TRAILING_STOP_LOSS = "TRAILING_STOP_LOSS";
+
+    // Trailing-stop trail measure: PERCENTAGE (e.g. 0.01 = 1%) or AMOUNT (dollars).
+    public static final String TRAIL_PERCENTAGE = "PERCENTAGE";
+    public static final String TRAIL_AMOUNT     = "AMOUNT";
 
     private final WebullProperties props;
     private final WebullV3Client client;
@@ -188,6 +192,46 @@ public class OrderService {
         }
 
         return submit(strategy, "LIMIT-SELL", ticker, qty, limitPrice, TYPE_LIMIT, clientOrderId, body);
+    }
+
+    public OrderResult placeTrailingStopSell(String ticker, int qty, BigDecimal trailPct) {
+        return placeTrailingStopSell(ticker, qty, trailPct, "UNKNOWN");
+    }
+
+    /**
+     * Places a percentage-based TRAILING STOP sell. The stop price trails the market
+     * price upward by {@code trailPct} and triggers a market sell once price falls
+     * that far from its high — letting a winner run while protecting gains.
+     *
+     * <p>Webull fields: {@code order_type=TRAILING_STOP_LOSS}, {@code trailing_type=PERCENTAGE},
+     * {@code trailing_stop_step=<pct>} where {@code 0.01 = 1%}. Trailing stops only
+     * support {@code DAY} time in force.</p>
+     *
+     * @param trailPct trail fraction, e.g. {@code 0.01} for 1%
+     */
+    public OrderResult placeTrailingStopSell(String ticker, int qty, BigDecimal trailPct, String strategy) {
+        String clientOrderId = newClientOrderId();
+
+        OrderResult shortBlock = guardNoShort(strategy, "TRAIL-STOP-SELL", ticker, qty, trailPct,
+                TYPE_TRAILING_STOP_LOSS, clientOrderId);
+        if (shortBlock != null) return shortBlock;
+
+        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_TRAILING_STOP_LOSS);
+        body.put("trailing_type", TRAIL_PERCENTAGE);
+        body.put("trailing_stop_step", trailPct.toPlainString());
+        // Trailing stops only support DAY (baseOrder already sets DAY) — do not override to GTC.
+
+        if (!props.shouldSubmitOrders()) {
+            log.info("[OrderService] SIMULATED TRAIL-STOP-SELL | ticker={} qty={} trail={}% id={}",
+                    ticker, qty, trailPct.movePointRight(2).toPlainString(), clientOrderId);
+            recordSuccess(strategy, "TRAIL-STOP-SELL", ticker, qty, trailPct,
+                    TYPE_TRAILING_STOP_LOSS, clientOrderId, null);
+            postOrderRefresh();
+            return OrderResult.paper(clientOrderId, body);
+        }
+
+        return submit(strategy, "TRAIL-STOP-SELL", ticker, qty, trailPct,
+                TYPE_TRAILING_STOP_LOSS, clientOrderId, body);
     }
 
     /** Backward-compatible emergency market SELL. */

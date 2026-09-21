@@ -27,10 +27,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *       Only triggers when no position is already open for that ticker.</li>
  * </ul>
  *
- * <h2>Exit bracket — fixed-dollar amounts</h2>
+ * <h2>Exit — trailing stop (hold the winner)</h2>
  * <ul>
- *   <li><b>Take-Profit:</b> LIMIT SELL at fill price + $0.10</li>
- *   <li><b>Stop-Loss:</b>   STOP  SELL at fill price − $0.05</li>
+ *   <li>On entry, a single <b>TRAILING_STOP_LOSS</b> SELL is placed with a
+ *       configurable trail (default 1%, {@code webull.strategies.crossover-trailing-stop-pct}).</li>
+ *   <li>There is <b>no fixed take-profit and no fixed stop-loss</b> — the position
+ *       is held and left to run; it is only sold when the trailing stop triggers
+ *       (price falls the trail % from its post-entry high).</li>
  * </ul>
  *
  * <p>All order execution is delegated to {@link OrderService} — no Webull SDK
@@ -47,11 +50,6 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
 
     private static final int FAST_PERIOD = 20;
     private static final int SLOW_PERIOD = 100;
-
-    /** Fixed-dollar take-profit: +$0.10 per share. */
-    private static final BigDecimal TAKE_PROFIT_OFFSET = new BigDecimal("0.10");
-    /** Fixed-dollar stop-loss: −$0.05 per share. */
-    private static final BigDecimal STOP_LOSS_OFFSET   = new BigDecimal("0.05");
 
     private final WebullProperties props;
     private final OrderService orderService;
@@ -160,32 +158,24 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
-        // 7. Fixed-dollar bracket prices, anchored on the ACTUAL market fill price
-        //    (falls back to the candle open if the snapshot is unavailable).
-        BigDecimal fill   = orderService.fetchFillPrice(candle.ticker(), candle.open())
+        // 7. Record the open position. There is no fixed stop/target — the exit is
+        //    a trailing stop — so we track the fill price only (stop/target left null).
+        BigDecimal fill = orderService.fetchFillPrice(candle.ticker(), candle.open())
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-        BigDecimal target = fill.add(TAKE_PROFIT_OFFSET).setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-        BigDecimal stop   = fill.subtract(STOP_LOSS_OFFSET).setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-
-        log.info("[{}] Bracket: ticker={} fill={} target={} (+$0.10) stop={} (-$0.05)",
-                name(), candle.ticker(), fill, target, stop);
-
-        // 8. Register the open position
         positionTracker.openPosition(new Position(
-                candle.ticker(), fill, qty, stop, target, buyResult.clientOrderId()));
+                candle.ticker(), fill, qty, null, null, buyResult.clientOrderId()));
 
-        // 9. Place stop-loss SELL via OrderService
-        OrderResult stopResult = orderService.placeStopSell(candle.ticker(), qty, stop, name());
-        if (!stopResult.success()) {
-            log.error("[{}] Stop-loss order failed for ticker={}: {}",
-                    name(), candle.ticker(), stopResult.message());
-        }
+        // 8. Place a single TRAILING STOP sell and hold — the position runs until the
+        //    trailing stop triggers (price falls trailPct from its post-entry high).
+        BigDecimal trailPct = props.strategies().crossoverTrailingStopPct();
+        log.info("[{}] Holding ticker={} fill={} with {}% trailing stop",
+                name(), candle.ticker(), fill, trailPct.movePointRight(2).toPlainString());
 
-        // 10. Place take-profit limit SELL via OrderService
-        OrderResult tpResult = orderService.placeLimitSell(candle.ticker(), qty, target, name());
-        if (!tpResult.success()) {
-            log.error("[{}] Take-profit order failed for ticker={}: {}",
-                    name(), candle.ticker(), tpResult.message());
+        OrderResult trailResult = orderService.placeTrailingStopSell(
+                candle.ticker(), qty, trailPct, name());
+        if (!trailResult.success()) {
+            log.error("[{}] Trailing-stop order failed for ticker={}: {}",
+                    name(), candle.ticker(), trailResult.message());
         }
     }
 
