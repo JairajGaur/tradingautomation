@@ -1,0 +1,182 @@
+package com.trading.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
+
+/**
+ * Typed configuration properties bound from application.yml under the
+ * {@code webull} prefix.
+ */
+@ConfigurationProperties(prefix = "webull")
+public record WebullProperties(
+        Api api,
+        Trading trading,
+        Strategies strategies,
+        Risk risk,
+        MarketHours marketHours,
+        Endpoints endpoints
+) {
+
+    public enum Mode { PAPER, LIVE }
+
+    public record Api(
+            String appKey,
+            String appSecret,
+            @DefaultValue("us") String regionId,
+            @DefaultValue("") String endpoint,
+
+            /**
+             * Optional 2FA access token (x-access-token header). Only needed when
+             * Two-Factor Authentication is enabled on the account. Leave blank when
+             * 2FA is off (sandbox test tokens are valid by default).
+             */
+            @DefaultValue("") String accessToken,
+
+            /**
+             * Optional explicit account ID to trade against. When set, this exact ID
+             * is used and account-list auto-selection is skipped. Leave blank to let
+             * the app auto-pick the equity (stock) account from the account list.
+             */
+            @DefaultValue("") String accountId,
+
+            /**
+             * When {@code true}, the outgoing request (method, path, masked headers,
+             * body) and the incoming response are logged at DEBUG level. When
+             * {@code false} (default), no request/response logging is emitted.
+             * Note: DEBUG logging for {@code com.trading.webull} must also be enabled
+             * for these lines to appear.
+             */
+            @DefaultValue("false") boolean logRequests
+    ) {}
+
+    public record Trading(
+            @DefaultValue("PAPER") Mode mode,
+            @DefaultValue("AAPL") String ticker,
+            @DefaultValue("classpath:tickers.txt") String watchlistPath,
+            @DefaultValue("700") int warmupBars,
+            @DefaultValue("600") int emaPeriod,
+            @DefaultValue("1") int orderQuantity,
+
+            /**
+             * EMA periods exposed by the /api/ema endpoint. Configurable list —
+             * defaults to the periods used across the strategies plus common ones.
+             */
+            @DefaultValue({"20", "100", "200", "600"}) java.util.List<Integer> emaPeriods,
+
+            /**
+             * Default trading sessions included in bar/market-data requests.
+             * Comma-separated subset of: RTH (regular 9:30–16:00), PRE (pre-market),
+             * ATH (after-hours), OVN (overnight). Multiple sessions are supported.
+             * Per-request {@code sessions} query params on the EMA/History endpoints
+             * override this default.
+             */
+            @DefaultValue("RTH,PRE,ATH") String tradingSessions,
+
+            /**
+             * Whether to actually submit orders to the Webull API.
+             *
+             * <p>This is independent of {@code mode}, which only selects the endpoint
+             * (PAPER → sandbox, LIVE → production):
+             * <ul>
+             *   <li>{@code false} (default) — orders are simulated locally and NOT sent
+             *       to any Webull endpoint. Nothing appears on the terminal.</li>
+             *   <li>{@code true} — orders ARE submitted to the resolved endpoint. In
+             *       PAPER mode this sends them to the Webull sandbox (paper trading),
+             *       so they appear on the sandbox terminal without real money.</li>
+             * </ul>
+             * Set {@code true} with {@code mode: PAPER} to simulate live trading against
+             * the sandbox.</p>
+             */
+            @DefaultValue("false") boolean submitOrders
+    ) {}
+
+    public record Strategies(
+            @DefaultValue("true") boolean ema600Enabled,
+            @DefaultValue("true") boolean emaCrossoverEnabled
+    ) {}
+
+    /**
+     * Risk management configuration.
+     *
+     * <ul>
+     *   <li>{@code maxDailyDrawdownPct} — halt all trading for the rest of the day when
+     *       unrealised + realised losses exceed this fraction of start-of-day equity.
+     *       Default: 0.10 (10 %).</li>
+     *   <li>{@code minBuyingPowerUsd} — refuse any new BUY order when available buying
+     *       power (cash) falls below this dollar amount.  Default: $100.</li>
+     *   <li>{@code accountRefreshEnabled} — fetch a fresh account snapshot after every
+     *       order.  Disable to reduce API traffic in paper mode.  Default: true.</li>
+     * </ul>
+     */
+    public record Risk(
+            @DefaultValue("0.10")  java.math.BigDecimal maxDailyDrawdownPct,
+            @DefaultValue("100.0") java.math.BigDecimal minBuyingPowerUsd,
+            @DefaultValue("true")  boolean accountRefreshEnabled
+    ) {}
+
+    /**
+     * Market-hours configuration (all times in America/New_York).
+     *
+     * <ul>
+     *   <li>{@code coreOpen}  / {@code coreClose} — regular session (09:30–16:00).</li>
+     *   <li>{@code extendedHoursEnabled} — when true, also trade during pre-market and
+     *       after-hours windows defined below.</li>
+     *   <li>{@code preMarketOpen}    — pre-market session start (default 04:00).</li>
+     *   <li>{@code afterHoursClose}  — after-hours session end   (default 20:00).</li>
+     * </ul>
+     */
+    public record MarketHours(
+            @DefaultValue("09:30") String coreOpen,
+            @DefaultValue("16:00") String coreClose,
+            @DefaultValue("false") boolean extendedHoursEnabled,
+            @DefaultValue("04:00") String preMarketOpen,
+            @DefaultValue("20:00") String afterHoursClose
+    ) {}
+
+    /**
+     * Webull OpenAPI v3 endpoint paths. Configurable so a path can be corrected
+     * without a recompile if Webull changes a route. Defaults reflect the current
+     * v3 API as of the migration.
+     */
+    public record Endpoints(
+            @DefaultValue("/trading/accounts/list")          String accountList,
+            @DefaultValue("/trading/assets/balances/get")    String accountBalance,
+            @DefaultValue("/trading/assets/positions/list")  String positions,
+            @DefaultValue("/trading/orders/place")                     String placeOrder,
+            @DefaultValue("/trading/orders/historical-orders/list")    String orderHistory,
+            @DefaultValue("/trading/orders/open-orders/list")          String openOrders,
+            @DefaultValue("/market-data/stocks/bars/list")             String bars,
+            @DefaultValue("/market-data/stocks/snapshots/list")        String snapshot
+    ) {}
+
+    // -----------------------------------------------------------------------
+    // Derived helpers
+    // -----------------------------------------------------------------------
+
+    public String resolvedApiHost() {
+        if (api.endpoint() != null && !api.endpoint().isBlank()) {
+            return api.endpoint();
+        }
+        return trading.mode() == Mode.LIVE
+                ? "api.webull.com"
+                : "api.sandbox.webull.com";
+    }
+
+    /** Returns {@code true} when running in LIVE (production) mode. */
+    public boolean isLiveMode() {
+        return trading.mode() == Mode.LIVE;
+    }
+
+    /**
+     * Returns {@code true} when orders should actually be sent to the Webull API.
+     *
+     * <ul>
+     *   <li>LIVE mode → always submits (real production orders).</li>
+     *   <li>PAPER mode → submits only when {@code trading.submit-orders=true}
+     *       (sends to the sandbox for paper trading); otherwise simulates locally.</li>
+     * </ul>
+     */
+    public boolean shouldSubmitOrders() {
+        return isLiveMode() || trading.submitOrders();
+    }
+}

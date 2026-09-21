@@ -1,0 +1,25 @@
+meta {
+  name: Account Summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/account/summary
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Account Summary
+
+  Combined account metadata, live balance, and bot state in one call.
+
+  Returns account number/type/status, net liquidation value, buying power,
+  cash and market value, the trading-halted flag, current market session,
+  open position count, and the active trading mode.
+}

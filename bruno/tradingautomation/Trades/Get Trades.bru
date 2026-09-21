@@ -1,0 +1,45 @@
+meta {
+  name: Get Trades
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/trades?limit=50
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 50
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get Triggered Trades
+
+  Returns the recent trades the bot triggered, newest first, each tagged with the
+  strategy that fired it. Answers "was a trade triggered, and by which strategy?"
+
+  Records every BUY, STOP-SELL, LIMIT-SELL and emergency/manual MARKET-SELL —
+  including blocked/failed attempts with the reason (e.g. SHORT_BLOCKED,
+  TRADING_HALTED, INSUFFICIENT_BUYING_POWER).
+
+  ## Query
+  - `limit` — max entries to return (default 50; buffer keeps the last 500)
+
+  ## Response
+  { count, trades: [ { timestamp (UTC), timestampEt (America/New_York), strategy,
+    action, ticker, quantity, price, orderType, clientOrderId, orderId, mode,
+    success, message } ], timestamp }
+
+  Note: the application runs in ET (America/New_York). Response `timestamp`
+  fields are formatted in ET; each trade also carries `timestamp` (UTC) and
+  `timestampEt` (ET).
+
+  Strategy values include "600-EMA Momentum", "100/20-EMA Crossover", and system
+  sources like "RISK_MANAGER" and "MANUAL_CLOSE_ALL".
+}

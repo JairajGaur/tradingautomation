@@ -1,0 +1,37 @@
+meta {
+  name: Webull Connectivity
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/health/webull
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Webull Connectivity
+
+  Actively verifies connectivity and authentication against the Webull v3 API by
+  calling GET /trading/accounts/list through the direct signed-HTTP client
+  (WebullV3Client). The signing is HMAC-SHA1, verified against the Webull docs'
+  test vector.
+
+  ## Outcomes
+  - `200 UP` — call succeeded; `accountsFound` and the raw v3 `response` are included
+  - `503 DOWN` — call failed; `httpStatus` + `rawResponse` show exactly what
+    Webull returned
+
+  Response also includes `latencyMs`, `path`, and `apiVersion` (v3).
+
+  ## Note
+  Issues a REAL authenticated request. Poll it sparingly (not on every
+  load-balancer tick) to respect Webull rate limits — use GET /api/health for
+  frequent liveness checks instead. Requires valid credentials
+  (WEBULL_APP_KEY / WEBULL_APP_SECRET, and WEBULL_ACCESS_TOKEN if 2FA is on).
+}

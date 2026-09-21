@@ -1,0 +1,113 @@
+spring:
+  profiles:
+    active: paper  # Default: paper/sandbox — no real orders
+
+  # Spring Boot DevTools — auto-restart on classpath changes during development.
+  devtools:
+    restart:
+      enabled: true
+      # Don't trigger a restart when only the watchlist file changes — reload it manually instead.
+      exclude: "tickers.txt"
+    livereload:
+      enabled: true
+
+# ── Logging ──────────────────────────────────────────────────────────────
+# To see the Webull request/response logs you need BOTH:
+#   1. webull.api.log-requests: true   (below)
+#   2. this logger at DEBUG            (uncomment the line below)
+logging:
+  level:
+    com.trading.webull.WebullV3Client: INFO   # set to DEBUG to emit request/response logs
+
+webull:
+  api:
+    app-key: ${WEBULL_APP_KEY}
+    app-secret: ${WEBULL_APP_SECRET}
+    region-id: "us"
+    # Leave blank to use automatic endpoint based on trading.mode:
+    #   PAPER → api.sandbox.webull.com   |   LIVE → api.webull.com
+    endpoint: ""
+    # Optional 2FA access token (x-access-token). Leave blank when 2FA is off.
+    access-token: ${WEBULL_ACCESS_TOKEN:}
+    # Explicit account ID to trade against. Leave blank to auto-pick the MARGIN
+    # equity account from GET /trading/accounts/list (INDIVIDUAL_MARGIN). Set an
+    # override here (or via WEBULL_ACCOUNT_ID env var) only if you need a specific
+    # account and don't want auto-selection.
+    account-id: ${WEBULL_ACCOUNT_ID:}
+    # Log the full request/response to the Webull API (method, path, masked
+    # headers, body). Emitted at DEBUG level — you must ALSO set the logging
+    # level below to DEBUG for the lines to appear. Off by default.
+    log-requests: false
+
+  trading:
+    mode: PAPER
+    ticker: AAPL                              # fallback when tickers.txt is absent
+    watchlist-path: "classpath:tickers.txt"
+    warmup-bars: 700
+    ema-period: 600
+    order-quantity: 1
+    # EMA periods returned by the GET /api/ema/{ticker} endpoint
+    ema-periods: [20, 100, 200, 600]
+    # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):
+    #   RTH = regular hours (09:30–16:00 ET), PRE = pre-market, ATH = after-hours, OVN = overnight
+    # Endpoints accept a `sessions` query param to override this default per-request.
+    trading-sessions: "RTH,PRE,ATH"
+    # Whether to actually SEND orders to the Webull API (independent of mode).
+    #   false = simulate locally, nothing reaches Webull (nothing on the terminal)
+    #   true  = submit to the resolved endpoint. With mode=PAPER this sends orders to
+    #           the Webull SANDBOX (paper trading) so they appear on the sandbox terminal.
+    # Set true + mode=PAPER to simulate live trading against the sandbox.
+    submit-orders: true
+
+  # ── Strategy enable / disable ────────────────────────────────────────────
+  strategies:
+    ema600-enabled: true
+    ema-crossover-enabled: true
+
+  # ── Diagnostics (local debugging only) ────────────────────────────────────
+  diagnostics:
+    # Exposes GET /api/diagnostics/credentials showing the loaded app key (full)
+    # and app secret (MASKED + SHA-256 fingerprint). Off by default.
+    # NEVER enable this in a shared or production environment.
+    credentials-endpoint-enabled: true
+
+  # ── Risk management ───────────────────────────────────────────────────────
+  risk:
+    # Halt trading for the rest of the day once losses exceed this % of
+    # start-of-day equity.  0.10 = 10 %.
+    max-daily-drawdown-pct: 0.10
+    # Refuse new BUY orders when available buying power is below this amount ($).
+    min-buying-power-usd: 100.0
+    # Fetch a fresh account snapshot after every order.
+    account-refresh-enabled: true
+
+  # ── Market hours (America/New_York) ──────────────────────────────────────
+  market-hours:
+    core-open: "09:30"
+    core-close: "16:00"
+    # Set to true to also trade during pre-market and after-hours windows.
+    extended-hours-enabled: false
+    pre-market-open: "04:00"
+    after-hours-close: "20:00"
+
+  # ── Webull v3 endpoint paths ─────────────────────────────────────────────
+  # Override any path here if Webull changes a route — no recompile needed.
+  endpoints:
+    account-list: "/trading/accounts/list"
+    account-balance: "/trading/assets/balances/get"
+    positions: "/trading/assets/positions/list"
+    place-order: "/trading/orders/place"
+    order-history: "/trading/orders/historical-orders/list"
+    open-orders: "/trading/orders/open-orders/list"
+    bars: "/market-data/stocks/bars/list"
+    snapshot: "/market-data/stocks/snapshots/list"
+
+---
+# ── Live trading profile ──────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: prod-live
+webull:
+  trading:
+    mode: LIVE

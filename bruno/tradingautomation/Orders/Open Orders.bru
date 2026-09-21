@@ -1,0 +1,37 @@
+meta {
+  name: Open Orders
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/orders/open?pageSize=50
+  body: none
+  auth: none
+}
+
+params:query {
+  pageSize: 50
+  ~lastId: 
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Open Orders
+
+  Backed by the Webull v3 endpoint GET /trading/orders/open-orders/list.
+
+  Returns currently resting/working orders only — includes the GTC stop-loss and
+  take-profit bracket orders placed by the strategies that have not yet filled.
+
+  ## Pagination
+  - `pageSize` — max records per page (default 50)
+  - `lastId`   — pagination cursor for the next page (disabled by default)
+
+  ## Responses
+  - `200` — { orders, count, timestamp }
+  - `502` — Webull error; includes `webullError` (httpStatus + rawResponse)
+}

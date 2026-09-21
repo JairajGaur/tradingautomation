@@ -1,0 +1,26 @@
+meta {
+  name: Account Status
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/account/status
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Account Status
+
+  Bot operating state — ideal for health checks and monitoring dashboards.
+
+  Returns the trading-halted flag, whether trading is currently allowed by
+  market hours, the current market session, open position count, mode,
+  resolved API endpoint, and the configured risk limits (max drawdown %,
+  min buying power, extended-hours enabled).
+}

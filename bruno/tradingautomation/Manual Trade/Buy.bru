@@ -1,0 +1,50 @@
+meta {
+  name: Buy
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/trade/buy/AAPL?quantity=1
+  body: none
+  auth: none
+}
+
+params:query {
+  quantity: 1
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Manual Buy
+
+  Places a manual market BUY for testing the trading pipeline by hand. Goes
+  through the same OrderService the strategies use, so all guardrails apply
+  (trading-halt + buying-power checks). Recorded in the trade log as strategy
+  "MANUAL". On success the position is registered/increased in the tracker so a
+  later SELL is permitted by the no-short guardrail.
+
+  ## Path / Query
+  - `{ticker}` — equity symbol, case-insensitive (e.g. AAPL)
+  - `quantity` — shares to buy (default 1)
+
+  ## Responses
+  - `200` — { side, ticker, quantity, success, orderId, message, orderRequest,
+    webullHttpStatus, webullResponse, submittedToWebull, mode, heldAfter, timestamp }
+  - `422` — guardrail rejection (e.g. TRADING_HALTED, INSUFFICIENT_BUYING_POWER)
+  - `400` — invalid input (non-positive quantity)
+
+  ## Debugging fields
+  - `orderRequest` — the exact order payload we sent to Webull (order_type,
+    quantity, prices, session, etc.). BUY uses order_type=MARKET.
+  - `webullHttpStatus` — HTTP status from Webull (-1 = not sent / simulated / guardrail)
+  - `webullResponse` — raw Webull success/failure body
+  - `submittedToWebull` — true only when the order actually reached Webull
+
+  ## Note
+  Orders only reach Webull when webull.trading.submit-orders=true. POST places a
+  REAL order in LIVE mode; sent to the sandbox in PAPER mode (with submit-orders).
+}

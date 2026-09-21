@@ -1,0 +1,37 @@
+meta {
+  name: Today Orders
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/orders/today?pageSize=50
+  body: none
+  auth: none
+}
+
+params:query {
+  pageSize: 50
+  ~lastId: 
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Historical Orders
+
+  Backed by the Webull v3 endpoint GET /trading/orders/historical-orders/list.
+
+  Despite the "today" name, this returns orders from the LAST 7 DAYS by default
+  (the Webull endpoint's default window): filled, cancelled, rejected, and open.
+
+  ## Pagination
+  - `pageSize` — max records per page (default 50)
+  - `lastId`   — pagination cursor for the next page (disabled by default)
+
+  ## Responses
+  - `200` — { orders, count, timestamp }
+  - `502` — Webull error; includes `webullError` (httpStatus + rawResponse)
+}

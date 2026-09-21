@@ -1,0 +1,7 @@
+# Ticker Watchlist
+# -----------------
+# One symbol per line. Lines starting with '#' and blank lines are ignored.
+# This file is shared across ALL enabled strategies.
+# Edit this list to change which stocks are monitored without recompiling.
+
+AMZN

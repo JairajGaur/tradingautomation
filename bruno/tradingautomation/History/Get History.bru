@@ -1,0 +1,50 @@
+meta {
+  name: Get History
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/history/AAPL?count=200&timespan=M1&sessions=RTH
+  body: none
+  auth: none
+}
+
+params:query {
+  count: 200
+  timespan: M1
+  sessions: RTH
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get Historical Bars
+
+  Returns all fetched historical bars (OHLCV) for a stock, backed by the Webull
+  v3 Data API endpoint POST /market-data/stocks/bars/list.
+
+  ## Path parameter
+  - `{ticker}` — equity symbol, case-insensitive. Does NOT need to be in the
+    watchlist — any US stock symbol works.
+
+  ## Query
+  - `count` — number of bars (default = webull.trading.warmup-bars; M1 max 1650)
+  - `timespan` — bar granularity (default M1). Supported: M1, M5, M15, M30,
+    M60, M120, M240, D, W, M, Y.
+  - `sessions` — trading sessions included (comma-separated). Supported:
+    RTH (regular 09:30–16:00 ET), PRE (pre-market), ATH (after-hours), OVN
+    (overnight). Omit to use the configured default (default RTH).
+    Example: sessions=PRE,RTH,ATH,OVN to include everything.
+
+  ## Responses
+  - `200` — { ticker, timespan, sessions, count, bars: [ {timestamp (UTC),
+    timestampEt (America/New_York), open, high, low, close, volume} ] }
+  - `400` — invalid timespan or session (response lists supported values)
+  - `502` — Webull error; includes `webullError`
+
+  Note: each bar carries both `timestamp` (UTC, Webull-native) and `timestampEt`
+  (ET). The app runs in ET, so response `timestamp` fields are also in ET.
+}

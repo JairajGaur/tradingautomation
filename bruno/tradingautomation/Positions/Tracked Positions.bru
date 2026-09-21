@@ -1,0 +1,28 @@
+meta {
+  name: Tracked Positions
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/positions/tracked
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Tracked Positions
+
+  Positions tracked in-memory by the bot — trades opened by a strategy that
+  have not yet been closed by stop-loss or take-profit.
+
+  Each entry includes ticker, entry price, quantity, stop price, target price,
+  and the client order id of the opening BUY.
+
+  These may differ from `/api/positions` if external orders were placed or if
+  exit fills have not yet been acknowledged.
+}

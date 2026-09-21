@@ -1,0 +1,24 @@
+meta {
+  name: Account Balance
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/account/balance
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Account Balance
+
+  Force-refreshes the account balance from Webull and returns the full
+  per-currency breakdown: total asset, cash balance, market value,
+  net liquidation value, buying power, and each currency asset
+  (net liquidation, cash power, margin power, etc.).
+}

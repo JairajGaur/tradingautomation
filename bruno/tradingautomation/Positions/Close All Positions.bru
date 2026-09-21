@@ -1,0 +1,39 @@
+meta {
+  name: Close All Positions
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/positions/close-all
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Close All Positions
+
+  Market-sells every position tracked by the bot and clears the tracker.
+
+  Each close is a MARKET SELL for exactly the held quantity, so the no-short
+  guardrail always permits it. A position is removed from the tracker only when
+  its SELL is accepted. Recorded in the trade log as strategy "MANUAL_CLOSE_ALL".
+
+  ## Response
+  {
+    "requested": 2,
+    "closed": 2,
+    "failed": 0,
+    "results": [ { "ticker", "quantity", "success", "orderId", "message" } ],
+    "mode": "PAPER",
+    "timestamp": "..."
+  }
+
+  ## Note
+  This is a POST — it places real SELL orders in LIVE mode. In PAPER mode the
+  sells are simulated.
+}

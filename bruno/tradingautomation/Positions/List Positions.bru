@@ -1,0 +1,34 @@
+meta {
+  name: List Positions
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/positions?pageSize=50
+  body: none
+  auth: none
+}
+
+params:query {
+  pageSize: 50
+  ~lastId: 
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # List Positions
+
+  All open holdings from the Webull account with full P&L detail:
+  symbol, quantity, unit cost, total cost, last price, market value,
+  unrealized P&L (amount and %), holding proportion, and currency.
+
+  ## Pagination
+  - `pageSize` — max records per page (default 50)
+  - `lastId`   — cursor for the next page. When the response has
+    `hasNext: true`, pass the last record's id here. Disabled by default
+    (prefix `~` removes it from the sent request).
+}

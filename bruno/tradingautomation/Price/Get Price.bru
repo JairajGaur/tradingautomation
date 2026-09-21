@@ -1,0 +1,36 @@
+meta {
+  name: Get Price
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/price/AAPL
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get Current Price
+
+  Returns the latest price and snapshot data for any stock, backed by the Webull
+  v3 Data API endpoint GET /market-data/stocks/snapshots/list.
+
+  ## Path parameter
+  - `{ticker}` — equity symbol, case-insensitive (e.g. AAPL). Does NOT need to be
+    in the watchlist — any US stock symbol works.
+
+  ## Responses
+  - `200` — { ticker, price, open, high, low, preClose, volume, change,
+    changeRatio, snapshot (raw), timestamp }
+  - `404` — no snapshot returned for the symbol
+  - `502` — Webull error; includes `webullError` (httpStatus + rawResponse)
+
+  ## Note
+  Requires an active market-data subscription for US stocks (Webull returns 403
+  without one).
+}

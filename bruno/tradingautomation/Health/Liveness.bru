@@ -1,0 +1,26 @@
+meta {
+  name: Liveness
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/health
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Liveness
+
+  Simple liveness probe. Returns 200 as long as the application is running.
+  Makes no external calls — safe to poll frequently from a load balancer.
+
+  Response:
+  - `status` — always "UP" when the app is running
+  - `application`, `mode`, `timestamp`
+}

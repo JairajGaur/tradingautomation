@@ -1,0 +1,44 @@
+meta {
+  name: Get EMA Values
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/ema/AAPL?timespan=M1&sessions=RTH
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M1
+  sessions: RTH
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get EMA Values
+
+  Returns the configured EMA values for a ticker (default periods: 20, 100,
+  200, 600 — set via `webull.trading.ema-periods`).
+
+  The ticker in the path must be present in the watchlist (`tickers.txt`).
+
+  ## Query
+  - `timespan` — bar granularity (default M1). Supported: M1, M5, M15, M30,
+    M60, M120, M240, D, W, M, Y. Example: timespan=M30 for 30-minute EMA.
+  - `sessions` — trading sessions included (comma-separated). Supported:
+    RTH (regular 09:30–16:00 ET), PRE (pre-market), ATH (after-hours), OVN
+    (overnight). Omit to use the configured default (webull.trading.trading-sessions,
+    default RTH). Example: sessions=PRE,RTH,ATH for extended hours.
+
+  ## Responses
+  - `200` — { ticker, timespan, sessions, barsUsed, lastClose, emaValues, periods }.
+    A period needing more bars than available is reported "INSUFFICIENT_DATA".
+  - `400` — invalid timespan or session (response lists supported values).
+  - `404` — ticker not in the watchlist.
+  - `502` / `503` — Webull error / empty bar list.
+}
