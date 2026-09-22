@@ -62,12 +62,10 @@ public class AccountService {
     }
 
     /**
-     * Available buying power. Returns a large default only in pure local-simulation
-     * mode (paper with submit-orders disabled); otherwise returns the real snapshot
-     * value fetched from the resolved Webull endpoint (sandbox or production).
+     * Available buying power, from the real snapshot fetched from the resolved
+     * Webull endpoint (sandbox in PAPER mode, production in LIVE mode).
      */
     public BigDecimal getBuyingPower() {
-        if (!props.shouldSubmitOrders()) return PAPER_BUYING_POWER;
         return snapshot.get().buyingPower();
     }
 

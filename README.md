@@ -86,7 +86,6 @@ webull:
     order-quantity: 1                  # shares per order (all strategies)
     ema-periods: [20, 100, 200, 600]   # periods returned by GET /api/ema/{ticker}
     trading-sessions: "RTH,PRE,ATH"    # sessions in bar requests (RTH,PRE,ATH,OVN)
-    submit-orders: false               # actually SEND orders to Webull (see matrix below)
 
   strategies:
     ema600-enabled: true               # 600-EMA momentum strategy
@@ -128,30 +127,23 @@ The `endpoint` field is optional. Leave it blank and the bot picks the correct h
 
 Set it explicitly to override for a custom proxy or non-US region (e.g. `api.sg.webull.com`).
 
-### Order submission: `mode` vs `submit-orders`
+### Paper vs live: the single `mode` switch
 
-Two independent settings control order behavior. `mode` picks the **endpoint**;
-`submit-orders` decides whether orders are **actually sent**:
+`webull.trading.mode` is the **only** setting that controls paper vs live. It selects
+both the endpoint and where real orders go:
 
-| `mode` | `submit-orders` | What happens |
+| `mode` | Endpoint | Orders |
 |---|---|---|
-| `PAPER` | `false` (default) | Orders simulated locally — nothing reaches Webull, nothing on the terminal |
-| `PAPER` | `true` | Real orders sent to the **Webull sandbox** — appear on the sandbox terminal, **no real money** |
-| `LIVE` | (any) | Real orders sent to **production** (always submits) |
+| `PAPER` (default) | `api.sandbox.webull.com` | Sent to the Webull **sandbox** — visible on the sandbox terminal, **no real money** |
+| `LIVE` | `api.webull.com` | Sent to **production** — **real orders, real money** |
 
-**To simulate live trading against the sandbox** (orders visible on the sandbox terminal):
-```yaml
-webull:
-  trading:
-    mode: PAPER
-    submit-orders: true
+Flip the value in `application.yml`, or override at launch without editing the file:
+```bash
+./gradlew bootRun --args='--webull.trading.mode=LIVE'
 ```
 
-Notes:
-- When `submit-orders: true`, the bot fetches **real account balances** from the resolved
-  endpoint, so the buying-power guard and drawdown protection use actual account data.
-- When `submit-orders: false`, order logs are prefixed `SIMULATED` and buying power
-  returns a large default so nothing is blocked.
+In both modes the bot fetches **real account balances** from the resolved endpoint, so
+the buying-power guard and drawdown protection use actual account data.
 
 ---
 
@@ -176,10 +168,9 @@ Test reports: `build/reports/tests/test/index.html`
 
 ## 5. Run in Paper Mode
 
-Paper mode is the default. All API calls go to `api.sandbox.webull.com`. By default
-(`submit-orders: false`) orders are simulated locally and nothing reaches Webull. To
-send orders to the **sandbox** so they appear on the sandbox terminal (still no real
-money), set `webull.trading.submit-orders: true` — see the [order submission matrix](#order-submission-mode-vs-submit-orders).
+Paper mode is the default (`webull.trading.mode: PAPER`). All API calls go to
+`api.sandbox.webull.com` and orders are sent to the Webull **sandbox** — they appear on
+the sandbox terminal with **no real money**.
 
 ```bash
 ./gradlew bootRun
@@ -204,34 +195,27 @@ java -jar build/libs/tradingautomation-0.0.1-SNAPSHOT.jar
 
 ## 6. Run in Live Trading Mode
 
-> ⚠️ **Warning:** Live mode places real orders against your Webull account.
+> ⚠️ **Warning:** Live mode places **real orders** against your Webull account with real money.
 
-Two conditions must both be true simultaneously:
-
-**Step 1 — Activate the `prod-live` profile:**
-```bash
-./gradlew bootRun --args='--spring.profiles.active=prod-live'
-```
-
-Or with the JAR:
-```bash
-java -jar build/libs/tradingautomation-0.0.1-SNAPSHOT.jar \
-     --spring.profiles.active=prod-live
-```
-
-**Step 2 — The `prod-live` profile sets `mode: LIVE` in `application.yml`:**
+Set the single switch `webull.trading.mode` to `LIVE`. Either edit `application.yml`:
 ```yaml
----
-spring:
-  config:
-    activate:
-      on-profile: prod-live
 webull:
   trading:
     mode: LIVE
 ```
 
-If only one condition is met, the bot stays in paper mode.
+Or override at launch without editing the file:
+```bash
+./gradlew bootRun --args='--webull.trading.mode=LIVE'
+```
+
+Or with the JAR:
+```bash
+java -jar build/libs/tradingautomation-0.0.1-SNAPSHOT.jar --webull.trading.mode=LIVE
+```
+
+That's the only setting — no separate profile or submit flag. In LIVE mode all API
+calls go to `api.webull.com` and orders are submitted to production.
 
 ---
 
@@ -625,12 +609,12 @@ long position, never open a short.
 The response shows both **what was sent** and **what Webull returned**, for easy debugging:
 - `orderRequest` — the exact payload submitted (order type, prices, quantity, session).
   BUY/market-sell use `MARKET`; strategy exits use `STOP_LOSS` (+`stop_price`) and `LIMIT` (+`limit_price`).
-- `webullHttpStatus` — HTTP status from Webull (`-1` = not sent: simulated or blocked by a guardrail).
+- `webullHttpStatus` — HTTP status from Webull (`-1` = blocked by a guardrail before sending).
 - `webullResponse` — the raw Webull success/failure body.
-- `submittedToWebull` — `true` only when the order actually reached Webull (requires `submit-orders: true`).
+- `submittedToWebull` — `true` when the order reached Webull (the sandbox in PAPER mode, production in LIVE).
 
 Response codes:
-- `200` — order accepted (or simulated when `submit-orders: false`).
+- `200` — order accepted by Webull.
 - `422` — guardrail rejection (`SHORT_BLOCKED`, `TRADING_HALTED`, `INSUFFICIENT_BUYING_POWER`) or a Webull rejection.
 - `400` — invalid input (non-positive quantity).
 
@@ -952,7 +936,7 @@ The orchestrator will automatically warm it up and dispatch candles to it — no
 | Build, skip tests | `./gradlew clean build -x test` |
 | Run tests only | `./gradlew test` |
 | Run (paper mode) | `./gradlew bootRun` |
-| Run (live mode) | `./gradlew bootRun --args='--spring.profiles.active=prod-live'` |
+| Run (live mode) | `./gradlew bootRun --args='--webull.trading.mode=LIVE'` |
 | List available tasks | `./gradlew tasks` |
 
 ---

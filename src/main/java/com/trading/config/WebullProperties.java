@@ -70,24 +70,7 @@ public record WebullProperties(
              * Per-request {@code sessions} query params on the EMA/History endpoints
              * override this default.
              */
-            @DefaultValue("RTH,PRE,ATH") String tradingSessions,
-
-            /**
-             * Whether to actually submit orders to the Webull API.
-             *
-             * <p>This is independent of {@code mode}, which only selects the endpoint
-             * (PAPER → sandbox, LIVE → production):
-             * <ul>
-             *   <li>{@code false} (default) — orders are simulated locally and NOT sent
-             *       to any Webull endpoint. Nothing appears on the terminal.</li>
-             *   <li>{@code true} — orders ARE submitted to the resolved endpoint. In
-             *       PAPER mode this sends them to the Webull sandbox (paper trading),
-             *       so they appear on the sandbox terminal without real money.</li>
-             * </ul>
-             * Set {@code true} with {@code mode: PAPER} to simulate live trading against
-             * the sandbox.</p>
-             */
-            @DefaultValue("false") boolean submitOrders
+            @DefaultValue("RTH,PRE,ATH") String tradingSessions
     ) {}
 
     public record Strategies(
@@ -175,15 +158,13 @@ public record WebullProperties(
     }
 
     /**
-     * Returns {@code true} when orders should actually be sent to the Webull API.
+     * Returns {@code true} when orders should be sent to the Webull API.
      *
-     * <ul>
-     *   <li>LIVE mode → always submits (real production orders).</li>
-     *   <li>PAPER mode → submits only when {@code trading.submit-orders=true}
-     *       (sends to the sandbox for paper trading); otherwise simulates locally.</li>
-     * </ul>
+     * <p>Controlled by the single {@code trading.mode} switch: orders are always
+     * submitted to the resolved endpoint — the Webull SANDBOX in {@code PAPER}
+     * mode (no real money) and PRODUCTION in {@code LIVE} mode (real money).</p>
      */
     public boolean shouldSubmitOrders() {
-        return isLiveMode() || trading.submitOrders();
+        return true;
     }
 }

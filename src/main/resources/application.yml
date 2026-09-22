@@ -1,7 +1,5 @@
 spring:
-  profiles:
-    active: paper  # Default: paper/sandbox — no real orders
-
+  # Paper vs live is controlled by webull.trading.mode below — NOT by a profile.
   # Spring Boot DevTools — auto-restart on classpath changes during development.
   devtools:
     restart:
@@ -40,6 +38,10 @@ webull:
     log-requests: false
 
   trading:
+    # ── THE ONLY SWITCH between paper and live trading ────────────────────
+    #   PAPER = Webull SANDBOX endpoint (api.sandbox.webull.com) — no real money
+    #   LIVE  = PRODUCTION endpoint (api.webull.com) — REAL orders, real money
+    # Orders are always submitted to the endpoint the mode selects.
     mode: PAPER
     ticker: AAPL                              # fallback when tickers.txt is absent
     watchlist-path: "classpath:tickers.txt"
@@ -52,12 +54,6 @@ webull:
     #   RTH = regular hours (09:30–16:00 ET), PRE = pre-market, ATH = after-hours, OVN = overnight
     # Endpoints accept a `sessions` query param to override this default per-request.
     trading-sessions: "RTH,PRE,ATH"
-    # Whether to actually SEND orders to the Webull API (independent of mode).
-    #   false = simulate locally, nothing reaches Webull (nothing on the terminal)
-    #   true  = submit to the resolved endpoint. With mode=PAPER this sends orders to
-    #           the Webull SANDBOX (paper trading) so they appear on the sandbox terminal.
-    # Set true + mode=PAPER to simulate live trading against the sandbox.
-    submit-orders: true
 
   # ── Strategy enable / disable ────────────────────────────────────────────
   strategies:
@@ -104,13 +100,3 @@ webull:
     open-orders: "/trading/orders/open-orders/list"
     bars: "/market-data/stocks/bars/list"
     snapshot: "/market-data/stocks/snapshots/list"
-
----
-# ── Live trading profile ──────────────────────────────────────────────────
-spring:
-  config:
-    activate:
-      on-profile: prod-live
-webull:
-  trading:
-    mode: LIVE

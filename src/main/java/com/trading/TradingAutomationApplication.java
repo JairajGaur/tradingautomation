@@ -20,8 +20,8 @@ import java.util.TimeZone;
  * ({@code America/New_York} handles the EST/EDT daylight-saving switch correctly.)
  *
  * <h2>Safety</h2>
- * Defaults to PAPER trading mode unless the 'prod-live' Spring profile is
- * explicitly activated AND webull.trading.mode=LIVE is set in configuration.
+ * Paper vs live is controlled by the single {@code webull.trading.mode} property
+ * (PAPER = sandbox, LIVE = production). Defaults to PAPER.
  */
 @SpringBootApplication
 @EnableConfigurationProperties(WebullProperties.class)
