@@ -62,9 +62,20 @@ webull:
   strategies:
     ema600-enabled: true
     ema-crossover-enabled: true
-    # Golden-cross exit: single trailing stop, held until it triggers.
-    # Fraction of price to trail by (0.01 = 1%).
-    crossover-trailing-stop-pct: 0.01
+    # Bar timeframe each strategy evaluates its ENTRY on (M1/M5/M15/M30/...).
+    # Strategies are entry-only; exits are handled by the universal exit rule below.
+    ema600-timeframe: "M1"
+    ema-crossover-timeframe: "M1"
+
+  # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
+  # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),
+  # OR a fresh bearish cross of ema-fast below ema-slow on the exit timeframe.
+  exit:
+    enabled: true
+    stop-loss-pct: 0.10        # -10% hard stop from entry
+    ema-fast: 8
+    ema-slow: 20
+    timeframe: "M1"            # exit checks run every minute on this timeframe
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────
   diagnostics:

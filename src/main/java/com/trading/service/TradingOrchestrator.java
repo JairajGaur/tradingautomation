@@ -58,6 +58,8 @@ public class TradingOrchestrator {
     private final RiskManager riskManager;
     private final AccountService accountService;
     private final EntryGuard entryGuard;
+    private final ExitManager exitManager;
+    private final com.trading.state.PositionTracker positionTracker;
     private final List<TradingStrategy> strategies;
 
     // Kept for instanceof enable/disable check
@@ -74,6 +76,8 @@ public class TradingOrchestrator {
                                 RiskManager riskManager,
                                 AccountService accountService,
                                 EntryGuard entryGuard,
+                                ExitManager exitManager,
+                                com.trading.state.PositionTracker positionTracker,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
                                 EmaCrossoverStrategyService emaCrossoverStrategyService) {
@@ -84,6 +88,8 @@ public class TradingOrchestrator {
         this.riskManager = riskManager;
         this.accountService = accountService;
         this.entryGuard = entryGuard;
+        this.exitManager = exitManager;
+        this.positionTracker = positionTracker;
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
         this.emaCrossoverStrategyService = emaCrossoverStrategyService;
@@ -185,6 +191,14 @@ public class TradingOrchestrator {
 
         // Fresh per-cycle cache so entry-guard bar fetches are reused within this tick.
         entryGuard.newCycle();
+
+        // ── EXITS FIRST — universal exit rule (−10% stop OR 8/20 bearish cross),
+        // evaluated every minute for every open bot position, in parallel. Runs
+        // before entries so freed-up positions/capital are available this tick.
+        List<String> openTickers = new ArrayList<>(positionTracker.allPositions().keySet());
+        if (!openTickers.isEmpty()) {
+            runPerTicker(openTickers, exitManager::evaluate);
+        }
 
         List<String> tickers = watchlistLoader.getTickers();
 

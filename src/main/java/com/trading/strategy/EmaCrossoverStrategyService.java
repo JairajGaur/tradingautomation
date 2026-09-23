@@ -3,6 +3,7 @@ package com.trading.strategy;
 import com.trading.config.WebullProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
+import com.trading.service.MarketDataService;
 import com.trading.service.OrderService;
 import com.trading.service.OrderService.OrderResult;
 import com.trading.state.PositionTracker;
@@ -13,33 +14,21 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 100/20-EMA Golden-Cross Strategy — multi-ticker.
+ * 100/20-EMA Golden-Cross Strategy — multi-ticker. <b>Entry-only.</b>
  *
- * <h2>Signal rules (per ticker)</h2>
- * <ul>
- *   <li><b>BUY (golden cross):</b> On the previous candle {@code ema20 ≤ ema100};
- *       on the current candle {@code ema20 > ema100}.
- *       Only triggers when no position is already open for that ticker.</li>
- * </ul>
+ * <h2>Signal (per ticker, on the configured timeframe)</h2>
+ * On the configured timeframe ({@code webull.strategies.ema-crossover-timeframe},
+ * default M1), a golden cross is detected across the last two <em>completed</em>
+ * bars: previous bar {@code ema20 ≤ ema100}, current bar {@code ema20 > ema100} →
+ * market BUY. Only when no position is already open for the ticker.
  *
- * <h2>Exit — trailing stop (hold the winner)</h2>
- * <ul>
- *   <li>On entry, a single <b>TRAILING_STOP_LOSS</b> SELL is placed with a
- *       configurable trail (default 1%, {@code webull.strategies.crossover-trailing-stop-pct}).</li>
- *   <li>There is <b>no fixed take-profit and no fixed stop-loss</b> — the position
- *       is held and left to run; it is only sold when the trailing stop triggers
- *       (price falls the trail % from its post-entry high).</li>
- * </ul>
- *
- * <p>All order execution is delegated to {@link OrderService} — no Webull SDK
- * calls are made directly from this class.</p>
- *
- * <p>Enable/disable via {@code webull.strategies.ema-crossover-enabled=true|false}.</p>
+ * <p>There is no exit logic here — the universal {@code ExitManager} handles the
+ * sell (−10% stop or 8/20 bearish cross). Enable/disable via
+ * {@code webull.strategies.ema-crossover-enabled}.</p>
  */
 @Service
 public class EmaCrossoverStrategyService implements TradingStrategy {
@@ -47,154 +36,88 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private static final Logger log = LoggerFactory.getLogger(EmaCrossoverStrategyService.class);
 
     private static final int PRICE_SCALE = 8;
-
     private static final int FAST_PERIOD = 20;
     private static final int SLOW_PERIOD = 100;
 
     private final WebullProperties props;
+    private final MarketDataService marketDataService;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
 
-    /**
-     * Per-ticker crossover state.
-     * Keeps both current and previous EMA values for crossover detection.
-     */
-    private record TickerState(
-            BigDecimal ema20,
-            BigDecimal ema100,
-            BigDecimal prevEma20,
-            BigDecimal prevEma100,
-            boolean warmedUp
-    ) {}
-
-    private final Map<String, TickerState> stateByTicker = new ConcurrentHashMap<>();
-
     public EmaCrossoverStrategyService(WebullProperties props,
+                                        MarketDataService marketDataService,
                                         OrderService orderService,
                                         PositionTracker positionTracker) {
         this.props = props;
+        this.marketDataService = marketDataService;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
     }
-
-    // -----------------------------------------------------------------------
-    // Warm-up
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void warmUp(String ticker, List<BigDecimal> historicalCloses) {
-        if (historicalCloses.size() < SLOW_PERIOD) {
-            log.warn("[{}] Warm-up skipped for ticker={} — {} bars available, {} needed",
-                    name(), ticker, historicalCloses.size(), SLOW_PERIOD);
-            return;
-        }
-        BigDecimal seedEma20  = EmaCalculator.calculate(historicalCloses, FAST_PERIOD);
-        BigDecimal seedEma100 = EmaCalculator.calculate(historicalCloses, SLOW_PERIOD);
-
-        // Seed prev == current so no spurious cross fires on the very first live candle
-        stateByTicker.put(ticker, new TickerState(
-                seedEma20, seedEma100, seedEma20, seedEma100, true));
-
-        log.info("[{}] Warm-up complete: ticker={} ema20={} ema100={}",
-                name(), ticker, seedEma20, seedEma100);
-    }
-
-    // -----------------------------------------------------------------------
-    // Live candle processing
-    // -----------------------------------------------------------------------
 
     @Override
     public String name() { return "100/20-EMA Crossover"; }
 
     @Override
     public void onCandle(Candle candle) {
-        TickerState state = stateByTicker.get(candle.ticker());
-        if (state == null || !state.warmedUp()) {
-            log.debug("[{}] ticker={} not warmed up — skipping", name(), candle.ticker());
+        String ticker = candle.ticker();
+        String tf = props.strategies().emaCrossoverTimeframe();
+
+        if (positionTracker.hasOpenPosition(ticker)) {
+            log.debug("[{}] ticker={} — position already open, skipping", name(), ticker);
             return;
         }
 
-        // 1. Capture previous values before updating
-        BigDecimal prevEma20  = state.ema20();
-        BigDecimal prevEma100 = state.ema100();
+        List<Candle> bars;
+        try {
+            bars = marketDataService.fetchHistoricalBars(ticker, SLOW_PERIOD + 100, tf, null);
+        } catch (Exception e) {
+            log.warn("[{}] ticker={} {} bars fetch failed: {}", name(), ticker, tf, e.getMessage());
+            return;
+        }
+        if (bars.size() < SLOW_PERIOD + 2) {
+            log.debug("[{}] ticker={} not enough {} bars ({})", name(), ticker, tf, bars.size());
+            return;
+        }
+        // Completed bars only (drop the last, possibly in-progress).
+        List<Candle> completed = bars.subList(0, bars.size() - 1);
+        List<BigDecimal> closesNow  = closes(completed);
+        List<BigDecimal> closesPrev = closesNow.subList(0, closesNow.size() - 1);
+        if (closesPrev.size() < SLOW_PERIOD) return;
 
-        // 2. Update both EMAs incrementally using this candle's close
-        BigDecimal newEma20  = EmaCalculator.update(candle.close(), prevEma20,  FAST_PERIOD);
-        BigDecimal newEma100 = EmaCalculator.update(candle.close(), prevEma100, SLOW_PERIOD);
+        BigDecimal ema20Now  = EmaCalculator.calculate(closesNow, FAST_PERIOD);
+        BigDecimal ema100Now = EmaCalculator.calculate(closesNow, SLOW_PERIOD);
+        BigDecimal ema20Prev  = EmaCalculator.calculate(closesPrev, FAST_PERIOD);
+        BigDecimal ema100Prev = EmaCalculator.calculate(closesPrev, SLOW_PERIOD);
 
-        // 3. Persist updated state
-        stateByTicker.put(candle.ticker(), new TickerState(
-                newEma20, newEma100, prevEma20, prevEma100, true));
-
-        log.debug("[{}] ticker={} close={} ema20={} ema100={}",
-                name(), candle.ticker(), candle.close(), newEma20, newEma100);
-
-        // 4. Golden-cross detection:
-        //    previous bar: ema20 was at or below ema100 (no bull signal yet)
-        //    current  bar: ema20 crossed above ema100 (golden cross confirmed)
-        boolean goldenCross = prevEma20.compareTo(prevEma100) <= 0
-                           && newEma20.compareTo(newEma100) > 0;
-
+        // Golden cross: previous completed bar ema20 <= ema100, current > .
+        boolean goldenCross = ema20Prev.compareTo(ema100Prev) <= 0
+                           && ema20Now.compareTo(ema100Now) > 0;
         if (!goldenCross) {
-            log.debug("[{}] ticker={} — no golden cross this bar", name(), candle.ticker());
+            log.debug("[{}] ticker={} — no golden cross ({}) ema20={} ema100={}",
+                    name(), ticker, tf, ema20Now, ema100Now);
             return;
         }
 
-        // 5. Position guard — no duplicate buys
-        if (positionTracker.hasOpenPosition(candle.ticker())) {
-            log.info("[{}] ticker={} — golden cross but position already open — skipping",
-                    name(), candle.ticker());
-            return;
-        }
+        log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={}",
+                name(), ticker, tf, ema20Now, ema100Now);
 
-        log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} ema20={} crossed above ema100={}",
-                name(), candle.ticker(), newEma20, newEma100);
-
-        // 6. Place market BUY via OrderService
         int qty = props.trading().orderQuantity();
-        OrderResult buyResult = orderService.placeMarketBuy(candle.ticker(), qty, name());
+        OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());
         if (!buyResult.success()) {
-            log.error("[{}] BUY failed for ticker={}: {}", name(), candle.ticker(), buyResult.message());
+            log.error("[{}] BUY failed for ticker={}: {}", name(), ticker, buyResult.message());
             return;
         }
 
-        // 7. Record the open position. There is no fixed stop/target — the exit is
-        //    a trailing stop — so we track the fill price only (stop/target left null).
-        BigDecimal fill = orderService.fetchFillPrice(candle.ticker(), candle.open())
+        BigDecimal fill = orderService.fetchFillPrice(ticker, completed.get(completed.size() - 1).open())
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-        positionTracker.openPosition(new Position(
-                candle.ticker(), fill, qty, null, null, buyResult.clientOrderId()));
-
-        // 8. Place a single TRAILING STOP sell and hold — the position runs until the
-        //    trailing stop triggers (price falls trailPct from its post-entry high).
-        BigDecimal trailPct = props.strategies().crossoverTrailingStopPct();
-        log.info("[{}] Holding ticker={} fill={} with {}% trailing stop",
-                name(), candle.ticker(), fill, trailPct.movePointRight(2).toPlainString());
-
-        OrderResult trailResult = orderService.placeTrailingStopSell(
-                candle.ticker(), qty, trailPct, name());
-        if (!trailResult.success()) {
-            log.error("[{}] Trailing-stop order failed for ticker={}: {}",
-                    name(), candle.ticker(), trailResult.message());
-        }
+        positionTracker.openPosition(new Position(ticker, fill, qty, null, null, buyResult.clientOrderId()));
+        log.info("[{}] ENTERED ticker={} fill={} qty={} (exit handled by ExitManager)",
+                name(), ticker, fill, qty);
     }
 
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
-
-    public BigDecimal getCurrentEma20(String ticker) {
-        TickerState s = stateByTicker.get(ticker);
-        return s == null ? null : s.ema20();
-    }
-
-    public BigDecimal getCurrentEma100(String ticker) {
-        TickerState s = stateByTicker.get(ticker);
-        return s == null ? null : s.ema100();
-    }
-
-    public boolean isWarmedUp(String ticker) {
-        TickerState s = stateByTicker.get(ticker);
-        return s != null && s.warmedUp();
+    private static List<BigDecimal> closes(List<Candle> candles) {
+        List<BigDecimal> out = new ArrayList<>(candles.size());
+        for (Candle c : candles) out.add(c.close());
+        return out;
     }
 }

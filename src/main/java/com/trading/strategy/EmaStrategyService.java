@@ -3,6 +3,7 @@ package com.trading.strategy;
 import com.trading.config.WebullProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
+import com.trading.service.MarketDataService;
 import com.trading.service.OrderService;
 import com.trading.service.OrderService.OrderResult;
 import com.trading.state.PositionTracker;
@@ -12,160 +13,105 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 600-EMA Momentum Strategy — multi-ticker.
+ * 600-EMA Momentum Strategy — multi-ticker. <b>Entry-only.</b>
  *
- * <h2>Signal rules (per ticker)</h2>
- * <ol>
- *   <li><b>Entry (BUY):</b> 1-minute candle open price is strictly above the
- *       600-period EMA → market BUY.</li>
- *   <li><b>Stop-Loss:</b> STOP SELL at 2 % below fill price.</li>
- *   <li><b>Take-Profit:</b> LIMIT SELL at 5 % above fill price.</li>
- * </ol>
+ * <h2>Signal (per ticker, on the configured timeframe)</h2>
+ * The strategy evaluates the latest <em>completed</em> bar on its configured
+ * timeframe ({@code webull.strategies.ema600-timeframe}, default M1): if that
+ * bar's open is strictly above the 600-period EMA → market BUY.
  *
- * <p>All order execution is delegated to {@link OrderService} — no Webull SDK
- * calls are made directly from this class.</p>
- *
- * <p>Enable/disable via {@code webull.strategies.ema600-enabled=true|false}.</p>
+ * <p>There is no exit logic here — the universal {@code ExitManager} handles the
+ * sell (−10% stop or 8/20 bearish cross). Enable/disable via
+ * {@code webull.strategies.ema600-enabled}.</p>
  */
 @Service
 public class EmaStrategyService implements TradingStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(EmaStrategyService.class);
 
-    private static final MathContext MC = MathContext.DECIMAL128;
     private static final int PRICE_SCALE = 8;
-    private static final BigDecimal STOP_LOSS_PCT   = new BigDecimal("0.02");
-    private static final BigDecimal TAKE_PROFIT_PCT = new BigDecimal("0.05");
 
     private final WebullProperties props;
+    private final MarketDataService marketDataService;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
 
-    /** Per-ticker EMA state. */
-    private record TickerState(BigDecimal ema, boolean warmedUp) {}
-
-    private final Map<String, TickerState> stateByTicker = new ConcurrentHashMap<>();
-
     public EmaStrategyService(WebullProperties props,
+                               MarketDataService marketDataService,
                                OrderService orderService,
                                PositionTracker positionTracker) {
         this.props = props;
+        this.marketDataService = marketDataService;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
     }
-
-    // -----------------------------------------------------------------------
-    // Warm-up
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void warmUp(String ticker, List<BigDecimal> historicalCloses) {
-        int period = props.trading().emaPeriod();
-        if (historicalCloses.size() < period) {
-            log.warn("[{}] Warm-up skipped for ticker={} — {} bars available, {} needed",
-                    name(), ticker, historicalCloses.size(), period);
-            return;
-        }
-        BigDecimal seedEma = EmaCalculator.calculate(historicalCloses, period);
-        stateByTicker.put(ticker, new TickerState(seedEma, true));
-        log.info("[{}] Warm-up complete: ticker={} ema600={}", name(), ticker, seedEma);
-    }
-
-    // -----------------------------------------------------------------------
-    // Live candle processing
-    // -----------------------------------------------------------------------
 
     @Override
     public String name() { return "600-EMA Momentum"; }
 
     @Override
     public void onCandle(Candle candle) {
-        TickerState state = stateByTicker.get(candle.ticker());
-        if (state == null || !state.warmedUp()) {
-            log.debug("[{}] ticker={} not warmed up — skipping", name(), candle.ticker());
+        String ticker = candle.ticker();
+        int period = props.trading().emaPeriod();
+        String tf = props.strategies().ema600Timeframe();
+
+        // Position guard — no duplicate buys.
+        if (positionTracker.hasOpenPosition(ticker)) {
+            log.debug("[{}] ticker={} — position already open, skipping", name(), ticker);
             return;
         }
 
-        // 1. Update EMA incrementally
-        BigDecimal newEma = EmaCalculator.update(candle.close(), state.ema(), props.trading().emaPeriod());
-        stateByTicker.put(candle.ticker(), new TickerState(newEma, true));
+        // Fetch the strategy's own timeframe bars and evaluate the latest COMPLETED bar.
+        List<Candle> bars;
+        try {
+            bars = marketDataService.fetchHistoricalBars(ticker, period + 100, tf, null);
+        } catch (Exception e) {
+            log.warn("[{}] ticker={} {} bars fetch failed: {}", name(), ticker, tf, e.getMessage());
+            return;
+        }
+        if (bars.size() < period + 1) {
+            log.debug("[{}] ticker={} not enough {} bars ({}) for ema{}", name(), ticker, tf, bars.size(), period);
+            return;
+        }
+        // Drop the last (possibly in-progress) bar; evaluate the last completed one.
+        List<Candle> completed = bars.subList(0, bars.size() - 1);
+        Candle signalBar = completed.get(completed.size() - 1);
 
-        log.debug("[{}] ticker={} close={} ema600={}", name(), candle.ticker(), candle.close(), newEma);
+        List<BigDecimal> closes = closes(completed);
+        BigDecimal ema = EmaCalculator.calculate(closes, period);
 
-        // 2. Entry check: candle open must be strictly above EMA
-        if (candle.open().compareTo(newEma) <= 0) {
-            log.debug("[{}] ticker={} open={} not above ema={} — no entry",
-                    name(), candle.ticker(), candle.open(), newEma);
+        // Entry: completed bar's open strictly above the 600-EMA.
+        if (signalBar.open().compareTo(ema) <= 0) {
+            log.debug("[{}] ticker={} open={} not above ema{}={} ({}) — no entry",
+                    name(), ticker, signalBar.open(), period, ema, tf);
             return;
         }
 
-        // 3. Position guard — no duplicate buys
-        if (positionTracker.hasOpenPosition(candle.ticker())) {
-            log.info("[{}] ticker={} — BUY signal but position already open — skipping",
-                    name(), candle.ticker());
-            return;
-        }
+        log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={}",
+                name(), ticker, tf, signalBar.open(), period, ema);
 
-        log.info("[{}] *** BUY SIGNAL *** ticker={} open={} > ema600={}",
-                name(), candle.ticker(), candle.open(), newEma);
-
-        // 4. Place market BUY via OrderService
         int qty = props.trading().orderQuantity();
-        OrderResult buyResult = orderService.placeMarketBuy(candle.ticker(), qty, name());
+        OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());
         if (!buyResult.success()) {
-            log.error("[{}] BUY failed for ticker={}: {}", name(), candle.ticker(), buyResult.message());
+            log.error("[{}] BUY failed for ticker={}: {}", name(), ticker, buyResult.message());
             return;
         }
 
-        // 5. Compute bracket prices (percentage-based), anchored on the ACTUAL
-        //    market fill price (falls back to the candle open if unavailable).
-        BigDecimal fill   = orderService.fetchFillPrice(candle.ticker(), candle.open())
+        // Entry-only: register the position at the actual fill; ExitManager handles the sell.
+        BigDecimal fill = orderService.fetchFillPrice(ticker, signalBar.open())
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-        BigDecimal stop   = fill.multiply(BigDecimal.ONE.subtract(STOP_LOSS_PCT, MC), MC)
-                               .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-        BigDecimal target = fill.multiply(BigDecimal.ONE.add(TAKE_PROFIT_PCT, MC), MC)
-                               .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
-
-        log.info("[{}] Bracket: ticker={} fill={} stop={} (-2%) target={} (+5%)",
-                name(), candle.ticker(), fill, stop, target);
-
-        // 6. Register the open position
-        positionTracker.openPosition(new Position(
-                candle.ticker(), fill, qty, stop, target, buyResult.clientOrderId()));
-
-        // 7. Place stop-loss SELL via OrderService
-        OrderResult stopResult = orderService.placeStopSell(candle.ticker(), qty, stop, name());
-        if (!stopResult.success()) {
-            log.error("[{}] Stop-loss order failed for ticker={}: {}",
-                    name(), candle.ticker(), stopResult.message());
-        }
-
-        // 8. Place take-profit limit SELL via OrderService
-        OrderResult tpResult = orderService.placeLimitSell(candle.ticker(), qty, target, name());
-        if (!tpResult.success()) {
-            log.error("[{}] Take-profit order failed for ticker={}: {}",
-                    name(), candle.ticker(), tpResult.message());
-        }
+        positionTracker.openPosition(new Position(ticker, fill, qty, null, null, buyResult.clientOrderId()));
+        log.info("[{}] ENTERED ticker={} fill={} qty={} (exit handled by ExitManager)",
+                name(), ticker, fill, qty);
     }
 
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
-
-    public BigDecimal getCurrentEma(String ticker) {
-        TickerState s = stateByTicker.get(ticker);
-        return s == null ? null : s.ema();
-    }
-
-    public boolean isWarmedUp(String ticker) {
-        TickerState s = stateByTicker.get(ticker);
-        return s != null && s.warmedUp();
+    private static List<BigDecimal> closes(List<Candle> candles) {
+        List<BigDecimal> out = new java.util.ArrayList<>(candles.size());
+        for (Candle c : candles) out.add(c.close());
+        return out;
     }
 }

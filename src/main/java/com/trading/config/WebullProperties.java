@@ -12,6 +12,7 @@ public record WebullProperties(
         Api api,
         Trading trading,
         Strategies strategies,
+        Exit exit,
         Risk risk,
         MarketHours marketHours,
         Supertrend supertrend,
@@ -87,11 +88,37 @@ public record WebullProperties(
             @DefaultValue("true") boolean emaCrossoverEnabled,
 
             /**
-             * Trailing-stop percentage used by the golden-cross strategy, expressed
-             * as a fraction (0.01 = 1%). On entry the strategy places a single
-             * TRAILING_STOP_LOSS sell and holds the position until it triggers.
+             * Bar timeframe each strategy evaluates its ENTRY signal on. Must be a
+             * Webull-supported timespan (M1, M5, M15, M30, M60, ...). Default M1.
+             * Strategies are entry-only; exits are handled by the universal exit rule.
              */
-            @DefaultValue("0.01") java.math.BigDecimal crossoverTrailingStopPct
+            @DefaultValue("M1") String ema600Timeframe,
+            @DefaultValue("M1") String emaCrossoverTimeframe
+    ) {}
+
+    /**
+     * Universal EXIT rule for any bot-opened position (independent of the entry
+     * strategy). A position is sold at market when EITHER condition is met:
+     * <ol>
+     *   <li>price ≤ entry × (1 − {@code stopLossPct}) — default −10%; or</li>
+     *   <li>a fresh bearish EMA cross on {@code timeframe}: EMA{@code emaFast} was ≥
+     *       EMA{@code emaSlow} on the prior completed bar and is now below it
+     *       (default 8-EMA crossing under 20-EMA).</li>
+     * </ol>
+     * Evaluated every minute on the exit {@code timeframe}, separate from entry.
+     *
+     * @param enabled     master on/off (default true)
+     * @param stopLossPct stop-loss fraction below entry (default 0.10 = 10%)
+     * @param emaFast     fast EMA period for the bearish cross (default 8)
+     * @param emaSlow     slow EMA period for the bearish cross (default 20)
+     * @param timeframe   bar timeframe for the exit checks (default M1)
+     */
+    public record Exit(
+            @DefaultValue("true")  boolean enabled,
+            @DefaultValue("0.10")  java.math.BigDecimal stopLossPct,
+            @DefaultValue("8")     int emaFast,
+            @DefaultValue("20")    int emaSlow,
+            @DefaultValue("M1")    String timeframe
     ) {}
 
     /**
