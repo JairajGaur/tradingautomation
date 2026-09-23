@@ -564,9 +564,26 @@ public class OrderService {
             WebullV3Client.V3Response resp = client.snapshot(ticker, CATEGORY_US_STOCK);
             if (resp.success() && resp.body() != null) {
                 JsonNode snap = firstSnapshot(resp.body());
+
+                // Prefer the LIVE quote mid (bid/ask). The snapshot's `price`/`close`
+                // is the last TRADE, which in pre/after-hours can be hours stale while
+                // the quote is current — so bid/ask is the real market price.
+                BigDecimal bid = firstNum(snap, "bid_price", "bidPrice", "bid");
+                BigDecimal ask = firstNum(snap, "ask_price", "askPrice", "ask");
+                if (bid == null) bid = nestedPrice(snap, "bid_list", "bidList");
+                if (ask == null) ask = nestedPrice(snap, "ask_list", "askList");
+                if (bid != null && ask != null
+                        && bid.compareTo(BigDecimal.ZERO) > 0 && ask.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal mid = bid.add(ask).divide(BigDecimal.valueOf(2));
+                    log.debug("[OrderService] Fill price for {} = quote mid {} (bid={} ask={})",
+                            ticker, mid, bid, ask);
+                    return mid;
+                }
+
+                // No usable quote → fall back to last-trade price (regular hours this is fine).
                 BigDecimal price = num(snap, "price", "last_price", "close");
                 if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
-                    log.info("[OrderService] Fill price for {} resolved from snapshot: {}", ticker, price);
+                    log.debug("[OrderService] Fill price for {} = last-trade {} (no live quote)", ticker, price);
                     return price;
                 }
             }
