@@ -3,7 +3,7 @@ package com.trading.strategy;
 import com.trading.config.WebullProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
-import com.trading.service.MarketDataService;
+import com.trading.service.BarDataManager;
 import com.trading.service.OrderService;
 import com.trading.service.OrderService.OrderResult;
 import com.trading.state.PositionTracker;
@@ -36,16 +36,16 @@ public class EmaStrategyService implements TradingStrategy {
     private static final int PRICE_SCALE = 8;
 
     private final WebullProperties props;
-    private final MarketDataService marketDataService;
+    private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
 
     public EmaStrategyService(WebullProperties props,
-                               MarketDataService marketDataService,
+                               BarDataManager barData,
                                OrderService orderService,
                                PositionTracker positionTracker) {
         this.props = props;
-        this.marketDataService = marketDataService;
+        this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
     }
@@ -66,13 +66,7 @@ public class EmaStrategyService implements TradingStrategy {
         }
 
         // Fetch the strategy's own timeframe bars and evaluate the latest COMPLETED bar.
-        List<Candle> bars;
-        try {
-            bars = marketDataService.fetchHistoricalBars(ticker, period + 100, tf, null);
-        } catch (Exception e) {
-            log.warn("[{}] ticker={} {} bars fetch failed: {}", name(), ticker, tf, e.getMessage());
-            return;
-        }
+        List<Candle> bars = barData.getBars(ticker, tf, period + 100);
         if (bars.size() < period + 1) {
             log.debug("[{}] ticker={} not enough {} bars ({}) for ema{}", name(), ticker, tf, bars.size(), period);
             return;

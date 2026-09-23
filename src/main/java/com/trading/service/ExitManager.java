@@ -34,16 +34,16 @@ public class ExitManager {
     private static final String CATEGORY_US_STOCK = "US_STOCK";
 
     private final WebullProperties props;
-    private final MarketDataService marketDataService;
+    private final BarDataManager barData;
     private final PositionTracker positionTracker;
     private final OrderService orderService;
 
     public ExitManager(WebullProperties props,
-                       MarketDataService marketDataService,
+                       BarDataManager barData,
                        PositionTracker positionTracker,
                        @Lazy OrderService orderService) {
         this.props = props;
-        this.marketDataService = marketDataService;
+        this.barData = barData;
         this.positionTracker = positionTracker;
         this.orderService = orderService;
     }
@@ -91,13 +91,7 @@ public class ExitManager {
         // 2. Fresh bearish EMA cross on the exit timeframe (fast below slow).
         int fast = props.exit().emaFast();
         int slow = props.exit().emaSlow();
-        List<Candle> bars;
-        try {
-            bars = marketDataService.fetchHistoricalBars(ticker, slow + 100, tf, null);
-        } catch (Exception e) {
-            log.warn("[ExitManager] {} bars fetch failed for {}: {}", tf, ticker, e.getMessage());
-            return null;   // no data → don't force an exit
-        }
+        List<Candle> bars = barData.getBars(ticker, tf, slow + 100);
         // Use completed bars only (drop the last, possibly in-progress).
         int n = bars.size();
         if (n < slow + 2) return null;

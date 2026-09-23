@@ -53,12 +53,12 @@ public class TradingOrchestrator {
 
     private final WebullProperties props;
     private final WatchlistLoader watchlistLoader;
-    private final MarketDataService marketDataService;
     private final MarketHoursGuard marketHoursGuard;
     private final RiskManager riskManager;
     private final AccountService accountService;
     private final EntryGuard entryGuard;
     private final ExitManager exitManager;
+    private final BarDataManager barData;
     private final com.trading.state.PositionTracker positionTracker;
     private final List<TradingStrategy> strategies;
 
@@ -71,24 +71,24 @@ public class TradingOrchestrator {
 
     public TradingOrchestrator(WebullProperties props,
                                 WatchlistLoader watchlistLoader,
-                                MarketDataService marketDataService,
                                 MarketHoursGuard marketHoursGuard,
                                 RiskManager riskManager,
                                 AccountService accountService,
                                 EntryGuard entryGuard,
                                 ExitManager exitManager,
+                                BarDataManager barData,
                                 com.trading.state.PositionTracker positionTracker,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
                                 EmaCrossoverStrategyService emaCrossoverStrategyService) {
         this.props = props;
         this.watchlistLoader = watchlistLoader;
-        this.marketDataService = marketDataService;
         this.marketHoursGuard = marketHoursGuard;
         this.riskManager = riskManager;
         this.accountService = accountService;
         this.entryGuard = entryGuard;
         this.exitManager = exitManager;
+        this.barData = barData;
         this.positionTracker = positionTracker;
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
@@ -136,27 +136,20 @@ public class TradingOrchestrator {
                      "(paper mode or API unavailable) — drawdown tracking inactive");
         }
 
-        // ── EMA warm-up per ticker ────────────────────────────────────────
+        // ── Initial load: warm the BarDataManager cache for every ticker across
+        //    the timeframes the app uses (strategy entry timeframes, exit timeframe,
+        //    and the entry guard's M30/M1). Everyone reads from this cache afterward.
+        java.util.Set<String> timeframes = new java.util.LinkedHashSet<>();
+        timeframes.add("M1");                                   // guard EMA stack + common
+        timeframes.add("M30");                                  // guard 30m Supertrend
+        timeframes.add(props.strategies().ema600Timeframe());
+        timeframes.add(props.strategies().emaCrossoverTimeframe());
+        timeframes.add(props.exit().timeframe());
+
         for (String ticker : tickers) {
-            log.info("[Orchestrator] Warming up ticker={}", ticker);
-
-            List<Candle> history = marketDataService.fetchHistoricalBarsQuietly(ticker, warmupBars);
-            if (history.isEmpty()) {
-                log.warn("[Orchestrator] No historical data for ticker={} — skipping", ticker);
-                continue;
-            }
-
-            List<BigDecimal> closes = history.stream()
-                    .map(Candle::close)
-                    .collect(Collectors.toList());
-
-            for (TradingStrategy strategy : enabled) {
-                try {
-                    strategy.warmUp(ticker, closes);
-                } catch (Exception e) {
-                    log.error("[Orchestrator] Warm-up failed for strategy='{}' ticker={}",
-                            strategy.name(), ticker, e);
-                }
+            log.info("[Orchestrator] Preloading bars for ticker={} timeframes={}", ticker, timeframes);
+            for (String tf : timeframes) {
+                barData.preload(ticker, tf, warmupBars);
             }
         }
 
@@ -188,9 +181,6 @@ public class TradingOrchestrator {
             log.debug("[Orchestrator] No strategies enabled — skipping tick");
             return;
         }
-
-        // Fresh per-cycle cache so entry-guard bar fetches are reused within this tick.
-        entryGuard.newCycle();
 
         // ── EXITS FIRST — universal exit rule (−10% stop OR 8/20 bearish cross),
         // evaluated every minute for every open bot position, in parallel. Runs
@@ -266,15 +256,20 @@ public class TradingOrchestrator {
         }
     }
 
-    /** Fetches the latest bar for {@code ticker} and dispatches it to all enabled strategies. */
+    /**
+     * Dispatches this tick to all enabled strategies for {@code ticker}. Strategies
+     * self-fetch their own timeframe bars from {@link BarDataManager}; the candle
+     * passed here is just the trigger/ticker carrier, sourced from the shared cache
+     * (no extra Webull call).
+     */
     private void processTicker(String ticker, List<TradingStrategy> enabled) {
-        Candle candle = marketDataService.fetchLatestBar(ticker);
-        if (candle == null) {
-            log.debug("[Orchestrator] No candle for ticker={} this tick — skipping", ticker);
+        List<Candle> m1 = barData.getBars(ticker, "M1", 2);
+        if (m1.isEmpty()) {
+            log.debug("[Orchestrator] No M1 bars for ticker={} this tick — skipping", ticker);
             return;
         }
-        log.debug("[Orchestrator] Dispatching candle: ticker={} open={} close={}",
-                ticker, candle.open(), candle.close());
+        Candle candle = m1.get(m1.size() - 1);
+        log.debug("[Orchestrator] Dispatching tick: ticker={} close={}", ticker, candle.close());
         for (TradingStrategy strategy : enabled) {
             try {
                 strategy.onCandle(candle);
@@ -309,6 +304,7 @@ public class TradingOrchestrator {
         log.info("[Orchestrator] === DAILY RESET (04:00 ET) ===");
         riskManager.resetForNewDay();
         entryGuard.clearAll();   // no armed state carries over to the new day
+        barData.clear();         // drop cached bars; re-fetched fresh for the new day
 
         // Re-seed start-of-day equity for the new session
         AccountService.AccountSnapshot snap = accountService.refresh();

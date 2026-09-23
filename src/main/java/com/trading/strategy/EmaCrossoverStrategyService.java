@@ -3,7 +3,7 @@ package com.trading.strategy;
 import com.trading.config.WebullProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
-import com.trading.service.MarketDataService;
+import com.trading.service.BarDataManager;
 import com.trading.service.OrderService;
 import com.trading.service.OrderService.OrderResult;
 import com.trading.state.PositionTracker;
@@ -40,16 +40,16 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private static final int SLOW_PERIOD = 100;
 
     private final WebullProperties props;
-    private final MarketDataService marketDataService;
+    private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
 
     public EmaCrossoverStrategyService(WebullProperties props,
-                                        MarketDataService marketDataService,
+                                        BarDataManager barData,
                                         OrderService orderService,
                                         PositionTracker positionTracker) {
         this.props = props;
-        this.marketDataService = marketDataService;
+        this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
     }
@@ -67,13 +67,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
-        List<Candle> bars;
-        try {
-            bars = marketDataService.fetchHistoricalBars(ticker, SLOW_PERIOD + 100, tf, null);
-        } catch (Exception e) {
-            log.warn("[{}] ticker={} {} bars fetch failed: {}", name(), ticker, tf, e.getMessage());
-            return;
-        }
+        List<Candle> bars = barData.getBars(ticker, tf, SLOW_PERIOD + 100);
         if (bars.size() < SLOW_PERIOD + 2) {
             log.debug("[{}] ticker={} not enough {} bars ({})", name(), ticker, tf, bars.size());
             return;
