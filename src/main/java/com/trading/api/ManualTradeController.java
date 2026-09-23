@@ -86,7 +86,8 @@ public class ManualTradeController {
             return badRequest("quantity must be positive", symbol, quantity);
         }
 
-        OrderService.OrderResult result = orderService.placeMarketBuy(symbol, quantity, MANUAL);
+        // Manual trades bypass the ST/EMA entry guard (operator decision).
+        OrderService.OrderResult result = orderService.placeMarketBuy(symbol, quantity, MANUAL, true);
 
         if (result.success()) {
             // Track the position so the no-short guardrail permits a later SELL.

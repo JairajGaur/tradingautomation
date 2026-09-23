@@ -113,7 +113,20 @@ public class OrderService {
         return placeMarketBuy(ticker, qty, "UNKNOWN");
     }
 
+    /** Strategy BUY — subject to the entry guard. */
     public OrderResult placeMarketBuy(String ticker, int qty, String strategy) {
+        return placeMarketBuy(ticker, qty, strategy, false);
+    }
+
+    /**
+     * Market BUY.
+     *
+     * @param bypassEntryGuard when {@code true}, skip the ST/EMA entry-guard "armed"
+     *                         check — used for MANUAL trades placed by the operator.
+     *                         Strategy buys pass {@code false} so the guard applies.
+     *                         (The trading-halt and buying-power checks always apply.)
+     */
+    public OrderResult placeMarketBuy(String ticker, int qty, String strategy, boolean bypassEntryGuard) {
         String clientOrderId = newClientOrderId();
 
         if (riskManager.isTradingHalted()) {
@@ -122,10 +135,10 @@ public class OrderService {
             return OrderResult.failure(clientOrderId, "TRADING_HALTED");
         }
 
-        // Universal entry guard (all strategies): the ticker must be ARMED — i.e. the
-        // guard (30m ST + EMA stack) passed on this cycle's refresh. A strategy signal
-        // while un-armed is dropped; the guard must be ON for the buy to fire.
-        if (!entryGuard.isArmed(ticker)) {
+        // Universal entry guard (strategy buys only): the ticker must be ARMED — i.e.
+        // the guard (30m ST + EMA stack) passed on this cycle's refresh. A strategy
+        // signal while un-armed is dropped. MANUAL trades bypass this.
+        if (!bypassEntryGuard && !entryGuard.isArmed(ticker)) {
             log.warn("[OrderService] BUY BLOCKED — not armed (entry guard not satisfied): ticker={}", ticker);
             recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, "ENTRY_GUARD_NOT_ARMED");
             return OrderResult.failure(clientOrderId, "ENTRY_GUARD_NOT_ARMED");
@@ -149,14 +162,14 @@ public class OrderService {
             log.info("[OrderService] SIMULATED BUY  | ticker={} qty={} type=MARKET tif=DAY id={}",
                     ticker, qty, clientOrderId);
             recordSuccess(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, null);
-            entryGuard.clearArmed(ticker);   // consume the armed state on entry
+            if (!bypassEntryGuard) entryGuard.clearArmed(ticker);   // consume the armed state on strategy entry
             postOrderRefresh();
             return OrderResult.paper(clientOrderId, body);
         }
 
         OrderResult result = submit(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
-        if (result.success()) {
-            entryGuard.clearArmed(ticker);   // consume the armed state once the buy is accepted
+        if (result.success() && !bypassEntryGuard) {
+            entryGuard.clearArmed(ticker);   // consume the armed state once a strategy buy is accepted
         }
         return result;
     }
