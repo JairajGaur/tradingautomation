@@ -79,6 +79,14 @@ public class EmaStrategyService implements TradingStrategy {
             return;
         }
 
+        // ENTRY GUARD FIRST — evaluate before computing the signal. If the guard fails
+        // (e.g. 30m ST red), skip entirely: no signal computation, no BUY SIGNAL log.
+        com.trading.service.EntryGuard.Decision guard = entryGuard.evaluate(ticker);
+        if (!guard.allowed()) {
+            log.debug("[{}] ticker={} — entry guard not satisfied ({}); skipping", name(), ticker, guard.reason());
+            return;
+        }
+
         // Fetch the strategy's own timeframe bars and evaluate the latest COMPLETED bar.
         List<Candle> bars = barData.getBars(ticker, tf, period + 100);
         if (bars.size() < period + 1) {
@@ -99,17 +107,8 @@ public class EmaStrategyService implements TradingStrategy {
             return;
         }
 
-        log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={}",
+        log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={} (guard passed)",
                 name(), ticker, tf, signalBar.open(), period, ema);
-
-        // Entry guard FIRST — if it fails (e.g. 30m ST red), drop the signal now;
-        // do NOT hold it on volume. Order of checks: guard → signal → volume.
-        com.trading.service.EntryGuard.Decision guard = entryGuard.evaluate(ticker);
-        if (!guard.allowed()) {
-            log.info("[{}] ticker={} — signal fired but entry guard not satisfied ({}); dropping",
-                    name(), ticker, guard.reason());
-            return;
-        }
 
         int qty = props.trading().orderQuantity();
 

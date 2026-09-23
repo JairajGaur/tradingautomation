@@ -80,6 +80,14 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
+        // ENTRY GUARD FIRST — evaluate before computing the signal. If the guard fails
+        // (e.g. 30m ST red), skip entirely: no signal computation, no BUY SIGNAL log.
+        com.trading.service.EntryGuard.Decision guard = entryGuard.evaluate(ticker);
+        if (!guard.allowed()) {
+            log.debug("[{}] ticker={} — entry guard not satisfied ({}); skipping", name(), ticker, guard.reason());
+            return;
+        }
+
         List<Candle> bars = barData.getBars(ticker, tf, SLOW_PERIOD + 100);
         if (bars.size() < SLOW_PERIOD + 2) {
             log.debug("[{}] ticker={} not enough {} bars ({})", name(), ticker, tf, bars.size());
@@ -105,17 +113,8 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
-        log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={}",
+        log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={} (guard passed)",
                 name(), ticker, tf, ema20Now, ema100Now);
-
-        // Entry guard FIRST — if it fails (e.g. 30m ST red), drop the signal now;
-        // do NOT hold it on volume. Order of checks: guard → signal → volume.
-        com.trading.service.EntryGuard.Decision guard = entryGuard.evaluate(ticker);
-        if (!guard.allowed()) {
-            log.info("[{}] ticker={} — golden cross but entry guard not satisfied ({}); dropping",
-                    name(), ticker, guard.reason());
-            return;
-        }
 
         int qty = props.trading().orderQuantity();
 
