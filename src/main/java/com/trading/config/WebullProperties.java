@@ -116,7 +116,15 @@ public record WebullProperties(
              * average (e.g. last 10 vs prior 10). Default on, 20-bar lookback.
              */
             @DefaultValue("true") boolean volumeFilterEnabled,
-            @DefaultValue("20")   int volumeLookback
+            @DefaultValue("20")   int volumeLookback,
+
+            /**
+             * When a strategy signal fires but the volume filter isn't yet rising, hold
+             * the signal for this many minutes and re-check volume each bar; buy if it
+             * turns rising within the window, else drop it. 0 disables holding (a signal
+             * blocked by volume is dropped immediately). Default 5.
+             */
+            @DefaultValue("5") int volumeHoldMinutes
     ) {}
 
     /**

@@ -88,6 +88,9 @@ webull:
     # volume must exceed the older-half average (e.g. last 10 vs prior 10).
     volume-filter-enabled: true
     volume-lookback: 20
+    # If a signal fires but volume isn't rising yet, hold it this many minutes and
+    # re-check volume each bar; buy if it turns rising, else drop. 0 = no hold.
+    volume-hold-minutes: 5
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
   # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),

@@ -44,17 +44,20 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final OrderService orderService;
     private final PositionTracker positionTracker;
     private final com.trading.service.VolumeFilter volumeFilter;
+    private final com.trading.service.PendingSignals pendingSignals;
 
     public EmaCrossoverStrategyService(WebullProperties props,
                                         BarDataManager barData,
                                         OrderService orderService,
                                         PositionTracker positionTracker,
-                                        com.trading.service.VolumeFilter volumeFilter) {
+                                        com.trading.service.VolumeFilter volumeFilter,
+                                        com.trading.service.PendingSignals pendingSignals) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
         this.volumeFilter = volumeFilter;
+        this.pendingSignals = pendingSignals;
     }
 
     @Override
@@ -67,6 +70,10 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
 
         if (positionTracker.hasOpenPosition(ticker)) {
             log.debug("[{}] ticker={} — position already open, skipping", name(), ticker);
+            return;
+        }
+        if (pendingSignals.isPending(ticker)) {
+            log.debug("[{}] ticker={} — signal already pending on volume, skipping", name(), ticker);
             return;
         }
 
@@ -98,13 +105,19 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={}",
                 name(), ticker, tf, ema20Now, ema100Now);
 
-        // Volume filter: only enter when average 1-min volume is increasing.
+        int qty = props.trading().orderQuantity();
+
+        // Volume filter: only enter when average 1-min volume is increasing. If not,
+        // HOLD the signal (re-checked for the configured window) instead of dropping.
         if (!volumeFilter.isVolumeIncreasing(ticker)) {
-            log.info("[{}] ticker={} — golden cross but volume not increasing; skipping", name(), ticker);
+            if (pendingSignals.hold(ticker, name(), qty)) {
+                log.info("[{}] ticker={} — golden cross but volume not increasing; holding", name(), ticker);
+            } else {
+                log.info("[{}] ticker={} — golden cross but volume not increasing; skipping (hold disabled)", name(), ticker);
+            }
             return;
         }
 
-        int qty = props.trading().orderQuantity();
         OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());
         if (!buyResult.success()) {
             logBuyNotPlaced(ticker, buyResult.message());

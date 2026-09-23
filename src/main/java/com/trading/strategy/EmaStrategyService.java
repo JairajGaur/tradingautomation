@@ -40,17 +40,20 @@ public class EmaStrategyService implements TradingStrategy {
     private final OrderService orderService;
     private final PositionTracker positionTracker;
     private final com.trading.service.VolumeFilter volumeFilter;
+    private final com.trading.service.PendingSignals pendingSignals;
 
     public EmaStrategyService(WebullProperties props,
                                BarDataManager barData,
                                OrderService orderService,
                                PositionTracker positionTracker,
-                               com.trading.service.VolumeFilter volumeFilter) {
+                               com.trading.service.VolumeFilter volumeFilter,
+                               com.trading.service.PendingSignals pendingSignals) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
         this.volumeFilter = volumeFilter;
+        this.pendingSignals = pendingSignals;
     }
 
     @Override
@@ -65,6 +68,11 @@ public class EmaStrategyService implements TradingStrategy {
         // Position guard — no duplicate buys.
         if (positionTracker.hasOpenPosition(ticker)) {
             log.debug("[{}] ticker={} — position already open, skipping", name(), ticker);
+            return;
+        }
+        // A signal is already being held for this ticker (waiting on volume) — one per ticker.
+        if (pendingSignals.isPending(ticker)) {
+            log.debug("[{}] ticker={} — signal already pending on volume, skipping", name(), ticker);
             return;
         }
 
@@ -91,13 +99,19 @@ public class EmaStrategyService implements TradingStrategy {
         log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={}",
                 name(), ticker, tf, signalBar.open(), period, ema);
 
-        // Volume filter: only enter when average 1-min volume is increasing.
+        int qty = props.trading().orderQuantity();
+
+        // Volume filter: only enter when average 1-min volume is increasing. If not,
+        // HOLD the signal (re-checked for the configured window) instead of dropping.
         if (!volumeFilter.isVolumeIncreasing(ticker)) {
-            log.info("[{}] ticker={} — signal fired but volume not increasing; skipping", name(), ticker);
+            if (pendingSignals.hold(ticker, name(), qty)) {
+                log.info("[{}] ticker={} — signal fired but volume not increasing; holding", name(), ticker);
+            } else {
+                log.info("[{}] ticker={} — signal fired but volume not increasing; skipping (hold disabled)", name(), ticker);
+            }
             return;
         }
 
-        int qty = props.trading().orderQuantity();
         OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());
         if (!buyResult.success()) {
             logBuyNotPlaced(ticker, buyResult.message());

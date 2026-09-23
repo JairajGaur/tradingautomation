@@ -59,6 +59,7 @@ public class TradingOrchestrator {
     private final EntryGuard entryGuard;
     private final ExitManager exitManager;
     private final BarDataManager barData;
+    private final PendingSignals pendingSignals;
     private final com.trading.state.PositionTracker positionTracker;
     private final List<TradingStrategy> strategies;
 
@@ -77,6 +78,7 @@ public class TradingOrchestrator {
                                 EntryGuard entryGuard,
                                 ExitManager exitManager,
                                 BarDataManager barData,
+                                PendingSignals pendingSignals,
                                 com.trading.state.PositionTracker positionTracker,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
@@ -89,6 +91,7 @@ public class TradingOrchestrator {
         this.entryGuard = entryGuard;
         this.exitManager = exitManager;
         this.barData = barData;
+        this.pendingSignals = pendingSignals;
         this.positionTracker = positionTracker;
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
@@ -220,6 +223,9 @@ public class TradingOrchestrator {
         // Dispatch the tick to strategies, per ticker, in parallel.
         runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
 
+        // Re-check held signals (volume not yet rising) — buy if volume rose, else expire.
+        pendingSignals.sweep();
+
         // ── Periodic drawdown check (even when no signal fired) ───────────
         AccountService.AccountSnapshot snap = accountService.getSnapshot();
         if (snap.netLiquidationValue().compareTo(BigDecimal.ZERO) > 0) {
@@ -315,6 +321,7 @@ public class TradingOrchestrator {
         log.info("[Orchestrator] === DAILY RESET (04:00 ET) ===");
         riskManager.resetForNewDay();
         entryGuard.clearAll();   // no armed state carries over to the new day
+        pendingSignals.clearAll();   // drop any held signals
         barData.clear();         // drop cached bars; re-fetched fresh for the new day
 
         // Re-seed start-of-day equity for the new session
