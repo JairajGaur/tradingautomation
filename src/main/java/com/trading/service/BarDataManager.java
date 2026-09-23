@@ -32,6 +32,9 @@ public class BarDataManager {
 
     private static final Logger log = LoggerFactory.getLogger(BarDataManager.class);
 
+    /** Webull's bars endpoint accepts at most 20 symbols per request. */
+    private static final int MAX_BATCH_SYMBOLS = 20;
+
     private final MarketDataService marketDataService;
     private final com.trading.config.WebullProperties props;
 
@@ -89,32 +92,98 @@ public class BarDataManager {
         String key = ticker + "|" + tf;
         long boundary = currentBoundary(tf);
 
+        // Normalise the fetch size: always fetch the STANDARD bar count (>= any
+        // caller's minCount) so different callers (count=2 / 200 / 700) all share ONE
+        // cached series per (ticker, tf, boundary) instead of triggering separate
+        // fetches. Smaller requests are served as a tail sublist of the cached series.
+        int fetchCount = Math.max(minCount, standardBarCount());
+
         Cached existing = cache.get(key);
-        boolean fresh = existing != null
-                && existing.boundary() == boundary
-                && existing.count() >= minCount;
-        if (fresh) {
-            return existing.bars();
+        if (existing != null && existing.boundary() == boundary && existing.count() >= minCount) {
+            return tail(existing.bars(), minCount);
         }
 
-        // Fetch once per (ticker, tf, boundary). Synchronise per key so concurrent
-        // readers of the same key don't all hit Webull.
         synchronized (key.intern()) {
             existing = cache.get(key);
             if (existing != null && existing.boundary() == boundary && existing.count() >= minCount) {
-                return existing.bars();
+                return tail(existing.bars(), minCount);
             }
             try {
-                throttle();   // space out actual Webull calls to respect the rate limit
-                List<Candle> bars = marketDataService.fetchHistoricalBars(ticker, minCount, tf, null);
-                cache.put(key, new Cached(bars, minCount, boundary));
+                throttle();
+                List<Candle> bars = marketDataService.fetchHistoricalBars(ticker, fetchCount, tf, null);
+                cache.put(key, new Cached(bars, fetchCount, boundary));
                 log.debug("[BarDataManager] Fetched {} {} bars for {} (boundary={})",
                         bars.size(), tf, ticker, boundary);
-                return bars;
+                return tail(bars, minCount);
             } catch (Exception e) {
                 log.warn("[BarDataManager] Fetch failed for {} {}: {}", ticker, tf, e.getMessage());
-                // Fall back to any stale cache rather than nothing.
-                return existing != null ? existing.bars() : List.of();
+                return existing != null ? tail(existing.bars(), minCount) : List.of();
+            }
+        }
+    }
+
+    /** The standard bar count fetched/cached per series (covers the largest consumer, the 600-EMA). */
+    private int standardBarCount() {
+        return Math.max(props.trading().warmupBars(), 700);
+    }
+
+    /** Returns the last {@code n} bars of {@code bars} (or all if fewer). */
+    private static List<Candle> tail(List<Candle> bars, int n) {
+        if (bars == null) return List.of();
+        if (n >= bars.size()) return bars;
+        return bars.subList(bars.size() - n, bars.size());
+    }
+
+    /**
+     * Refreshes the cache for MANY tickers at one timeframe using a SINGLE multi-symbol
+     * Webull request (instead of one call per ticker). Only tickers whose cache is
+     * stale for the current bar boundary (or short of {@code minCount}) are fetched;
+     * already-fresh tickers are skipped. Call this once per timeframe per tick; then
+     * consumers read individual tickers via {@link #getBars} (cache hits, no I/O).
+     *
+     * @param tickers   symbols to refresh
+     * @param timeframe Webull timespan
+     * @param minCount  bars per symbol
+     */
+    public void getBarsBatch(List<String> tickers, String timeframe, int minCount) {
+        if (tickers == null || tickers.isEmpty()) return;
+        String tf = MarketDataService.normaliseTimespan(timeframe);
+        long boundary = currentBoundary(tf);
+        // Normalise to the standard series size so batch-cached entries satisfy every
+        // consumer (count=2/200/700) from one fetch.
+        int fetchCount = Math.max(minCount, standardBarCount());
+
+        // Only fetch the tickers that are actually stale for this boundary.
+        List<String> stale = new java.util.ArrayList<>();
+        for (String ticker : tickers) {
+            Cached existing = cache.get(ticker + "|" + tf);
+            boolean fresh = existing != null && existing.boundary() == boundary && existing.count() >= fetchCount;
+            if (!fresh) stale.add(ticker);
+        }
+        if (stale.isEmpty()) {
+            return;   // everything already current for this boundary
+        }
+
+        // Webull caps the bars endpoint at 20 symbols per request — chunk accordingly.
+        for (int i = 0; i < stale.size(); i += MAX_BATCH_SYMBOLS) {
+            List<String> chunk = stale.subList(i, Math.min(i + MAX_BATCH_SYMBOLS, stale.size()));
+            try {
+                throttle();   // one throttled call per chunk
+                Map<String, List<Candle>> bySymbol =
+                        marketDataService.fetchHistoricalBarsBatch(chunk, fetchCount, tf, null);
+                for (String ticker : chunk) {
+                    List<Candle> bars = bySymbol.get(ticker.toUpperCase());
+                    if (bars != null) {
+                        cache.put(ticker + "|" + tf, new Cached(bars, fetchCount, boundary));
+                    }
+                    // Symbols missing from the response keep any prior cache; getBars
+                    // will fall back to it or fetch singly on demand.
+                }
+                log.debug("[BarDataManager] Batch-refreshed {} {} of {} in chunk (boundary={})",
+                        bySymbol.size(), tf, chunk.size(), boundary);
+            } catch (Exception e) {
+                log.warn("[BarDataManager] Batch fetch failed for {} chunk {}: {}", tf, chunk, e.getMessage());
+                // Leave existing cache in place; getBars will retry per-ticker if needed.
             }
         }
     }

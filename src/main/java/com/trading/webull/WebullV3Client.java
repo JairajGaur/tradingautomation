@@ -254,8 +254,20 @@ public class WebullV3Client {
      */
     public V3Response bars(String symbol, String category, String timespan, int count,
                            String tradingSessions) {
+        return bars(java.util.List.of(symbol), category, timespan, count, tradingSessions);
+    }
+
+    /**
+     * POST historical bars for MULTIPLE symbols in a single request — the bars
+     * endpoint accepts a {@code symbols} array. This is the rate-limit-friendly path:
+     * one HTTP call covers many tickers instead of one call per ticker.
+     *
+     * <p>Response: {@code {result:[{symbol, result:[{time,open,close,...}]}, ...]}}.</p>
+     */
+    public V3Response bars(java.util.List<String> symbols, String category, String timespan, int count,
+                           String tradingSessions) {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("symbols", java.util.List.of(symbol));
+        body.put("symbols", symbols);
         body.put("category", category);
         body.put("timespan", timespan);
         body.put("count", count);

@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Fetches candlestick bar data from the Webull <b>v3</b> Data API via
@@ -166,6 +167,68 @@ public class MarketDataService {
         }
     }
 
+    /**
+     * Fetches bars for MANY symbols in a single Webull request (one HTTP call for the
+     * whole batch — the rate-limit-friendly path). Returns a map of symbol →
+     * oldest-first candles. Symbols with no data are simply absent from the map.
+     *
+     * @param symbols  tickers to fetch (batched into one request)
+     * @param count    bars per symbol
+     * @param timespan bar granularity
+     * @param sessions comma-separated sessions, or null for the configured default
+     * @throws MarketDataException on a failed Webull call
+     */
+    public Map<String, List<Candle>> fetchHistoricalBarsBatch(List<String> symbols, int count,
+                                                              String timespan, String sessions) {
+        Map<String, List<Candle>> out = new java.util.LinkedHashMap<>();
+        if (symbols == null || symbols.isEmpty()) return out;
+
+        String ts = normaliseTimespan(timespan);
+        String requested = (sessions != null && !sessions.isBlank()) ? sessions : props.trading().tradingSessions();
+        String sess = normaliseSessions(requested);
+
+        log.info("[MarketDataService] Batch-fetching {} {} bars for {} symbols {}",
+                count, ts, symbols.size(), symbols);
+
+        WebullV3Client.V3Response resp = client.bars(symbols, CATEGORY_US_STOCK, ts, count, sess);
+        if (!resp.success()) {
+            throw new MarketDataException(
+                    "batch bars request failed timespan=" + ts + " sessions=" + sess
+                    + " symbols=" + symbols + " (status=" + resp.statusCode() + ", body=" + resp.rawBody() + ")");
+        }
+
+        JsonNode root = resp.body();
+        JsonNode result = root == null ? null
+                : (root.has("result") ? root.get("result")
+                : (root.has("data") ? root.get("data") : root));
+        if (result == null || !result.isArray()) {
+            log.warn("[MarketDataService] Batch bars: no result array in response");
+            return out;
+        }
+
+        // Each element is a per-symbol object: { symbol, result:[bars...] }.
+        for (JsonNode entry : result) {
+            String sym = text(entry, "symbol", "ticker");
+            if (sym == null) continue;
+            JsonNode barsArr = entry.has("result") ? entry.get("result")
+                    : (entry.has("bars") ? entry.get("bars") : null);
+            if (barsArr == null || !barsArr.isArray()) continue;
+
+            List<Candle> candles = new ArrayList<>(barsArr.size());
+            for (JsonNode bar : barsArr) {
+                Candle c = mapBar(sym.trim().toUpperCase(), bar);
+                if (c != null) candles.add(c);
+            }
+            if (!candles.isEmpty()) {
+                Collections.reverse(candles);   // oldest-first
+                out.put(sym.trim().toUpperCase(), Collections.unmodifiableList(candles));
+            }
+        }
+        log.info("[MarketDataService] Batch fetched {} of {} symbols ({} {})",
+                out.size(), symbols.size(), ts, count);
+        return out;
+    }
+
     // -----------------------------------------------------------------------
     // Latest bar — live polling
     // -----------------------------------------------------------------------
@@ -283,6 +346,15 @@ public class MarketDataService {
 
     private static BigDecimal orElse(BigDecimal v, BigDecimal fallback) {
         return v != null ? v : fallback;
+    }
+
+    private static String text(JsonNode node, String... keys) {
+        if (node == null) return null;
+        for (String k : keys) {
+            JsonNode v = node.get(k);
+            if (v != null && !v.isNull()) return v.asText();
+        }
+        return null;
     }
 
     private static long longOf(JsonNode node, String... keys) {

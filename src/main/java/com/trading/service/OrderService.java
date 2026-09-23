@@ -162,11 +162,20 @@ public class OrderService {
         // the guard (30m ST + EMA stack) passed on this cycle's refresh. A strategy
         // signal while un-armed is dropped. MANUAL trades bypass this.
         if (!bypassEntryGuard && !entryGuard.isArmed(ticker)) {
-            String reason = entryGuard.lastReason(ticker);   // e.g. ST_NOT_UP_M30, EMA_STACK_FAIL, ST_UNAVAILABLE_M30
-            String msg = "ENTRY_GUARD_NOT_ARMED: " + reason;
-            log.info("[OrderService] BUY not taken — entry guard not satisfied: ticker={} reason={}", ticker, reason);
-            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, msg);
-            return OrderResult.failure(clientOrderId, msg);
+            // Not in the armed set (the periodic arm sweep only runs at :01/:31).
+            // Evaluate the guard LIVE right now: if it passes, arm and proceed; the
+            // strategy signal + a currently-satisfied guard is a valid entry. Only
+            // block when the live guard actually fails.
+            EntryGuard.Decision d = entryGuard.evaluate(ticker);
+            if (!d.allowed()) {
+                String msg = "ENTRY_GUARD_NOT_ARMED: " + d.reason();
+                log.info("[OrderService] BUY not taken — entry guard not satisfied: ticker={} reason={}",
+                        ticker, d.reason());
+                recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, msg);
+                return OrderResult.failure(clientOrderId, msg);
+            }
+            entryGuard.arm(ticker);   // guard passes live → arm so the buy proceeds
+            log.info("[OrderService] Guard passed live for {} — arming and proceeding with BUY", ticker);
         }
 
         // Live quote for the spread guard, affordability, and pre-market limit price.

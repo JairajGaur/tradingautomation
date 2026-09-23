@@ -68,8 +68,9 @@ webull:
     # Bounds concurrent Webull calls. 1 = sequential. Lowered to reduce 429s.
     ticker-concurrency: 3
     # Client-side cap on Webull bar-fetch requests/second (all threads) to avoid
-    # 429 TOO_MANY_REQUESTS. 0 = unlimited.
-    max-requests-per-second: 5
+    # 429 TOO_MANY_REQUESTS. Webull's Data API limit is 300/60s (=5/s), so keep
+    # this BELOW 5 for headroom (retries, order + snapshot calls also count). 0 = unlimited.
+    max-requests-per-second: 4
     # Max bid/ask spread ($). If ask-bid exceeds this, no trade in any session
     # (buy or exit). Also blocks when bid/ask are unavailable.
     max-spread-usd: 0.05

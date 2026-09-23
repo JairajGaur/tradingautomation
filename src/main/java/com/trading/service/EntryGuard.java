@@ -94,6 +94,14 @@ public class EntryGuard {
         return !props.entryGuard().enabled() || armed.contains(ticker);
     }
 
+    /** Marks a ticker armed (e.g. when the guard passes on a live check at buy time). */
+    public void arm(String ticker) {
+        if (armed.add(ticker)) {
+            log.info("[EntryGuard] ARMED ticker={} (live guard check)", ticker);
+        }
+        lastReason.put(ticker, "OK");
+    }
+
     /** Clears the armed state for a ticker (e.g. right after a buy fires). */
     public void clearArmed(String ticker) {
         if (armed.remove(ticker)) {

@@ -146,11 +146,10 @@ public class TradingOrchestrator {
         timeframes.add(props.strategies().emaCrossoverTimeframe());
         timeframes.add(props.exit().timeframe());
 
-        for (String ticker : tickers) {
-            log.info("[Orchestrator] Preloading bars for ticker={} timeframes={}", ticker, timeframes);
-            for (String tf : timeframes) {
-                barData.preload(ticker, tf, warmupBars);
-            }
+        // One multi-symbol request per timeframe for the whole watchlist (not per ticker).
+        for (String tf : timeframes) {
+            log.info("[Orchestrator] Preloading {} bars for {} tickers (batch)", tf, tickers.size());
+            barData.getBarsBatch(tickers, tf, warmupBars);
         }
 
         log.info("[Orchestrator] === WARM-UP COMPLETE ===");
@@ -197,6 +196,15 @@ public class TradingOrchestrator {
         }
 
         List<String> tickers = watchlistLoader.getTickers();
+
+        // Batch-refresh bars for the whole watchlist BEFORE guard/strategy work, so all
+        // the per-ticker getBars reads below are cache hits (1 Webull call per timeframe
+        // instead of one per ticker). M1 every tick; M30 only at the :01/:31 boundary.
+        int warmupBars = props.trading().warmupBars();
+        barData.getBarsBatch(tickers, "M1", warmupBars);
+        if (isThirtyMinuteBoundary()) {
+            barData.getBarsBatch(tickers, "M30", warmupBars);
+        }
 
         // Entry-guard arming:
         //   • On each 30-min boundary (:01/:31) run the guard for EVERY ticker.
