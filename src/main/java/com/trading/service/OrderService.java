@@ -312,9 +312,16 @@ public class OrderService {
             recordFailure(strategy, action, ticker, qty, price, orderType, clientOrderId, "INVALID_QUANTITY");
             return OrderResult.failure(clientOrderId, "INVALID_QUANTITY");
         }
-        int held = positionTracker.getPosition(ticker).map(PositionTracker.Position::quantity).orElse(0);
+        // Held quantity = max of what THIS bot instance tracks in memory and what the
+        // account ACTUALLY holds on Webull (positions fetched live). This lets a SELL
+        // go through for shares you genuinely own — e.g. bought manually or in a prior
+        // run — while still blocking a true short (selling more than is held anywhere).
+        int trackedHeld = positionTracker.getPosition(ticker).map(PositionTracker.Position::quantity).orElse(0);
+        int liveHeld = accountService.getHeldQuantity(ticker);
+        int held = Math.max(trackedHeld, liveHeld);
         if (qty > held) {
             String msg = "SHORT_BLOCKED: sell qty=" + qty + " exceeds held qty=" + held
+                    + " (tracked=" + trackedHeld + ", webull=" + liveHeld + ")"
                     + " for " + ticker + " (short selling is disabled)";
             log.warn("[OrderService] {} BLOCKED — {}", action, msg);
             recordFailure(strategy, action, ticker, qty, price, orderType, clientOrderId, msg);

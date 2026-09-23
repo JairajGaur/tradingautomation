@@ -152,9 +152,57 @@ public class AccountService {
         }
     }
 
+    /**
+     * Live held quantity for a single {@code ticker}, fetched from Webull's positions
+     * endpoint right now. Returns 0 when the ticker isn't held or the call fails.
+     *
+     * <p>Used by the no-short guard so a SELL is allowed against shares actually held
+     * on the account — even if this bot instance didn't open them (e.g. bought
+     * manually or in a prior run).</p>
+     */
+    public int getHeldQuantity(String ticker) {
+        if (ticker == null || ticker.isBlank()) return 0;
+        String accountId = client.resolveAccountId();
+        if (accountId == null) {
+            log.warn("[AccountService] getHeldQuantity — account ID not resolved");
+            return 0;
+        }
+        try {
+            WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
+            if (!pos.success() || pos.body() == null) {
+                log.warn("[AccountService] positions call failed for held-qty: status={} body={}",
+                        pos.statusCode(), pos.rawBody());
+                return 0;
+            }
+            JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
+            if (holdings == null || !holdings.isArray()) return 0;
+            String want = ticker.trim().toUpperCase();
+            for (JsonNode h : holdings) {
+                String sym = text(h, "symbol", "ticker", "instrument_symbol");
+                if (sym != null && sym.trim().equalsIgnoreCase(want)) {
+                    BigDecimal qty = num(h, "quantity", "qty");
+                    return qty.max(BigDecimal.ZERO).intValue();
+                }
+            }
+            return 0;
+        } catch (Exception e) {
+            log.warn("[AccountService] getHeldQuantity failed for {}: {}", ticker, e.getMessage());
+            return 0;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // JSON helpers — tolerant of snake_case / camelCase field names
     // -----------------------------------------------------------------------
+
+    private static String text(JsonNode node, String... keys) {
+        if (node == null) return null;
+        for (String k : keys) {
+            JsonNode v = node.get(k);
+            if (v != null && !v.isNull()) return v.asText();
+        }
+        return null;
+    }
 
     private static BigDecimal num(JsonNode node, String... keys) {
         if (node == null) return BigDecimal.ZERO;
