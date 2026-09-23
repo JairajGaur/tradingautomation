@@ -47,7 +47,7 @@ webull:
     watchlist-path: "classpath:tickers.txt"
     warmup-bars: 700
     ema-period: 600
-    order-quantity: 10
+    order-quantity: 1
     # EMA periods returned by the GET /api/ema/{ticker} endpoint
     ema-periods: [20, 100, 200, 600]
     # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):
@@ -76,8 +76,8 @@ webull:
   exit:
     enabled: true
     stop-loss-pct: 0.10        # -10% hard stop from entry
-    ema-fast: 8
-    ema-slow: 20
+    ema-fast: 20
+    ema-slow: 50
     timeframe: "M1"            # exit checks run every minute on this timeframe
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────

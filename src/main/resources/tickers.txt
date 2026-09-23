@@ -4,4 +4,26 @@
 # This file is shared across ALL enabled strategies.
 # Edit this list to change which stocks are monitored without recompiling.
 
-AMZN
+ABAT
+LCID
+QS
+ACHR
+JOBY
+BULL
+SMR
+AI
+MARA
+RIVN
+USAR
+SOFI
+RIOT
+CELH
+ENPH
+NKE
+OKLO
+CAVA
+UBER
+AFRM
+DRAM
+SLV
+GLD 
