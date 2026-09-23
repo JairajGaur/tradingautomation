@@ -56,19 +56,22 @@ public class OrderService {
     private final RiskManager riskManager;
     private final PositionTracker positionTracker;
     private final TradeLog tradeLog;
+    private final EntryGuard entryGuard;
 
     public OrderService(WebullProperties props,
                         WebullV3Client client,
                         @Lazy AccountService accountService,
                         @Lazy RiskManager riskManager,
                         PositionTracker positionTracker,
-                        TradeLog tradeLog) {
+                        TradeLog tradeLog,
+                        @Lazy EntryGuard entryGuard) {
         this.props = props;
         this.client = client;
         this.accountService = accountService;
         this.riskManager = riskManager;
         this.positionTracker = positionTracker;
         this.tradeLog = tradeLog;
+        this.entryGuard = entryGuard;
     }
 
     /**
@@ -119,10 +122,24 @@ public class OrderService {
             return OrderResult.failure(clientOrderId, "TRADING_HALTED");
         }
 
-        BigDecimal buyingPower = accountService.getBuyingPower();
-        if (!riskManager.hasSufficientBuyingPower(buyingPower)) {
-            log.warn("[OrderService] BUY BLOCKED — insufficient buying power: ticker={} available={}",
-                    ticker, buyingPower);
+        // Universal entry guard — ST UP on all timeframes + EMA stack (all strategies).
+        // A triggered BUY is HELD (not sent) unless the guard passes.
+        EntryGuard.Decision guard = entryGuard.evaluate(ticker);
+        if (!guard.allowed()) {
+            log.warn("[OrderService] BUY BLOCKED — entry guard: ticker={} reason={}", ticker, guard.reason());
+            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId,
+                    "ENTRY_GUARD: " + guard.reason());
+            return OrderResult.failure(clientOrderId, "ENTRY_GUARD: " + guard.reason());
+        }
+
+        // Real-time balance + affordability check: fetch buying power fresh from
+        // Webull (not the cache) and confirm it covers qty * current price.
+        BigDecimal buyingPower = accountService.getBuyingPowerLive();
+        BigDecimal price = fetchFillPrice(ticker, null);   // current market price (null if unavailable)
+        if (!riskManager.canAfford(buyingPower, qty, price)) {
+            BigDecimal estCost = price == null ? null : price.multiply(BigDecimal.valueOf(qty));
+            log.warn("[OrderService] BUY BLOCKED — insufficient buying power: ticker={} qty={} price={} estCost={} available={}",
+                    ticker, qty, price, estCost, buyingPower);
             recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, "INSUFFICIENT_BUYING_POWER");
             return OrderResult.failure(clientOrderId, "INSUFFICIENT_BUYING_POWER");
         }
@@ -409,9 +426,10 @@ public class OrderService {
      * supplied {@code fallback} — normally the signal candle's open — is returned so
      * the strategy can still place its bracket.</p>
      *
-     * @param ticker   the symbol just bought
-     * @param fallback price used when the snapshot can't be fetched (must be non-null)
-     * @return the resolved fill-anchor price (never null)
+     * @param ticker   the symbol
+     * @param fallback price returned when the snapshot can't be fetched; may be
+     *                 {@code null} when the caller wants to detect an unresolved price
+     * @return the snapshot price, or {@code fallback} when it can't be resolved
      */
     public BigDecimal fetchFillPrice(String ticker, BigDecimal fallback) {
         try {

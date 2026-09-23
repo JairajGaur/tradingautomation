@@ -14,6 +14,8 @@ public record WebullProperties(
         Strategies strategies,
         Risk risk,
         MarketHours marketHours,
+        Supertrend supertrend,
+        EntryGuard entryGuard,
         Endpoints endpoints
 ) {
 
@@ -121,6 +123,47 @@ public record WebullProperties(
             @DefaultValue("false") boolean extendedHoursEnabled,
             @DefaultValue("04:00") String preMarketOpen,
             @DefaultValue("20:00") String afterHoursClose
+    ) {}
+
+    /**
+     * Supertrend indicator parameters — a property of the indicator itself, used
+     * anywhere the app computes its canonical Supertrend (via {@code SupertrendService}).
+     *
+     * @param length ATR period (default 7)
+     * @param factor ATR multiplier (default 3)
+     */
+    public record Supertrend(
+            @DefaultValue("7") int length,
+            @DefaultValue("3") java.math.BigDecimal factor
+    ) {}
+
+    /**
+     * Universal entry guard applied to every BUY (long/call) across all strategies.
+     * A BUY is only allowed when ALL checks pass. They are evaluated fail-fast in
+     * this fixed order (slowest/cached first, fastest last):
+     *
+     * <ol>
+     *   <li><b>30m Supertrend UP</b> — using {@code webull.supertrend} params.</li>
+     *   <li><b>EMA stack</b> on 1-minute bars: EMA{@code emaFast} and EMA{@code emaMid}
+     *       are both above EMA{@code emaSlow} (default 100 &amp; 200 above 600).</li>
+     *   <li><b>5m Supertrend UP</b>.</li>
+     * </ol>
+     *
+     * <p>All Supertrend checks use the latest <em>completed</em> bar. The first
+     * failing check short-circuits and blocks the buy.</p>
+     *
+     * @param enabled      master on/off (default true)
+     * @param emaFast      fast EMA period that must exceed the slow EMA (default 100)
+     * @param emaMid       mid EMA period that must exceed the slow EMA (default 200)
+     * @param emaSlow      slow EMA baseline (default 600)
+     * @param emaTimespan  timespan for the EMA-stack check (default M1)
+     */
+    public record EntryGuard(
+            @DefaultValue("true")  boolean enabled,
+            @DefaultValue("100")   int emaFast,
+            @DefaultValue("200")   int emaMid,
+            @DefaultValue("600")   int emaSlow,
+            @DefaultValue("M1")    String emaTimespan
     ) {}
 
     /**

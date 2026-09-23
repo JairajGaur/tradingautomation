@@ -62,11 +62,25 @@ public class AccountService {
     }
 
     /**
-     * Available buying power, from the real snapshot fetched from the resolved
-     * Webull endpoint (sandbox in PAPER mode, production in LIVE mode).
+     * Available buying power from the last cached snapshot. Prefer
+     * {@link #getBuyingPowerLive()} for pre-trade checks.
      */
     public BigDecimal getBuyingPower() {
         return snapshot.get().buyingPower();
+    }
+
+    /**
+     * Available buying power fetched <b>fresh</b> from Webull right now (via
+     * {@link #refresh()}), so pre-trade balance checks use real-time data rather
+     * than a stale cache. If the refresh fails, falls back to the last cached value.
+     */
+    public BigDecimal getBuyingPowerLive() {
+        try {
+            return refresh().buyingPower();
+        } catch (Exception e) {
+            log.warn("[AccountService] Live buying-power fetch failed — using cached value: {}", e.getMessage());
+            return snapshot.get().buyingPower();
+        }
     }
 
     /**

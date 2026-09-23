@@ -51,6 +51,7 @@ public class TradingOrchestrator {
     private final MarketHoursGuard marketHoursGuard;
     private final RiskManager riskManager;
     private final AccountService accountService;
+    private final EntryGuard entryGuard;
     private final List<TradingStrategy> strategies;
 
     // Kept for instanceof enable/disable check
@@ -63,6 +64,7 @@ public class TradingOrchestrator {
                                 MarketHoursGuard marketHoursGuard,
                                 RiskManager riskManager,
                                 AccountService accountService,
+                                EntryGuard entryGuard,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
                                 EmaCrossoverStrategyService emaCrossoverStrategyService) {
@@ -72,6 +74,7 @@ public class TradingOrchestrator {
         this.marketHoursGuard = marketHoursGuard;
         this.riskManager = riskManager;
         this.accountService = accountService;
+        this.entryGuard = entryGuard;
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
         this.emaCrossoverStrategyService = emaCrossoverStrategyService;
@@ -153,6 +156,9 @@ public class TradingOrchestrator {
             log.debug("[Orchestrator] No strategies enabled — skipping tick");
             return;
         }
+
+        // Fresh per-cycle cache so entry-guard bar fetches are reused within this tick.
+        entryGuard.newCycle();
 
         List<String> tickers = watchlistLoader.getTickers();
 

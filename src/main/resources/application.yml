@@ -42,7 +42,7 @@ webull:
     #   PAPER = Webull SANDBOX endpoint (api.sandbox.webull.com) — no real money
     #   LIVE  = PRODUCTION endpoint (api.webull.com) — REAL orders, real money
     # Orders are always submitted to the endpoint the mode selects.
-    mode: PAPER
+    mode: LIVE
     ticker: AAPL                              # fallback when tickers.txt is absent
     watchlist-path: "classpath:tickers.txt"
     warmup-bars: 700
@@ -79,6 +79,23 @@ webull:
     min-buying-power-usd: 100.0
     # Fetch a fresh account snapshot after every order.
     account-refresh-enabled: true
+
+  # ── Supertrend indicator params (used app-wide via SupertrendService) ─────
+  supertrend:
+    length: 7
+    factor: 3
+
+  # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
+  # A BUY is only allowed when BOTH pass, checked on the latest COMPLETED bar,
+  # evaluated in order: 30m ST -> EMA stack -> 5m ST
+  #   1. Supertrend is UP on 30m and 5m (uses webull.supertrend params)
+  #   2. On 1m: EMA100 > EMA600 AND EMA200 > EMA600
+  entry-guard:
+    enabled: true
+    ema-fast: 100
+    ema-mid: 200
+    ema-slow: 600
+    ema-timespan: "M1"
 
   # ── Market hours (America/New_York) ──────────────────────────────────────
   market-hours:

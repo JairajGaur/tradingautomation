@@ -1,8 +1,8 @@
 package com.trading.api;
 
 import com.trading.config.WebullProperties;
-import com.trading.indicator.SupertrendCalculator;
 import com.trading.indicator.SupertrendCalculator.Point;
+import com.trading.indicator.SupertrendService;
 import com.trading.model.Candle;
 import com.trading.service.MarketDataException;
 import com.trading.service.MarketDataService;
@@ -35,10 +35,10 @@ import java.util.Map;
  *       <td>Supertrend line, ATR, direction and flip signal per bar</td></tr>
  * </table>
  *
- * <p>Query params:
+ * <p>Uses the app's configured Supertrend params ({@code webull.supertrend.length} /
+ * {@code factor}) via {@link SupertrendService} — the same values the entry guard
+ * uses. Query params:
  * <ul>
- *   <li>{@code length}   — ATR period (default 7)</li>
- *   <li>{@code factor}   — ATR multiplier (default 3)</li>
  *   <li>{@code timespan} — M1/M5/M15/M30/M60/M120/M240/D/W/M/Y (default M1)</li>
  *   <li>{@code sessions} — RTH/PRE/ATH/OVN (default: configured trading sessions)</li>
  *   <li>{@code count}    — bars to fetch (default = warmup-bars)</li>
@@ -53,23 +53,20 @@ public class SupertrendController {
 
     private static final Logger log = LoggerFactory.getLogger(SupertrendController.class);
 
-    private static final int DEFAULT_LENGTH = 7;
-    private static final BigDecimal DEFAULT_FACTOR = BigDecimal.valueOf(3);
-    private static final int DEFAULT_RETURN_BARS = 50;
-
     private final WebullProperties props;
     private final MarketDataService marketDataService;
+    private final SupertrendService supertrend;
 
-    public SupertrendController(WebullProperties props, MarketDataService marketDataService) {
+    public SupertrendController(WebullProperties props, MarketDataService marketDataService,
+                                SupertrendService supertrend) {
         this.props = props;
         this.marketDataService = marketDataService;
+        this.supertrend = supertrend;
     }
 
     @GetMapping("/{ticker}")
     public ResponseEntity<Map<String, Object>> getSupertrend(
             @PathVariable String ticker,
-            @RequestParam(defaultValue = "7") int length,
-            @RequestParam(defaultValue = "3") BigDecimal factor,
             @RequestParam(defaultValue = "M1") String timespan,
             @RequestParam(required = false) String sessions,
             @RequestParam(required = false) Integer count,
@@ -77,17 +74,10 @@ public class SupertrendController {
 
         String symbol = ticker == null ? "" : ticker.trim().toUpperCase();
         int barCount = count != null && count > 0 ? count : props.trading().warmupBars();
+        int length = supertrend.length();
 
         log.info("[SupertrendController] GET /api/supertrend/{} length={} factor={} timespan={} sessions={} count={}",
-                symbol, length, factor, timespan, sessions, barCount);
-
-        // Validate indicator params.
-        if (length < 1) {
-            return badRequest("length must be >= 1");
-        }
-        if (factor == null || factor.compareTo(BigDecimal.ZERO) <= 0) {
-            return badRequest("factor must be > 0");
-        }
+                symbol, length, supertrend.factor(), timespan, sessions, barCount);
 
         // Validate timespan / sessions.
         String ts;
@@ -129,8 +119,8 @@ public class SupertrendController {
             return badRequest("Not enough bars (" + candles.size() + ") for length=" + length);
         }
 
-        // Compute Supertrend.
-        List<Point> points = SupertrendCalculator.calculate(candles, length, factor);
+        // Compute Supertrend using the app's configured params.
+        List<Point> points = supertrend.calculate(candles);
 
         // Trim to the most-recent N (returnBars == 0 → all).
         int from = (returnBars > 0 && returnBars < points.size())
@@ -162,7 +152,7 @@ public class SupertrendController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ticker", symbol);
         body.put("length", length);
-        body.put("factor", factor.toPlainString());
+        body.put("factor", supertrend.factor().toPlainString());
         body.put("timespan", ts);
         body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
         body.put("barsFetched", candles.size());

@@ -88,6 +88,42 @@ public class RiskManager {
         return sufficient;
     }
 
+    /**
+     * Returns {@code true} when {@code buyingPower} can cover a BUY of {@code qty}
+     * shares at {@code price}. Two conditions must both hold:
+     * <ol>
+     *   <li>buying power is at or above the configured floor
+     *       ({@code webull.risk.min-buying-power-usd}); and</li>
+     *   <li>buying power is at least the estimated order cost
+     *       ({@code qty * price}).</li>
+     * </ol>
+     *
+     * <p>{@code price} may be null when it could not be resolved; in that case only
+     * the floor check applies (we cannot compute cost, so we defer to Webull's own
+     * funds check on submission).</p>
+     *
+     * @param buyingPower available buying power (fetched live)
+     * @param qty         number of shares to buy
+     * @param price       estimated per-share price (nullable)
+     */
+    public boolean canAfford(BigDecimal buyingPower, int qty, BigDecimal price) {
+        if (!hasSufficientBuyingPower(buyingPower)) {
+            return false;
+        }
+        if (price == null || price.signum() <= 0) {
+            log.warn("[RiskManager] Order cost unknown (no price) — skipping affordability check, "
+                    + "relying on the floor only. qty={}", qty);
+            return true;
+        }
+        BigDecimal cost = price.multiply(BigDecimal.valueOf(qty));
+        boolean affordable = buyingPower.compareTo(cost) >= 0;
+        if (!affordable) {
+            log.warn("[RiskManager] Order not affordable: cost={} ({}x{}) exceeds buyingPower={}",
+                    cost, qty, price, buyingPower);
+        }
+        return affordable;
+    }
+
     // -----------------------------------------------------------------------
     // Drawdown evaluation
     // -----------------------------------------------------------------------
