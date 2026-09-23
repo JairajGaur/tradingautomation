@@ -37,23 +37,38 @@ public class ExitManager {
     private final BarDataManager barData;
     private final PositionTracker positionTracker;
     private final OrderService orderService;
+    private final AccountService accountService;
 
     public ExitManager(WebullProperties props,
                        BarDataManager barData,
                        PositionTracker positionTracker,
-                       @Lazy OrderService orderService) {
+                       @Lazy OrderService orderService,
+                       @Lazy AccountService accountService) {
         this.props = props;
         this.barData = barData;
         this.positionTracker = positionTracker;
         this.orderService = orderService;
+        this.accountService = accountService;
     }
 
     /** Evaluates and, if warranted, exits a single ticker's open position. */
     public void evaluate(String ticker) {
-        if (!props.exit().enabled()) return;
-
         Position pos = positionTracker.getPosition(ticker).orElse(null);
         if (pos == null || pos.quantity() <= 0) return;
+
+        // Reconcile against the real account first: if the position was closed or
+        // reduced OUTSIDE the bot (e.g. sold manually in the Webull app), the live
+        // held quantity won't match. Drop/skip so we don't attempt a doomed exit
+        // and don't keep the ticker locked out of re-entry.
+        int liveHeld = accountService.getHeldQuantity(ticker);
+        if (liveHeld <= 0) {
+            log.info("[ExitManager] ticker={} no longer held on Webull (tracked={}) — "
+                    + "clearing stale tracker entry (closed externally)", ticker, pos.quantity());
+            positionTracker.closePosition(ticker);
+            return;
+        }
+
+        if (!props.exit().enabled()) return;
 
         String reason = exitReason(ticker, pos);
         if (reason == null) return;
