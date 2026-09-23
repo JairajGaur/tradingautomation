@@ -152,30 +152,38 @@ public class AccountService {
         }
     }
 
+    /** Sentinel returned by {@link #getHeldQuantity} when the live quantity is UNKNOWN
+     *  (the positions call failed) — distinct from a confirmed 0 (not held). */
+    public static final int HELD_UNKNOWN = -1;
+
     /**
-     * Live held quantity for a single {@code ticker}, fetched from Webull's positions
-     * endpoint right now. Returns 0 when the ticker isn't held or the call fails.
+     * Live held quantity for a single {@code ticker} from Webull's positions endpoint.
+     * <ul>
+     *   <li>{@code >= 0} — confirmed quantity held (0 = confirmed not held);</li>
+     *   <li>{@link #HELD_UNKNOWN} ({@code -1}) — the API call FAILED, so the true
+     *       quantity is unknown. Callers must NOT treat this as "not held".</li>
+     * </ul>
      *
-     * <p>Used by the no-short guard so a SELL is allowed against shares actually held
-     * on the account — even if this bot instance didn't open them (e.g. bought
-     * manually or in a prior run).</p>
+     * <p>Distinguishing failure from a genuine 0 matters: a transient error must not
+     * look like "position closed" (which would wrongly drop a real position) nor
+     * relax the no-short guard.</p>
      */
     public int getHeldQuantity(String ticker) {
         if (ticker == null || ticker.isBlank()) return 0;
         String accountId = client.resolveAccountId();
         if (accountId == null) {
             log.warn("[AccountService] getHeldQuantity — account ID not resolved");
-            return 0;
+            return HELD_UNKNOWN;
         }
         try {
             WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
             if (!pos.success() || pos.body() == null) {
                 log.warn("[AccountService] positions call failed for held-qty: status={} body={}",
                         pos.statusCode(), pos.rawBody());
-                return 0;
+                return HELD_UNKNOWN;
             }
             JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
-            if (holdings == null || !holdings.isArray()) return 0;
+            if (holdings == null || !holdings.isArray()) return 0;   // valid empty response = not held
             String want = ticker.trim().toUpperCase();
             for (JsonNode h : holdings) {
                 String sym = text(h, "symbol", "ticker", "instrument_symbol");
@@ -184,10 +192,10 @@ public class AccountService {
                     return qty.max(BigDecimal.ZERO).intValue();
                 }
             }
-            return 0;
+            return 0;   // ticker not in a valid holdings list = confirmed not held
         } catch (Exception e) {
             log.warn("[AccountService] getHeldQuantity failed for {}: {}", ticker, e.getMessage());
-            return 0;
+            return HELD_UNKNOWN;
         }
     }
 

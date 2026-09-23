@@ -56,12 +56,18 @@ public class ExitManager {
         Position pos = positionTracker.getPosition(ticker).orElse(null);
         if (pos == null || pos.quantity() <= 0) return;
 
-        // Reconcile against the real account first: if the position was closed or
-        // reduced OUTSIDE the bot (e.g. sold manually in the Webull app), the live
-        // held quantity won't match. Drop/skip so we don't attempt a doomed exit
-        // and don't keep the ticker locked out of re-entry.
+        // Reconcile against the real account first: if the position was closed
+        // OUTSIDE the bot (e.g. sold manually in the Webull app), Webull will report
+        // it as no longer held → drop the stale tracker entry. Only act on a
+        // CONFIRMED zero; a failed positions call (HELD_UNKNOWN) is NOT treated as
+        // closed, so a transient API error can't wrongly drop a real position.
         int liveHeld = accountService.getHeldQuantity(ticker);
-        if (liveHeld <= 0) {
+        if (liveHeld == AccountService.HELD_UNKNOWN) {
+            log.warn("[ExitManager] ticker={} — live holdings unknown (positions call failed); "
+                    + "skipping this tick, keeping position tracked", ticker);
+            return;
+        }
+        if (liveHeld == 0) {
             log.info("[ExitManager] ticker={} no longer held on Webull (tracked={}) — "
                     + "clearing stale tracker entry (closed externally)", ticker, pos.quantity());
             positionTracker.closePosition(ticker);

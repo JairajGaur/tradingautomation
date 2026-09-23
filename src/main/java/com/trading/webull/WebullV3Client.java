@@ -328,8 +328,50 @@ public class WebullV3Client {
     // Core execution
     // -----------------------------------------------------------------------
 
+    /** Max total attempts for idempotent GETs (1 = no retry). POSTs are never retried. */
+    private static final int GET_MAX_ATTEMPTS = 3;
+    private static final long RETRY_BASE_BACKOFF_MS = 300;
+
     private V3Response execute(String method, String path,
                                Map<String, String> queryParams, String bodyJson) {
+        // Order placement and any other POST is NEVER retried: a retry after a
+        // request that actually succeeded (but whose response was lost) would place
+        // a duplicate order. Only idempotent GETs are retried.
+        if (!"GET".equals(method)) {
+            return executeOnce(method, path, queryParams, bodyJson);
+        }
+
+        V3Response resp = null;
+        for (int attempt = 1; attempt <= GET_MAX_ATTEMPTS; attempt++) {
+            resp = executeOnce(method, path, queryParams, bodyJson);
+            if (!isRetryable(resp)) {
+                return resp;
+            }
+            if (attempt < GET_MAX_ATTEMPTS) {
+                long backoff = RETRY_BASE_BACKOFF_MS * attempt;   // linear backoff
+                log.warn("[WebullV3Client] GET {} attempt {}/{} failed (status={}); retrying in {}ms",
+                        path, attempt, GET_MAX_ATTEMPTS, resp.statusCode(), backoff);
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return resp;
+                }
+            }
+        }
+        log.warn("[WebullV3Client] GET {} failed after {} attempts (status={})",
+                path, GET_MAX_ATTEMPTS, resp == null ? "n/a" : resp.statusCode());
+        return resp;
+    }
+
+    /** Retry only on transport failure (-1), 429, or 5xx. 4xx (except 429) are not retried. */
+    private static boolean isRetryable(V3Response resp) {
+        int s = resp.statusCode();
+        return s == -1 || s == 429 || (s >= 500 && s <= 599);
+    }
+
+    private V3Response executeOnce(String method, String path,
+                                   Map<String, String> queryParams, String bodyJson) {
         String host      = props.resolvedApiHost();
         String timestamp = TS_FORMAT.format(Instant.now());
         String nonce     = UUID.randomUUID().toString().replace("-", "");

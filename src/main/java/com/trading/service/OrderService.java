@@ -408,11 +408,13 @@ public class OrderService {
         // go through for shares you genuinely own — e.g. bought manually or in a prior
         // run — while still blocking a true short (selling more than is held anywhere).
         int trackedHeld = positionTracker.getPosition(ticker).map(PositionTracker.Position::quantity).orElse(0);
-        int liveHeld = accountService.getHeldQuantity(ticker);
-        int held = Math.max(trackedHeld, liveHeld);
+        int liveHeld = accountService.getHeldQuantity(ticker);   // -1 = unknown (positions call failed)
+        // On unknown live holdings, fall back to the tracked quantity (don't relax the guard).
+        int held = Math.max(trackedHeld, Math.max(liveHeld, 0));
         if (qty > held) {
+            String webullStr = liveHeld == AccountService.HELD_UNKNOWN ? "unknown" : String.valueOf(liveHeld);
             String msg = "SHORT_BLOCKED: sell qty=" + qty + " exceeds held qty=" + held
-                    + " (tracked=" + trackedHeld + ", webull=" + liveHeld + ")"
+                    + " (tracked=" + trackedHeld + ", webull=" + webullStr + ")"
                     + " for " + ticker + " (short selling is disabled)";
             log.warn("[OrderService] {} BLOCKED — {}", action, msg);
             recordFailure(strategy, action, ticker, qty, price, orderType, clientOrderId, msg);
