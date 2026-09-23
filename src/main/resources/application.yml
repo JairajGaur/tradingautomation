@@ -57,6 +57,9 @@ webull:
     # Max tickers processed in parallel per tick (guard sweep + candle dispatch).
     # Bounds concurrent Webull calls. 1 = sequential.
     ticker-concurrency: 8
+    # Max bid/ask spread ($). If ask-bid exceeds this, no trade in any session
+    # (buy or exit). Also blocks when bid/ask are unavailable.
+    max-spread-usd: 0.05
 
   # ── Strategy enable / disable ────────────────────────────────────────────
   strategies:
@@ -115,10 +118,12 @@ webull:
   market-hours:
     core-open: "09:30"
     core-close: "16:00"
-    # Set to true to also trade during pre-market and after-hours windows.
-    extended-hours-enabled: false
+    # Extended hours ON so pre-market (04:00–09:30) is a valid ENTRY window.
+    # after-hours-close = 16:00 makes the after-hours window empty, so entries
+    # run 04:00–16:00 ET (pre-market + regular), stopping at 4 PM.
+    extended-hours-enabled: true
     pre-market-open: "04:00"
-    after-hours-close: "20:00"
+    after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────
   # Override any path here if Webull changes a route — no recompile needed.

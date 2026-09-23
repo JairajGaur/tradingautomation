@@ -57,6 +57,7 @@ public class OrderService {
     private final PositionTracker positionTracker;
     private final TradeLog tradeLog;
     private final EntryGuard entryGuard;
+    private final MarketHoursGuard marketHoursGuard;
 
     public OrderService(WebullProperties props,
                         WebullV3Client client,
@@ -64,7 +65,8 @@ public class OrderService {
                         @Lazy RiskManager riskManager,
                         PositionTracker positionTracker,
                         TradeLog tradeLog,
-                        @Lazy EntryGuard entryGuard) {
+                        @Lazy EntryGuard entryGuard,
+                        MarketHoursGuard marketHoursGuard) {
         this.props = props;
         this.client = client;
         this.accountService = accountService;
@@ -72,6 +74,27 @@ public class OrderService {
         this.positionTracker = positionTracker;
         this.tradeLog = tradeLog;
         this.entryGuard = entryGuard;
+        this.marketHoursGuard = marketHoursGuard;
+    }
+
+    // -----------------------------------------------------------------------
+    // Session-aware order helpers (spread guard + BUY/SELL routing)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Checks the bid/ask spread guard. Returns a failure reason string when the
+     * trade must be blocked (spread too wide or bid/ask unavailable), else null.
+     */
+    private String spreadBlockReason(String ticker, Quote q) {
+        if (!q.hasBidAsk()) {
+            return "SPREAD_GUARD: bid/ask unavailable for " + ticker;
+        }
+        BigDecimal spread = q.spread();
+        BigDecimal max = props.trading().maxSpreadUsd();
+        if (spread.compareTo(max) > 0) {
+            return "SPREAD_GUARD: spread=" + spread + " > max=" + max + " for " + ticker;
+        }
+        return null;
     }
 
     /**
@@ -144,10 +167,21 @@ public class OrderService {
             return OrderResult.failure(clientOrderId, "ENTRY_GUARD_NOT_ARMED");
         }
 
-        // Real-time balance + affordability check: fetch buying power fresh from
-        // Webull (not the cache) and confirm it covers qty * current price.
+        // Live quote for the spread guard, affordability, and pre-market limit price.
+        Quote quote = fetchQuote(ticker);
+
+        // Spread guard — applies in EVERY session.
+        String spreadBlock = spreadBlockReason(ticker, quote);
+        if (spreadBlock != null) {
+            log.warn("[OrderService] BUY BLOCKED — {}", spreadBlock);
+            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, spreadBlock);
+            return OrderResult.failure(clientOrderId, spreadBlock);
+        }
+
+        // Real-time balance + affordability. Price basis = ask (marketable) if known,
+        // else last. Confirms buying power covers qty * price.
         BigDecimal buyingPower = accountService.getBuyingPowerLive();
-        BigDecimal price = fetchFillPrice(ticker, null);   // current market price (null if unavailable)
+        BigDecimal price = quote.ask() != null ? quote.ask() : fetchFillPrice(ticker, null);
         if (!riskManager.canAfford(buyingPower, qty, price)) {
             BigDecimal estCost = price == null ? null : price.multiply(BigDecimal.valueOf(qty));
             log.warn("[OrderService] BUY BLOCKED — insufficient buying power: ticker={} qty={} price={} estCost={} available={}",
@@ -156,18 +190,30 @@ public class OrderService {
             return OrderResult.failure(clientOrderId, "INSUFFICIENT_BUYING_POWER");
         }
 
-        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "BUY", TYPE_MARKET);
+        // Session-aware order routing: REGULAR → MARKET; PRE_MARKET → LIMIT at bid.
+        MarketHoursGuard.Session session = marketHoursGuard.currentSession();
+        Map<String, Object> body;
+        String orderType;
+        if (session == MarketHoursGuard.Session.PRE_MARKET) {
+            orderType = TYPE_LIMIT;
+            body = baseOrder(clientOrderId, ticker, qty, "BUY", TYPE_LIMIT);
+            body.put("limit_price", quote.ask().toPlainString());   // marketable: lift the offer
+            body.put("support_trading_session", "ALL");   // allow the order to work pre-market
+        } else {
+            orderType = TYPE_MARKET;
+            body = baseOrder(clientOrderId, ticker, qty, "BUY", TYPE_MARKET);
+        }
 
         if (!props.shouldSubmitOrders()) {
-            log.info("[OrderService] SIMULATED BUY  | ticker={} qty={} type=MARKET tif=DAY id={}",
-                    ticker, qty, clientOrderId);
-            recordSuccess(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, null);
+            log.info("[OrderService] SIMULATED BUY  | ticker={} qty={} type={} session={} id={}",
+                    ticker, qty, orderType, session, clientOrderId);
+            recordSuccess(strategy, "BUY", ticker, qty, null, orderType, clientOrderId, null);
             if (!bypassEntryGuard) entryGuard.clearArmed(ticker);   // consume the armed state on strategy entry
             postOrderRefresh();
             return OrderResult.paper(clientOrderId, body);
         }
 
-        OrderResult result = submit(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
+        OrderResult result = submit(strategy, "BUY", ticker, qty, price, orderType, clientOrderId, body);
         if (result.success() && !bypassEntryGuard) {
             entryGuard.clearArmed(ticker);   // consume the armed state once a strategy buy is accepted
         }
@@ -293,6 +339,51 @@ public class OrderService {
         }
 
         return submit(strategy, "MARKET-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
+    }
+
+    /**
+     * Session-aware EXIT sell used by the {@code ExitManager}: subject to the spread
+     * guard (all sessions) and the no-short guard; routed by session — REGULAR →
+     * MARKET, PRE_MARKET → LIMIT at the current bid.
+     */
+    public OrderResult placeExitSell(String ticker, int qty, String strategy) {
+        String clientOrderId = newClientOrderId();
+
+        OrderResult shortBlock = guardNoShort(strategy, "EXIT-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId);
+        if (shortBlock != null) return shortBlock;
+
+        Quote quote = fetchQuote(ticker);
+        String spreadBlock = spreadBlockReason(ticker, quote);
+        if (spreadBlock != null) {
+            log.warn("[OrderService] EXIT-SELL BLOCKED — {}", spreadBlock);
+            recordFailure(strategy, "EXIT-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, spreadBlock);
+            return OrderResult.failure(clientOrderId, spreadBlock);
+        }
+
+        MarketHoursGuard.Session session = marketHoursGuard.currentSession();
+        Map<String, Object> body;
+        String orderType;
+        BigDecimal price;
+        if (session == MarketHoursGuard.Session.PRE_MARKET) {
+            orderType = TYPE_LIMIT;
+            price = quote.bid();
+            body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_LIMIT);
+            body.put("limit_price", quote.bid().toPlainString());
+            body.put("support_trading_session", "ALL");
+        } else {
+            orderType = TYPE_MARKET;
+            price = quote.last();
+            body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_MARKET);
+        }
+
+        if (!props.shouldSubmitOrders()) {
+            log.info("[OrderService] SIMULATED EXIT-SELL | ticker={} qty={} type={} session={} id={}",
+                    ticker, qty, orderType, session, clientOrderId);
+            recordSuccess(strategy, "EXIT-SELL", ticker, qty, price, orderType, clientOrderId, null);
+            return OrderResult.paper(clientOrderId, body);
+        }
+
+        return submit(strategy, "EXIT-SELL", ticker, qty, price, orderType, clientOrderId, body);
     }
 
     // -----------------------------------------------------------------------
@@ -473,6 +564,57 @@ public class OrderService {
                     ticker, fallback, e.getMessage());
         }
         return fallback;
+    }
+
+    /** Live quote: bid, ask, last. Any field may be null when unavailable. */
+    public record Quote(BigDecimal bid, BigDecimal ask, BigDecimal last) {
+        public boolean hasBidAsk() {
+            return bid != null && ask != null
+                    && bid.compareTo(BigDecimal.ZERO) > 0 && ask.compareTo(BigDecimal.ZERO) > 0;
+        }
+        public BigDecimal spread() {
+            return hasBidAsk() ? ask.subtract(bid) : null;
+        }
+    }
+
+    /**
+     * Fetches the current bid/ask/last from the Webull snapshot. Reads both flat
+     * ({@code bid_price}/{@code ask_price}) and nested ({@code bid_list[0].price})
+     * shapes. Returns a {@link Quote} with null fields when unavailable.
+     */
+    public Quote fetchQuote(String ticker) {
+        try {
+            WebullV3Client.V3Response resp = client.snapshot(ticker, CATEGORY_US_STOCK);
+            if (resp.success() && resp.body() != null) {
+                JsonNode snap = firstSnapshot(resp.body());
+                BigDecimal bid  = firstNum(snap, "bid_price", "bidPrice", "bid");
+                BigDecimal ask  = firstNum(snap, "ask_price", "askPrice", "ask");
+                if (bid == null) bid = nestedPrice(snap, "bid_list", "bidList");
+                if (ask == null) ask = nestedPrice(snap, "ask_list", "askList");
+                BigDecimal last = firstNum(snap, "price", "last_price", "close");
+                return new Quote(bid, ask, last);
+            }
+        } catch (Exception e) {
+            log.warn("[OrderService] Quote lookup failed for {}: {}", ticker, e.getMessage());
+        }
+        return new Quote(null, null, null);
+    }
+
+    private static BigDecimal firstNum(JsonNode node, String... fields) {
+        return num(node, fields);
+    }
+
+    /** Reads {@code price} from the first element of a bid_list/ask_list array field. */
+    private static BigDecimal nestedPrice(JsonNode node, String... arrayFields) {
+        if (node == null) return null;
+        for (String f : arrayFields) {
+            JsonNode arr = node.get(f);
+            if (arr != null && arr.isArray() && arr.size() > 0) {
+                BigDecimal p = num(arr.get(0), "price", "value");
+                if (p != null) return p;
+            }
+        }
+        return null;
     }
 
     /** Digs into {array} / {data:[]} / {result:[]} / single-object snapshot shapes. */

@@ -163,50 +163,53 @@ public class TradingOrchestrator {
     @Scheduled(cron = "0 * * * * *")
     public void onMinuteTick() {
 
-        // ── Gate 1: market hours ──────────────────────────────────────────
-        if (!marketHoursGuard.isTradingAllowed()) {
-            log.debug("[Orchestrator] Outside trading hours ({}) — skipping tick",
-                    marketHoursGuard.currentSessionDescription());
+        // Nothing runs on weekends (equities don't trade).
+        if (!marketHoursGuard.isTradingDay()) {
+            log.debug("[Orchestrator] Weekend — skipping tick");
             return;
         }
 
-        // ── Gate 2: daily drawdown halt ───────────────────────────────────
-        if (riskManager.isTradingHalted()) {
-            log.warn("[Orchestrator] Trading halted (daily drawdown limit reached) — skipping tick");
-            return;
-        }
-
-        List<TradingStrategy> enabled = enabledStrategies();
-        if (enabled.isEmpty()) {
-            log.debug("[Orchestrator] No strategies enabled — skipping tick");
-            return;
-        }
-
-        // ── EXITS FIRST — universal exit rule (−10% stop OR 8/20 bearish cross),
-        // evaluated every minute for every open bot position, in parallel. Runs
-        // before entries so freed-up positions/capital are available this tick.
+        // ── EXITS FIRST — run on ANY trading-day minute, independent of the entry
+        // trading window, so open positions are always monitored (−10% stop OR 8/20
+        // bearish cross). Runs before entries so freed capital is available this tick.
         List<String> openTickers = new ArrayList<>(positionTracker.allPositions().keySet());
         if (!openTickers.isEmpty()) {
             runPerTicker(openTickers, exitManager::evaluate);
         }
 
+        // ── ENTRIES — gated by the market-hours window (extended hours if enabled).
+        if (!marketHoursGuard.isTradingAllowed()) {
+            log.debug("[Orchestrator] Outside entry hours ({}) — exits only this tick",
+                    marketHoursGuard.currentSessionDescription());
+            return;
+        }
+
+        // Daily drawdown halt blocks new entries (exits above already ran).
+        if (riskManager.isTradingHalted()) {
+            log.warn("[Orchestrator] Trading halted (daily drawdown limit reached) — no entries this tick");
+            return;
+        }
+
+        List<TradingStrategy> enabled = enabledStrategies();
+        if (enabled.isEmpty()) {
+            log.debug("[Orchestrator] No strategies enabled — skipping entries");
+            return;
+        }
+
         List<String> tickers = watchlistLoader.getTickers();
 
         // Entry-guard arming:
-        //   • On each 30-min boundary (:00/:30) — the interval at which the 30m
-        //     Supertrend can change — run the guard for EVERY ticker to arm/un-arm.
-        //   • Every minute — re-validate only the ALREADY-ARMED tickers (continuous
-        //     data pull for guard-ON tickers) and drop any whose guard has broken.
-        // Armed tickers then wait for a strategy signal to fire the buy.
+        //   • On each 30-min boundary (:01/:31) run the guard for EVERY ticker.
+        //   • Every other minute re-validate only ALREADY-ARMED tickers and drop
+        //     any whose guard has broken. Armed tickers wait for a strategy signal.
         if (isThirtyMinuteBoundary()) {
             log.info("[Orchestrator] 30-min boundary — running entry guard for all {} ticker(s)", tickers.size());
             runPerTicker(tickers, entryGuard::refreshArmed);
         } else {
-            // Re-validate only armed tickers; parallelise across the armed set.
             runPerTicker(new ArrayList<>(entryGuard.armedTickers()), entryGuard::revalidateArmedTicker);
         }
 
-        // Dispatch the latest candle to strategies, per ticker, in parallel.
+        // Dispatch the tick to strategies, per ticker, in parallel.
         runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
 
         // ── Periodic drawdown check (even when no signal fired) ───────────

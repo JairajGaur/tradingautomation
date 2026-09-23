@@ -80,7 +80,14 @@ public record WebullProperties(
              * sweep + candle dispatch). Bounds concurrent Webull calls to respect
              * rate limits. 1 = fully sequential. Default 8.
              */
-            @DefaultValue("8") int tickerConcurrency
+            @DefaultValue("8") int tickerConcurrency,
+
+            /**
+             * Max allowed bid/ask spread in dollars. If (ask − bid) exceeds this, no
+             * trade is placed in ANY session (buy or exit). Also blocks when bid/ask
+             * are unavailable. Default 0.05 ($0.05).
+             */
+            @DefaultValue("0.05") java.math.BigDecimal maxSpreadUsd
     ) {}
 
     public record Strategies(

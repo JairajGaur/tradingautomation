@@ -109,6 +109,44 @@ public class MarketHoursGuard {
         return false;
     }
 
+    /** Trading session buckets used for order-type routing. */
+    public enum Session { PRE_MARKET, REGULAR, CLOSED }
+
+    /** Current session bucket in New York time. */
+    public Session currentSession() {
+        return currentSession(ZonedDateTime.now(NEW_YORK));
+    }
+
+    /** Testable overload. */
+    public Session currentSession(ZonedDateTime now) {
+        ZonedDateTime ny = now.withZoneSameInstant(NEW_YORK);
+        switch (ny.getDayOfWeek()) {
+            case SATURDAY, SUNDAY -> { return Session.CLOSED; }
+            default -> { /* weekday */ }
+        }
+        LocalTime t = ny.toLocalTime();
+        if (!t.isBefore(coreOpen) && t.isBefore(coreClose)) return Session.REGULAR;
+        if (!t.isBefore(preMarketOpen) && t.isBefore(coreOpen)) return Session.PRE_MARKET;
+        return Session.CLOSED;
+    }
+
+    /**
+     * Returns {@code true} when today is a trading weekday (Mon–Fri) in New York,
+     * regardless of the time of day. Used to gate EXIT monitoring, which should run
+     * outside the entry trading window but not on weekends (equities don't trade).
+     */
+    public boolean isTradingDay() {
+        return isTradingDay(ZonedDateTime.now(NEW_YORK));
+    }
+
+    /** Testable overload. */
+    public boolean isTradingDay(ZonedDateTime now) {
+        return switch (now.withZoneSameInstant(NEW_YORK).getDayOfWeek()) {
+            case SATURDAY, SUNDAY -> false;
+            default -> true;
+        };
+    }
+
     /**
      * Returns a human-readable description of the current session state.
      * Useful for log summaries and health endpoints.

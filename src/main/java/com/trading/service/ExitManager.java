@@ -62,7 +62,7 @@ public class ExitManager {
                 ticker, pos.quantity(), pos.entryPrice(), reason);
 
         OrderService.OrderResult result =
-                orderService.placeMarketSell(ticker, pos.quantity(), "EXIT_" + reason);
+                orderService.placeExitSell(ticker, pos.quantity(), "EXIT_" + reason);
         if (result.success()) {
             positionTracker.closePosition(ticker);
             log.info("[ExitManager] Closed ticker={} ({})", ticker, reason);
