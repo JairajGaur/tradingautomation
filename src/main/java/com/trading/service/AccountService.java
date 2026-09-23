@@ -39,6 +39,15 @@ public class AccountService {
     private final AtomicReference<AccountSnapshot> snapshot =
             new AtomicReference<>(AccountSnapshot.EMPTY);
 
+    // Short-lived cache of the FULL live holdings list, shared by all per-ticker
+    // callers (exit reconcile, no-short guard) so they don't each hit the positions
+    // endpoint. The list is identical for every ticker — fetch it once per window.
+    private static final long HOLDINGS_TTL_MS = 5_000;
+    private volatile java.util.List<Holding> cachedHoldings = null;
+    private volatile boolean cachedHoldingsValid = false;   // false = last fetch failed / never fetched
+    private volatile long cachedHoldingsAt = 0L;
+    private final Object holdingsLock = new Object();
+
     public AccountService(WebullProperties props, WebullV3Client client) {
         this.props = props;
         this.client = client;
@@ -161,28 +170,58 @@ public class AccountService {
      * knows what it already owns after a restart (and won't re-buy it).
      */
     public java.util.List<Holding> listHeldPositions() {
-        String accountId = client.resolveAccountId();
-        if (accountId == null) return java.util.List.of();
-        try {
-            WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
-            if (!pos.success() || pos.body() == null) {
-                log.warn("[AccountService] listHeldPositions — positions call failed: status={}", pos.statusCode());
-                return java.util.List.of();
+        Holdings h = holdings();
+        return h.valid() ? h.list() : java.util.List.of();
+    }
+
+    /** Result of a holdings lookup: the list plus whether the underlying call succeeded. */
+    private record Holdings(java.util.List<Holding> list, boolean valid) {}
+
+    /**
+     * Returns the full live holdings, cached for a short TTL and shared across all
+     * per-ticker callers so the positions endpoint is hit at most once per window
+     * (not once per ticker per tick). {@code valid=false} means the fetch failed
+     * (callers must not treat an empty list as "flat").
+     */
+    private Holdings holdings() {
+        long now = System.currentTimeMillis();
+        if (cachedHoldings != null && (now - cachedHoldingsAt) < HOLDINGS_TTL_MS) {
+            return new Holdings(cachedHoldings, cachedHoldingsValid);
+        }
+        synchronized (holdingsLock) {
+            now = System.currentTimeMillis();
+            if (cachedHoldings != null && (now - cachedHoldingsAt) < HOLDINGS_TTL_MS) {
+                return new Holdings(cachedHoldings, cachedHoldingsValid);
             }
-            JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
-            if (holdings == null || !holdings.isArray()) return java.util.List.of();
             java.util.List<Holding> out = new java.util.ArrayList<>();
-            for (JsonNode h : holdings) {
-                String sym = text(h, "symbol", "ticker", "instrument_symbol");
-                int qty = num(h, "quantity", "qty").max(BigDecimal.ZERO).intValue();
-                if (sym != null && qty > 0) {
-                    out.add(new Holding(sym.trim().toUpperCase(), qty, num(h, "unit_cost", "unitCost")));
+            boolean valid = false;
+            String accountId = client.resolveAccountId();
+            if (accountId != null) {
+                try {
+                    WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
+                    if (pos.success() && pos.body() != null) {
+                        JsonNode arr = firstNonNull(pos.body().get("holdings"), pos.body());
+                        if (arr != null && arr.isArray()) {
+                            for (JsonNode h : arr) {
+                                String sym = text(h, "symbol", "ticker", "instrument_symbol");
+                                int qty = num(h, "quantity", "qty").max(BigDecimal.ZERO).intValue();
+                                if (sym != null && qty > 0) {
+                                    out.add(new Holding(sym.trim().toUpperCase(), qty, num(h, "unit_cost", "unitCost")));
+                                }
+                            }
+                            valid = true;
+                        }
+                    } else {
+                        log.warn("[AccountService] holdings fetch failed: status={}", pos.statusCode());
+                    }
+                } catch (Exception e) {
+                    log.warn("[AccountService] holdings fetch failed: {}", e.getMessage());
                 }
             }
-            return out;
-        } catch (Exception e) {
-            log.warn("[AccountService] listHeldPositions failed: {}", e.getMessage());
-            return java.util.List.of();
+            cachedHoldings = out;
+            cachedHoldingsValid = valid;
+            cachedHoldingsAt = System.currentTimeMillis();
+            return new Holdings(out, valid);
         }
     }
 
@@ -204,33 +243,17 @@ public class AccountService {
      */
     public int getHeldQuantity(String ticker) {
         if (ticker == null || ticker.isBlank()) return 0;
-        String accountId = client.resolveAccountId();
-        if (accountId == null) {
-            log.warn("[AccountService] getHeldQuantity — account ID not resolved");
-            return HELD_UNKNOWN;
+        Holdings h = holdings();               // shared, short-cached — no per-ticker call
+        if (!h.valid()) {
+            return HELD_UNKNOWN;               // fetch failed → unknown, not "flat"
         }
-        try {
-            WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
-            if (!pos.success() || pos.body() == null) {
-                log.warn("[AccountService] positions call failed for held-qty: status={} body={}",
-                        pos.statusCode(), pos.rawBody());
-                return HELD_UNKNOWN;
+        String want = ticker.trim().toUpperCase();
+        for (Holding held : h.list()) {
+            if (held.symbol().equalsIgnoreCase(want)) {
+                return held.quantity();
             }
-            JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
-            if (holdings == null || !holdings.isArray()) return 0;   // valid empty response = not held
-            String want = ticker.trim().toUpperCase();
-            for (JsonNode h : holdings) {
-                String sym = text(h, "symbol", "ticker", "instrument_symbol");
-                if (sym != null && sym.trim().equalsIgnoreCase(want)) {
-                    BigDecimal qty = num(h, "quantity", "qty");
-                    return qty.max(BigDecimal.ZERO).intValue();
-                }
-            }
-            return 0;   // ticker not in a valid holdings list = confirmed not held
-        } catch (Exception e) {
-            log.warn("[AccountService] getHeldQuantity failed for {}: {}", ticker, e.getMessage());
-            return HELD_UNKNOWN;
         }
+        return 0;                              // confirmed not held
     }
 
     // -----------------------------------------------------------------------
