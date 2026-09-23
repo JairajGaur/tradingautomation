@@ -68,9 +68,80 @@ public class EntryGuard {
     private record M30Cache(long boundaryEpochMin, Direction direction) {}
     private final Map<String, M30Cache> m30Cache = new ConcurrentHashMap<>();
 
+    // Tickers currently "armed": the guard passed on the latest refresh and has not
+    // dropped off. A BUY is only permitted while its ticker is armed. Latched with
+    // no expiry — cleared only when the guard drops off (unarm) or on a buy.
+    private final java.util.Set<String> armed = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     /** Clears the per-cycle bar cache. Call once at the start of an evaluation cycle. */
     public void newCycle() {
         cycleBars.get().clear();
+    }
+
+    /**
+     * Re-evaluates the guard for {@code ticker} and updates its armed state:
+     * <ul>
+     *   <li>guard passes → ticker becomes/stays <b>armed</b>;</li>
+     *   <li>guard fails  → ticker is <b>un-armed</b>.</li>
+     * </ul>
+     * The orchestrator calls this every minute for every watchlist ticker, so armed
+     * state always reflects the latest guard evaluation — independent of any signal.
+     *
+     * @return the armed state after refresh (true = armed)
+     */
+    public boolean refreshArmed(String ticker) {
+        Decision d = evaluate(ticker);
+        if (d.allowed()) {
+            if (armed.add(ticker)) {
+                log.info("[EntryGuard] ARMED ticker={} (guard passed)", ticker);
+            }
+            return true;
+        }
+        if (armed.remove(ticker)) {
+            log.info("[EntryGuard] UN-ARMED ticker={} (guard failed: {})", ticker, d.reason());
+        }
+        return false;
+    }
+
+    /** True when {@code ticker} is currently armed (guard last passed and hasn't dropped). */
+    public boolean isArmed(String ticker) {
+        // When the guard is disabled, everything is considered armed.
+        return !props.entryGuard().enabled() || armed.contains(ticker);
+    }
+
+    /** Clears the armed state for a ticker (e.g. right after a buy fires). */
+    public void clearArmed(String ticker) {
+        if (armed.remove(ticker)) {
+            log.debug("[EntryGuard] Cleared armed state for {}", ticker);
+        }
+    }
+
+    /** Snapshot of the currently-armed tickers. */
+    public java.util.Set<String> armedTickers() {
+        return java.util.Set.copyOf(armed);
+    }
+
+    /** Clears ALL armed state and the M30 cache. Used by the daily reset (04:00 ET). */
+    public void clearAll() {
+        int n = armed.size();
+        armed.clear();
+        m30Cache.clear();
+        log.info("[EntryGuard] Daily reset — cleared armed state for {} ticker(s) and M30 cache", n);
+    }
+
+    /**
+     * Re-validates only the currently-armed tickers and un-arms any whose guard has
+     * dropped. Called every minute so an armed ticker is dropped from the pending
+     * list quickly when the guard breaks (continuous re-check for armed tickers).
+     */
+    public void revalidateArmed() {
+        for (String ticker : armedTickers()) {
+            if (!evaluate(ticker).allowed()) {
+                if (armed.remove(ticker)) {
+                    log.info("[EntryGuard] UN-ARMED ticker={} (guard dropped after arming)", ticker);
+                }
+            }
+        }
     }
 
     /**
@@ -84,7 +155,7 @@ public class EntryGuard {
         }
 
         // Evaluation order (fail-fast, cheapest/slowest-moving first):
-        //   1) 30m Supertrend  2) EMA stack (1m)  3) 5m Supertrend
+        //   1) 30m Supertrend  2) EMA stack (1m)
 
         // ── 1. 30-minute Supertrend UP (uses the M30 boundary cache) ─────────
         Decision st30 = supertrendCheck(ticker, "M30");
@@ -94,11 +165,7 @@ public class EntryGuard {
         Decision ema = emaStackCheck(ticker);
         if (!ema.allowed()) return ema;
 
-        // ── 3. 5-minute Supertrend UP ────────────────────────────────────────
-        Decision st5 = supertrendCheck(ticker, "M5");
-        if (!st5.allowed()) return st5;
-
-        log.info("[EntryGuard] PASS ticker={} — 30m ST up, EMA stack ok, 5m ST up", ticker);
+        log.info("[EntryGuard] PASS ticker={} — 30m ST up, EMA stack ok", ticker);
         return Decision.allow();
     }
 

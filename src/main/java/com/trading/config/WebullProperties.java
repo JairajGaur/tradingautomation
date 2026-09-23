@@ -146,7 +146,6 @@ public record WebullProperties(
      *   <li><b>30m Supertrend UP</b> — using {@code webull.supertrend} params.</li>
      *   <li><b>EMA stack</b> on 1-minute bars: EMA{@code emaFast} and EMA{@code emaMid}
      *       are both above EMA{@code emaSlow} (default 100 &amp; 200 above 600).</li>
-     *   <li><b>5m Supertrend UP</b>.</li>
      * </ol>
      *
      * <p>All Supertrend checks use the latest <em>completed</em> bar. The first

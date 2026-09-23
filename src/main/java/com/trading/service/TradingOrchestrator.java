@@ -162,6 +162,21 @@ public class TradingOrchestrator {
 
         List<String> tickers = watchlistLoader.getTickers();
 
+        // Entry-guard arming:
+        //   • On each 30-min boundary (:00/:30) — the interval at which the 30m
+        //     Supertrend can change — run the guard for EVERY ticker to arm/un-arm.
+        //   • Every minute — re-validate only the ALREADY-ARMED tickers (continuous
+        //     data pull for guard-ON tickers) and drop any whose guard has broken.
+        // Armed tickers then wait for a strategy signal to fire the buy.
+        if (isThirtyMinuteBoundary()) {
+            log.info("[Orchestrator] 30-min boundary — running entry guard for all {} ticker(s)", tickers.size());
+            for (String ticker : tickers) {
+                entryGuard.refreshArmed(ticker);
+            }
+        } else {
+            entryGuard.revalidateArmed();
+        }
+
         for (String ticker : tickers) {
             Candle candle = marketDataService.fetchLatestBar(ticker);
             if (candle == null) {
@@ -190,6 +205,16 @@ public class TradingOrchestrator {
         }
     }
 
+    /**
+     * True one minute after each 30-minute boundary (minute :01 or :31). Running the
+     * full-watchlist guard sweep at :01/:31 rather than exactly :00/:30 ensures the
+     * just-closed 30-minute Supertrend bar has settled and is queryable from Webull.
+     * The app runs in ET and the scheduler fires at second 0 of every minute.
+     */
+    private boolean isThirtyMinuteBoundary() {
+        return java.time.LocalTime.now().getMinute() % 30 == 1;
+    }
+
     // -----------------------------------------------------------------------
     // Daily reset — fires at 04:00 ET every weekday
     // -----------------------------------------------------------------------
@@ -202,6 +227,7 @@ public class TradingOrchestrator {
     public void onDailyReset() {
         log.info("[Orchestrator] === DAILY RESET (04:00 ET) ===");
         riskManager.resetForNewDay();
+        entryGuard.clearAll();   // no armed state carries over to the new day
 
         // Re-seed start-of-day equity for the new session
         AccountService.AccountSnapshot snap = accountService.refresh();

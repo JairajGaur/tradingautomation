@@ -122,14 +122,13 @@ public class OrderService {
             return OrderResult.failure(clientOrderId, "TRADING_HALTED");
         }
 
-        // Universal entry guard — ST UP on all timeframes + EMA stack (all strategies).
-        // A triggered BUY is HELD (not sent) unless the guard passes.
-        EntryGuard.Decision guard = entryGuard.evaluate(ticker);
-        if (!guard.allowed()) {
-            log.warn("[OrderService] BUY BLOCKED — entry guard: ticker={} reason={}", ticker, guard.reason());
-            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId,
-                    "ENTRY_GUARD: " + guard.reason());
-            return OrderResult.failure(clientOrderId, "ENTRY_GUARD: " + guard.reason());
+        // Universal entry guard (all strategies): the ticker must be ARMED — i.e. the
+        // guard (30m ST + EMA stack) passed on this cycle's refresh. A strategy signal
+        // while un-armed is dropped; the guard must be ON for the buy to fire.
+        if (!entryGuard.isArmed(ticker)) {
+            log.warn("[OrderService] BUY BLOCKED — not armed (entry guard not satisfied): ticker={}", ticker);
+            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, "ENTRY_GUARD_NOT_ARMED");
+            return OrderResult.failure(clientOrderId, "ENTRY_GUARD_NOT_ARMED");
         }
 
         // Real-time balance + affordability check: fetch buying power fresh from
@@ -150,11 +149,16 @@ public class OrderService {
             log.info("[OrderService] SIMULATED BUY  | ticker={} qty={} type=MARKET tif=DAY id={}",
                     ticker, qty, clientOrderId);
             recordSuccess(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, null);
+            entryGuard.clearArmed(ticker);   // consume the armed state on entry
             postOrderRefresh();
             return OrderResult.paper(clientOrderId, body);
         }
 
-        return submit(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
+        OrderResult result = submit(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
+        if (result.success()) {
+            entryGuard.clearArmed(ticker);   // consume the armed state once the buy is accepted
+        }
+        return result;
     }
 
     // -----------------------------------------------------------------------

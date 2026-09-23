@@ -87,8 +87,8 @@ webull:
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # A BUY is only allowed when BOTH pass, checked on the latest COMPLETED bar,
-  # evaluated in order: 30m ST -> EMA stack -> 5m ST
-  #   1. Supertrend is UP on 30m and 5m (uses webull.supertrend params)
+  # evaluated in order: 30m ST -> EMA stack
+  #   1. Supertrend is UP on 30m (uses webull.supertrend params)
   #   2. On 1m: EMA100 > EMA600 AND EMA200 > EMA600
   entry-guard:
     enabled: true
