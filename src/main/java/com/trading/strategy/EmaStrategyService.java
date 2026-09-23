@@ -91,7 +91,7 @@ public class EmaStrategyService implements TradingStrategy {
         int qty = props.trading().orderQuantity();
         OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());
         if (!buyResult.success()) {
-            log.error("[{}] BUY failed for ticker={}: {}", name(), ticker, buyResult.message());
+            logBuyNotPlaced(ticker, buyResult.message());
             return;
         }
 
@@ -107,5 +107,19 @@ public class EmaStrategyService implements TradingStrategy {
         List<BigDecimal> out = new java.util.ArrayList<>(candles.size());
         for (Candle c : candles) out.add(c.close());
         return out;
+    }
+
+    /**
+     * Logs why a BUY wasn't placed. Guard/spread/affordability gating is EXPECTED
+     * (INFO, not an error); only genuine failures are logged at ERROR.
+     */
+    private void logBuyNotPlaced(String ticker, String message) {
+        String m = message == null ? "" : message;
+        if (m.startsWith("ENTRY_GUARD_NOT_ARMED") || m.startsWith("SPREAD_GUARD")
+                || m.equals("INSUFFICIENT_BUYING_POWER") || m.equals("TRADING_HALTED")) {
+            log.info("[{}] BUY not placed for ticker={}: {}", name(), ticker, m);
+        } else {
+            log.error("[{}] BUY failed for ticker={}: {}", name(), ticker, m);
+        }
     }
 }

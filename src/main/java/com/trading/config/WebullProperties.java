@@ -78,9 +78,16 @@ public record WebullProperties(
             /**
              * Max number of tickers processed in parallel per trading tick (guard
              * sweep + candle dispatch). Bounds concurrent Webull calls to respect
-             * rate limits. 1 = fully sequential. Default 8.
+             * rate limits. 1 = fully sequential. Default 3.
              */
-            @DefaultValue("8") int tickerConcurrency,
+            @DefaultValue("3") int tickerConcurrency,
+
+            /**
+             * Client-side cap on Webull bar-fetch requests per second (across all
+             * threads), to avoid 429 TOO_MANY_REQUESTS. Fetches beyond this rate
+             * block briefly until a slot frees. 0 = unlimited. Default 5.
+             */
+            @DefaultValue("5") int maxRequestsPerSecond,
 
             /**
              * Max allowed bid/ask spread in dollars. If (ask − bid) exceeds this, no

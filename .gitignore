@@ -12,6 +12,7 @@ build/
 
 # Logs
 *.log
+logs/
 
 # Local env / secrets
 .env

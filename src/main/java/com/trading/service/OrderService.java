@@ -162,9 +162,11 @@ public class OrderService {
         // the guard (30m ST + EMA stack) passed on this cycle's refresh. A strategy
         // signal while un-armed is dropped. MANUAL trades bypass this.
         if (!bypassEntryGuard && !entryGuard.isArmed(ticker)) {
-            log.warn("[OrderService] BUY BLOCKED — not armed (entry guard not satisfied): ticker={}", ticker);
-            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, "ENTRY_GUARD_NOT_ARMED");
-            return OrderResult.failure(clientOrderId, "ENTRY_GUARD_NOT_ARMED");
+            String reason = entryGuard.lastReason(ticker);   // e.g. ST_NOT_UP_M30, EMA_STACK_FAIL, ST_UNAVAILABLE_M30
+            String msg = "ENTRY_GUARD_NOT_ARMED: " + reason;
+            log.info("[OrderService] BUY not taken — entry guard not satisfied: ticker={} reason={}", ticker, reason);
+            recordFailure(strategy, "BUY", ticker, qty, null, TYPE_MARKET, clientOrderId, msg);
+            return OrderResult.failure(clientOrderId, msg);
         }
 
         // Live quote for the spread guard, affordability, and pre-market limit price.

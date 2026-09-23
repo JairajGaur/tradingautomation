@@ -33,14 +33,47 @@ public class BarDataManager {
     private static final Logger log = LoggerFactory.getLogger(BarDataManager.class);
 
     private final MarketDataService marketDataService;
+    private final com.trading.config.WebullProperties props;
 
-    public BarDataManager(MarketDataService marketDataService) {
+    // Rate limiter state: the earliest wall-clock time (ms) the next fetch may run.
+    // Spacing = 1000 / maxRequestsPerSecond ms between fetches, enforced across all threads.
+    private final Object rateLock = new Object();
+    private long nextAllowedMs = 0L;
+
+    public BarDataManager(MarketDataService marketDataService,
+                          com.trading.config.WebullProperties props) {
         this.marketDataService = marketDataService;
+        this.props = props;
     }
 
     private record Cached(List<Candle> bars, int count, long boundary) {}
 
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+
+    /**
+     * Blocks until this thread is allowed to make a Webull fetch, spacing calls to at
+     * most {@code webull.trading.max-requests-per-second}. A no-op when the config is
+     * 0 (unlimited). Only gates ACTUAL fetches — cache hits never call this.
+     */
+    private void throttle() {
+        int rps = props.trading().maxRequestsPerSecond();
+        if (rps <= 0) return;
+        long spacingMs = 1000L / rps;
+        long waitMs;
+        synchronized (rateLock) {
+            long now = System.currentTimeMillis();
+            long slot = Math.max(now, nextAllowedMs);
+            waitMs = slot - now;
+            nextAllowedMs = slot + spacingMs;
+        }
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
 
     /**
      * Returns bars for {@code ticker} at {@code timeframe} (oldest-first), reusing the
@@ -72,6 +105,7 @@ public class BarDataManager {
                 return existing.bars();
             }
             try {
+                throttle();   // space out actual Webull calls to respect the rate limit
                 List<Candle> bars = marketDataService.fetchHistoricalBars(ticker, minCount, tf, null);
                 cache.put(key, new Cached(bars, minCount, boundary));
                 log.debug("[BarDataManager] Fetched {} {} bars for {} (boundary={})",

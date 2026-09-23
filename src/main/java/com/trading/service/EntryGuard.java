@@ -53,6 +53,15 @@ public class EntryGuard {
     // no expiry — cleared only when the guard drops off (unarm) or on a buy.
     private final java.util.Set<String> armed = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    // Last guard evaluation reason per ticker (e.g. "OK", "ST_NOT_UP_M30",
+    // "EMA_STACK_FAIL...", "ST_UNAVAILABLE_M30"). Lets callers log WHY a buy was gated.
+    private final java.util.Map<String, String> lastReason = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The most recent guard reason for {@code ticker}, or a default if never evaluated. */
+    public String lastReason(String ticker) {
+        return lastReason.getOrDefault(ticker, "NOT_EVALUATED");
+    }
+
     /**
      * Re-evaluates the guard for {@code ticker} and updates its armed state:
      * <ul>
@@ -66,6 +75,7 @@ public class EntryGuard {
      */
     public boolean refreshArmed(String ticker) {
         Decision d = evaluate(ticker);
+        lastReason.put(ticker, d.reason());
         if (d.allowed()) {
             if (armed.add(ticker)) {
                 log.info("[EntryGuard] ARMED ticker={} (guard passed)", ticker);
@@ -121,9 +131,11 @@ public class EntryGuard {
      */
     public void revalidateArmedTicker(String ticker) {
         if (!armed.contains(ticker)) return;
-        if (!evaluate(ticker).allowed()) {
+        Decision d = evaluate(ticker);
+        lastReason.put(ticker, d.reason());
+        if (!d.allowed()) {
             if (armed.remove(ticker)) {
-                log.info("[EntryGuard] UN-ARMED ticker={} (guard dropped after arming)", ticker);
+                log.info("[EntryGuard] UN-ARMED ticker={} (guard dropped after arming: {})", ticker, d.reason());
             }
         }
     }
