@@ -45,19 +45,22 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final PositionTracker positionTracker;
     private final com.trading.service.VolumeFilter volumeFilter;
     private final com.trading.service.PendingSignals pendingSignals;
+    private final com.trading.service.EntryGuard entryGuard;
 
     public EmaCrossoverStrategyService(WebullProperties props,
                                         BarDataManager barData,
                                         OrderService orderService,
                                         PositionTracker positionTracker,
                                         com.trading.service.VolumeFilter volumeFilter,
-                                        com.trading.service.PendingSignals pendingSignals) {
+                                        com.trading.service.PendingSignals pendingSignals,
+                                        com.trading.service.EntryGuard entryGuard) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
         this.volumeFilter = volumeFilter;
         this.pendingSignals = pendingSignals;
+        this.entryGuard = entryGuard;
     }
 
     @Override
@@ -104,6 +107,15 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
 
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={}",
                 name(), ticker, tf, ema20Now, ema100Now);
+
+        // Entry guard FIRST — if it fails (e.g. 30m ST red), drop the signal now;
+        // do NOT hold it on volume. Order of checks: guard → signal → volume.
+        com.trading.service.EntryGuard.Decision guard = entryGuard.evaluate(ticker);
+        if (!guard.allowed()) {
+            log.info("[{}] ticker={} — golden cross but entry guard not satisfied ({}); dropping",
+                    name(), ticker, guard.reason());
+            return;
+        }
 
         int qty = props.trading().orderQuantity();
 

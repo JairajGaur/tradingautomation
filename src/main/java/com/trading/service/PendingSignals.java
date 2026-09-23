@@ -35,15 +35,18 @@ public class PendingSignals {
     private final VolumeFilter volumeFilter;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
+    private final EntryGuard entryGuard;
 
     public PendingSignals(WebullProperties props,
                           VolumeFilter volumeFilter,
                           @Lazy OrderService orderService,
-                          PositionTracker positionTracker) {
+                          PositionTracker positionTracker,
+                          @Lazy EntryGuard entryGuard) {
         this.props = props;
         this.volumeFilter = volumeFilter;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
+        this.entryGuard = entryGuard;
     }
 
     private record Pending(String strategy, int qty, Instant expiresAt) {}
@@ -95,6 +98,14 @@ public class PendingSignals {
             // Expired → drop; the strategy will re-evaluate fresh next time.
             if (now.isAfter(p.expiresAt())) {
                 log.info("[PendingSignals] EXPIRED {} ({}) — volume never rose within the hold window", ticker, p.strategy());
+                pending.remove(ticker);
+                continue;
+            }
+            // Entry guard must STILL pass (30m ST could have flipped during the hold).
+            EntryGuard.Decision guard = entryGuard.evaluate(ticker);
+            if (!guard.allowed()) {
+                log.info("[PendingSignals] DROPPED {} ({}) — entry guard no longer satisfied ({})",
+                        ticker, p.strategy(), guard.reason());
                 pending.remove(ticker);
                 continue;
             }
