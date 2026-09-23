@@ -54,6 +54,9 @@ webull:
     #   RTH = regular hours (09:30–16:00 ET), PRE = pre-market, ATH = after-hours, OVN = overnight
     # Endpoints accept a `sessions` query param to override this default per-request.
     trading-sessions: "RTH,PRE,ATH"
+    # Max tickers processed in parallel per tick (guard sweep + candle dispatch).
+    # Bounds concurrent Webull calls. 1 = sequential.
+    ticker-concurrency: 8
 
   # ── Strategy enable / disable ────────────────────────────────────────────
   strategies:

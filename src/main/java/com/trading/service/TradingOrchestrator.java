@@ -12,8 +12,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
+
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
@@ -58,6 +64,9 @@ public class TradingOrchestrator {
     private final EmaStrategyService emaStrategyService;
     private final EmaCrossoverStrategyService emaCrossoverStrategyService;
 
+    // Bounded pool for parallel per-ticker work within a tick (null when concurrency<=1).
+    private final ExecutorService tickerPool;
+
     public TradingOrchestrator(WebullProperties props,
                                 WatchlistLoader watchlistLoader,
                                 MarketDataService marketDataService,
@@ -78,6 +87,23 @@ public class TradingOrchestrator {
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
         this.emaCrossoverStrategyService = emaCrossoverStrategyService;
+
+        int concurrency = Math.max(1, props.trading().tickerConcurrency());
+        this.tickerPool = concurrency > 1
+                ? Executors.newFixedThreadPool(concurrency, r -> {
+                    Thread t = new Thread(r, "ticker-worker");
+                    t.setDaemon(true);
+                    return t;
+                })
+                : null;   // sequential when concurrency == 1
+        log.info("[Orchestrator] Ticker concurrency = {}", concurrency);
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (tickerPool != null) {
+            tickerPool.shutdownNow();
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -170,38 +196,79 @@ public class TradingOrchestrator {
         // Armed tickers then wait for a strategy signal to fire the buy.
         if (isThirtyMinuteBoundary()) {
             log.info("[Orchestrator] 30-min boundary — running entry guard for all {} ticker(s)", tickers.size());
-            for (String ticker : tickers) {
-                entryGuard.refreshArmed(ticker);
-            }
+            runPerTicker(tickers, entryGuard::refreshArmed);
         } else {
-            entryGuard.revalidateArmed();
+            // Re-validate only armed tickers; parallelise across the armed set.
+            runPerTicker(new ArrayList<>(entryGuard.armedTickers()), entryGuard::revalidateArmedTicker);
         }
 
-        for (String ticker : tickers) {
-            Candle candle = marketDataService.fetchLatestBar(ticker);
-            if (candle == null) {
-                log.debug("[Orchestrator] No candle for ticker={} this tick — skipping", ticker);
-                continue;
-            }
-
-            log.debug("[Orchestrator] Dispatching candle: ticker={} open={} close={}",
-                    ticker, candle.open(), candle.close());
-
-            for (TradingStrategy strategy : enabled) {
-                try {
-                    strategy.onCandle(candle);
-                } catch (Exception e) {
-                    log.error("[Orchestrator] Strategy '{}' threw on candle for ticker={}",
-                            strategy.name(), ticker, e);
-                    // Continue — one failure must not abort the loop
-                }
-            }
-        }
+        // Dispatch the latest candle to strategies, per ticker, in parallel.
+        runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
 
         // ── Periodic drawdown check (even when no signal fired) ───────────
         AccountService.AccountSnapshot snap = accountService.getSnapshot();
         if (snap.netLiquidationValue().compareTo(BigDecimal.ZERO) > 0) {
             riskManager.evaluateDrawdown(snap.netLiquidationValue());
+        }
+    }
+
+    /**
+     * Runs {@code action} for every ticker, in parallel across the bounded pool (or
+     * sequentially when concurrency == 1). Blocks until all tickers finish so the
+     * tick completes before the next scheduled fire. Per-ticker failures are logged
+     * and never abort the others.
+     */
+    private void runPerTicker(List<String> tickers, PerTicker action) {
+        if (tickers.isEmpty()) return;
+
+        if (tickerPool == null) {
+            for (String ticker : tickers) {
+                safeRun(ticker, action);
+            }
+            return;
+        }
+
+        List<Future<?>> futures = new ArrayList<>(tickers.size());
+        for (String ticker : tickers) {
+            futures.add(tickerPool.submit(() -> safeRun(ticker, action)));
+        }
+        for (Future<?> f : futures) {
+            try {
+                f.get();   // wait for all; block for the tick
+            } catch (Exception e) {
+                log.error("[Orchestrator] Parallel ticker task failed", e);
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface PerTicker { void run(String ticker); }
+
+    private void safeRun(String ticker, PerTicker action) {
+        try {
+            action.run(ticker);
+        } catch (Exception e) {
+            log.error("[Orchestrator] Per-ticker task threw for ticker={}", ticker, e);
+        }
+    }
+
+    /** Fetches the latest bar for {@code ticker} and dispatches it to all enabled strategies. */
+    private void processTicker(String ticker, List<TradingStrategy> enabled) {
+        Candle candle = marketDataService.fetchLatestBar(ticker);
+        if (candle == null) {
+            log.debug("[Orchestrator] No candle for ticker={} this tick — skipping", ticker);
+            return;
+        }
+        log.debug("[Orchestrator] Dispatching candle: ticker={} open={} close={}",
+                ticker, candle.open(), candle.close());
+        for (TradingStrategy strategy : enabled) {
+            try {
+                strategy.onCandle(candle);
+            } catch (Exception e) {
+                log.error("[Orchestrator] Strategy '{}' threw on candle for ticker={}",
+                        strategy.name(), ticker, e);
+                // Continue — one failure must not abort the others
+            }
         }
     }
 

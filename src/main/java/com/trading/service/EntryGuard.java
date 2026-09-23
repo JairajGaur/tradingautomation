@@ -60,9 +60,9 @@ public class EntryGuard {
         static Decision block(String reason) { return new Decision(false, reason); }
     }
 
-    // Per-cycle bar cache: key = ticker|timespan -> bars (oldest-first).
-    private final ThreadLocal<Map<String, List<Candle>>> cycleBars =
-            ThreadLocal.withInitial(ConcurrentHashMap::new);
+    // Per-cycle bar cache: key = ticker|timespan -> bars (oldest-first). Shared across
+    // parallel worker threads within a single evaluation cycle (concurrent map).
+    private volatile Map<String, List<Candle>> cycleBars = new ConcurrentHashMap<>();
 
     // M30 Supertrend cache per ticker (survives across cycles until next boundary).
     private record M30Cache(long boundaryEpochMin, Direction direction) {}
@@ -73,9 +73,13 @@ public class EntryGuard {
     // no expiry — cleared only when the guard drops off (unarm) or on a buy.
     private final java.util.Set<String> armed = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    /** Clears the per-cycle bar cache. Call once at the start of an evaluation cycle. */
+    /**
+     * Starts a fresh per-cycle bar cache. Call once at the start of an evaluation
+     * cycle (before any parallel per-ticker work). Swapping the map atomically gives
+     * all workers in this cycle a clean, shared cache.
+     */
     public void newCycle() {
-        cycleBars.get().clear();
+        cycleBars = new ConcurrentHashMap<>();
     }
 
     /**
@@ -136,10 +140,20 @@ public class EntryGuard {
      */
     public void revalidateArmed() {
         for (String ticker : armedTickers()) {
-            if (!evaluate(ticker).allowed()) {
-                if (armed.remove(ticker)) {
-                    log.info("[EntryGuard] UN-ARMED ticker={} (guard dropped after arming)", ticker);
-                }
+            revalidateArmedTicker(ticker);
+        }
+    }
+
+    /**
+     * Re-validates a single armed ticker and un-arms it if its guard has dropped.
+     * Safe to call from parallel workers (armed set is concurrent). No-op if the
+     * ticker is not currently armed.
+     */
+    public void revalidateArmedTicker(String ticker) {
+        if (!armed.contains(ticker)) return;
+        if (!evaluate(ticker).allowed()) {
+            if (armed.remove(ticker)) {
+                log.info("[EntryGuard] UN-ARMED ticker={} (guard dropped after arming)", ticker);
             }
         }
     }
@@ -267,7 +281,7 @@ public class EntryGuard {
 
     private List<Candle> bars(String ticker, String timespan, int count) {
         String key = ticker + "|" + timespan;
-        Map<String, List<Candle>> cache = cycleBars.get();
+        Map<String, List<Candle>> cache = cycleBars;
         List<Candle> cached = cache.get(key);
         // Reuse if we already fetched at least as many bars this cycle.
         if (cached != null && cached.size() >= count) {

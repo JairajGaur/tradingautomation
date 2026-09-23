@@ -72,7 +72,14 @@ public record WebullProperties(
              * Per-request {@code sessions} query params on the EMA/History endpoints
              * override this default.
              */
-            @DefaultValue("RTH,PRE,ATH") String tradingSessions
+            @DefaultValue("RTH,PRE,ATH") String tradingSessions,
+
+            /**
+             * Max number of tickers processed in parallel per trading tick (guard
+             * sweep + candle dispatch). Bounds concurrent Webull calls to respect
+             * rate limits. 1 = fully sequential. Default 8.
+             */
+            @DefaultValue("8") int tickerConcurrency
     ) {}
 
     public record Strategies(
