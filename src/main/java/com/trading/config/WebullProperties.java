@@ -107,7 +107,16 @@ public record WebullProperties(
              * Strategies are entry-only; exits are handled by the universal exit rule.
              */
             @DefaultValue("M1") String ema600Timeframe,
-            @DefaultValue("M1") String emaCrossoverTimeframe
+            @DefaultValue("M1") String emaCrossoverTimeframe,
+
+            /**
+             * Volume filter (applies to every strategy BUY): only enter when the
+             * average 1-minute volume is INCREASING. Over the last {@code volumeLookback}
+             * completed bars, the recent-half average volume must exceed the older-half
+             * average (e.g. last 10 vs prior 10). Default on, 20-bar lookback.
+             */
+            @DefaultValue("true") boolean volumeFilterEnabled,
+            @DefaultValue("20")   int volumeLookback
     ) {}
 
     /**

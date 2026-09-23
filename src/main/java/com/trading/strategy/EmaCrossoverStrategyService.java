@@ -43,15 +43,18 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
+    private final com.trading.service.VolumeFilter volumeFilter;
 
     public EmaCrossoverStrategyService(WebullProperties props,
                                         BarDataManager barData,
                                         OrderService orderService,
-                                        PositionTracker positionTracker) {
+                                        PositionTracker positionTracker,
+                                        com.trading.service.VolumeFilter volumeFilter) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
+        this.volumeFilter = volumeFilter;
     }
 
     @Override
@@ -94,6 +97,12 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
 
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={}",
                 name(), ticker, tf, ema20Now, ema100Now);
+
+        // Volume filter: only enter when average 1-min volume is increasing.
+        if (!volumeFilter.isVolumeIncreasing(ticker)) {
+            log.info("[{}] ticker={} — golden cross but volume not increasing; skipping", name(), ticker);
+            return;
+        }
 
         int qty = props.trading().orderQuantity();
         OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());

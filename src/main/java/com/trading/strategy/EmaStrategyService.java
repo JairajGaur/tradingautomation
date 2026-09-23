@@ -39,15 +39,18 @@ public class EmaStrategyService implements TradingStrategy {
     private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
+    private final com.trading.service.VolumeFilter volumeFilter;
 
     public EmaStrategyService(WebullProperties props,
                                BarDataManager barData,
                                OrderService orderService,
-                               PositionTracker positionTracker) {
+                               PositionTracker positionTracker,
+                               com.trading.service.VolumeFilter volumeFilter) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
+        this.volumeFilter = volumeFilter;
     }
 
     @Override
@@ -87,6 +90,12 @@ public class EmaStrategyService implements TradingStrategy {
 
         log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={}",
                 name(), ticker, tf, signalBar.open(), period, ema);
+
+        // Volume filter: only enter when average 1-min volume is increasing.
+        if (!volumeFilter.isVolumeIncreasing(ticker)) {
+            log.info("[{}] ticker={} — signal fired but volume not increasing; skipping", name(), ticker);
+            return;
+        }
 
         int qty = props.trading().orderQuantity();
         OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name());

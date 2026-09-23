@@ -83,6 +83,11 @@ webull:
     # Strategies are entry-only; exits are handled by the universal exit rule below.
     ema600-timeframe: "M1"
     ema-crossover-timeframe: "M1"
+    # Volume filter (all strategy BUYs): only enter when average 1-min volume is
+    # rising — over the last `volume-lookback` completed bars, the recent-half average
+    # volume must exceed the older-half average (e.g. last 10 vs prior 10).
+    volume-filter-enabled: true
+    volume-lookback: 20
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
   # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),
