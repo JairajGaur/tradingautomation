@@ -139,6 +139,18 @@ public class TradingOrchestrator {
                      "(paper mode or API unavailable) — drawdown tracking inactive");
         }
 
+        // ── Seed the position tracker from LIVE Webull holdings ───────────
+        // Survives restarts: the bot knows what it already owns, so the duplicate-
+        // position guard won't re-buy a ticker held from a prior run.
+        for (AccountService.Holding h : accountService.listHeldPositions()) {
+            if (!positionTracker.hasOpenPosition(h.symbol())) {
+                positionTracker.openPosition(new com.trading.state.PositionTracker.Position(
+                        h.symbol(), h.unitCost(), h.quantity(), null, null, "SEEDED_FROM_ACCOUNT"));
+                log.info("[Orchestrator] Seeded existing position from account: {} x{} @ {}",
+                        h.symbol(), h.quantity(), h.unitCost());
+            }
+        }
+
         // ── Initial load: warm the BarDataManager cache for every ticker across
         //    the timeframes the app uses (strategy entry timeframes, exit timeframe,
         //    and the entry guard's M30/M1). Everyone reads from this cache afterward.

@@ -152,6 +152,40 @@ public class AccountService {
         }
     }
 
+    /** A single live holding from the account. */
+    public record Holding(String symbol, int quantity, java.math.BigDecimal unitCost) {}
+
+    /**
+     * Lists live equity holdings from Webull's positions endpoint. Empty on failure
+     * (never null). Used at startup to seed the {@link PositionTracker} so the bot
+     * knows what it already owns after a restart (and won't re-buy it).
+     */
+    public java.util.List<Holding> listHeldPositions() {
+        String accountId = client.resolveAccountId();
+        if (accountId == null) return java.util.List.of();
+        try {
+            WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
+            if (!pos.success() || pos.body() == null) {
+                log.warn("[AccountService] listHeldPositions — positions call failed: status={}", pos.statusCode());
+                return java.util.List.of();
+            }
+            JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
+            if (holdings == null || !holdings.isArray()) return java.util.List.of();
+            java.util.List<Holding> out = new java.util.ArrayList<>();
+            for (JsonNode h : holdings) {
+                String sym = text(h, "symbol", "ticker", "instrument_symbol");
+                int qty = num(h, "quantity", "qty").max(BigDecimal.ZERO).intValue();
+                if (sym != null && qty > 0) {
+                    out.add(new Holding(sym.trim().toUpperCase(), qty, num(h, "unit_cost", "unitCost")));
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("[AccountService] listHeldPositions failed: {}", e.getMessage());
+            return java.util.List.of();
+        }
+    }
+
     /** Sentinel returned by {@link #getHeldQuantity} when the live quantity is UNKNOWN
      *  (the positions call failed) — distinct from a confirmed 0 (not held). */
     public static final int HELD_UNKNOWN = -1;
