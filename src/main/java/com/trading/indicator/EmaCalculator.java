@@ -54,11 +54,13 @@ public final class EmaCalculator {
 
         BigDecimal multiplier = computeMultiplier(period);
 
-        // Seed with the SMA of the first `period` values
-        BigDecimal ema = sma(prices.subList(0, period));
-
-        // Apply EMA formula for every value after the seed window
-        for (int i = period; i < prices.size(); i++) {
+        // Seed with the FIRST close and run the EMA over the ENTIRE series. This
+        // matches how charting platforms (e.g. Webull) compute the EMA: the smoothing
+        // is applied from the start, so with enough history the value converges to the
+        // chart's. (Seeding with an SMA of only the first `period` bars — the old
+        // approach — leaves the long EMAs, e.g. 600, a few cents off the chart.)
+        BigDecimal ema = prices.get(0);
+        for (int i = 1; i < prices.size(); i++) {
             ema = applyEmaFormula(prices.get(i), ema, multiplier);
         }
 

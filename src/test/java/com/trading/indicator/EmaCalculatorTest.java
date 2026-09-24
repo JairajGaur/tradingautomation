@@ -108,30 +108,28 @@ class EmaCalculatorTest {
          *
          * Prices: 10, 11, 12, 13, 14
          * Period: 3
-         * k = 2/(3+1) = 0.5
-         *
-         * SMA(first 3) = (10+11+12)/3 = 11.0
-         * EMA after bar 4 (price=13): 13*0.5 + 11*0.5 = 12.0
-         * EMA after bar 5 (price=14): 14*0.5 + 12*0.5 = 13.0
+         * k = 2/(3+1) = 0.5. EMA is seeded with the FIRST close and run over the
+         * whole series (chart-style), so:
+         *   seed=10; 11 -> 10.5; 12 -> 11.25; 13 -> 12.125; 14 -> 13.0625
          */
         @Test
-        @DisplayName("EMA(3) on [10,11,12,13,14] should be 13.0")
+        @DisplayName("EMA(3) on [10,11,12,13,14] should be 13.06 (first-close seed)")
         void knownDataset() {
             List<BigDecimal> prices = List.of(
                     bd("10"), bd("11"), bd("12"), bd("13"), bd("14")
             );
             BigDecimal ema = EmaCalculator.calculate(prices, 3);
             assertThat(ema.setScale(2, RoundingMode.HALF_UP))
-                    .isEqualByComparingTo(bd("13.00"));
+                    .isEqualByComparingTo(bd("13.06"));
         }
 
         @Test
-        @DisplayName("EMA(3) on exactly 3 values equals the SMA of those 3 values")
+        @DisplayName("EMA(3) on [10,20,30] — first-close seed: 10 -> 15 -> 22.5")
         void exactlyPeriodValues() {
             List<BigDecimal> prices = List.of(bd("10"), bd("20"), bd("30"));
             BigDecimal ema = EmaCalculator.calculate(prices, 3);
             assertThat(ema.setScale(2, RoundingMode.HALF_UP))
-                    .isEqualByComparingTo(bd("20.00")); // SMA(10,20,30) = 20
+                    .isEqualByComparingTo(bd("22.50")); // seed=10; 20->15; 30->22.5
         }
 
         @Test

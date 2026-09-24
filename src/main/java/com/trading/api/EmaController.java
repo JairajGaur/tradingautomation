@@ -1,6 +1,5 @@
 package com.trading.api;
 
-import com.trading.config.WatchlistLoader;
 import com.trading.config.WebullProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
@@ -24,12 +23,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * REST API — EMA indicator values for watchlist tickers.
+ * REST API — EMA indicator values for any US ticker (manual inspection).
  *
  * <table border="1">
  *   <tr><th>Method</th><th>Path</th><th>Description</th></tr>
  *   <tr><td>GET</td><td>/api/ema/{ticker}</td>
- *       <td>Configured EMA values (20/100/200/600 by default) for a watchlist ticker</td></tr>
+ *       <td>Configured EMA values (20/100/200/600 by default) for any US symbol</td></tr>
  * </table>
  *
  * <p>The list of EMA periods is configurable via {@code webull.trading.ema-periods}
@@ -41,15 +40,15 @@ public class EmaController {
 
     private static final Logger log = LoggerFactory.getLogger(EmaController.class);
 
+    /** Webull's per-request bar cap (M1 clamps around here); fetch no more than this. */
+    private static final int EMA_MAX_BARS = 1200;
+
     private final WebullProperties props;
-    private final WatchlistLoader watchlistLoader;
     private final MarketDataService marketDataService;
 
     public EmaController(WebullProperties props,
-                          WatchlistLoader watchlistLoader,
                           MarketDataService marketDataService) {
         this.props = props;
-        this.watchlistLoader = watchlistLoader;
         this.marketDataService = marketDataService;
     }
 
@@ -60,8 +59,7 @@ public class EmaController {
     /**
      * Returns the configured EMA values for a ticker.
      *
-     * <p>The ticker must be present in the watchlist ({@code tickers.txt}).
-     * If it is not, a 404 is returned. Otherwise fresh historical 1-minute bars
+     * <p>Any US symbol works — no watchlist restriction. Fresh historical bars
      * are fetched and each configured EMA period is computed with
      * {@link EmaCalculator} using {@link BigDecimal} precision.</p>
      *
@@ -109,19 +107,14 @@ public class EmaController {
                     "timestamp", TimeFormat.nowEt()));
         }
 
-        // ── 1. Ticker must be in the watchlist ────────────────────────────
-        List<String> watchlist = watchlistLoader.getTickers();
-        if (!watchlist.contains(symbol)) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "error", "Ticker not in watchlist",
-                    "ticker", symbol,
-                    "watchlist", watchlist,
-                    "hint", "Add the symbol to tickers.txt (or webull.trading.watchlist-path) and restart.",
-                    "timestamp", TimeFormat.nowEt()));
-        }
-
-        // ── 2. Fetch fresh historical bars at the requested timespan ──────
-        int barsToFetch = props.trading().warmupBars();
+        // Manual inspection endpoint — any US symbol works (no watchlist restriction).
+        // Fetch enough history for the LARGEST EMA period to converge to the value a
+        // charting platform shows. An EMA needs ~3x its period of warm-up; with too
+        // few bars the long EMAs (e.g. 600) don't converge. Capped at Webull's M1
+        // limit (~1200 bars/request).
+        int maxPeriod = props.trading().emaPeriods().stream()
+                .filter(java.util.Objects::nonNull).mapToInt(Integer::intValue).max().orElse(600);
+        int barsToFetch = Math.min(EMA_MAX_BARS, Math.max(props.trading().warmupBars(), maxPeriod * 3));
         List<Candle> history;
         try {
             history = marketDataService.fetchHistoricalBars(symbol, barsToFetch, ts, sess);
@@ -168,7 +161,8 @@ public class EmaController {
             }
             try {
                 BigDecimal ema = EmaCalculator.calculate(closes, period);
-                emaValues.put(String.valueOf(period), ema.toPlainString());
+                emaValues.put(String.valueOf(period),
+                        ema.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
             } catch (Exception e) {
                 emaValues.put(String.valueOf(period), "ERROR");
                 log.error("[EmaController] Failed computing EMA({}) for ticker={}", period, symbol, e);
@@ -183,7 +177,7 @@ public class EmaController {
         body.put("timespan", ts);
         body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
         body.put("barsUsed", closes.size());
-        body.put("lastClose", lastClose.toPlainString());
+        body.put("lastClose", lastClose.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
         body.put("emaValues", emaValues);
         body.put("periods", periods);
         body.put("timestamp", TimeFormat.nowEt());
