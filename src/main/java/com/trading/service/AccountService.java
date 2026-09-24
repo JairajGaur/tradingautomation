@@ -134,18 +134,19 @@ public class AccountService {
             }
 
             // ── Positions ─────────────────────────────────────────────────
+            // Reuse the SHARED, short-cached holdings instead of a second direct
+            // positions call. Around a BUY the balance snapshot, the exit-reconcile
+            // and the no-short guard all want positions within the same few seconds;
+            // routing them all through holdings() collapses that into ONE positions
+            // request per TTL window, which is what was tripping 429s on the trading API.
             int posCount = 0;
             BigDecimal costBasis = BigDecimal.ZERO;
-            WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
-            if (pos.success() && pos.body() != null) {
-                JsonNode holdings = firstNonNull(pos.body().get("holdings"), pos.body());
-                if (holdings != null && holdings.isArray()) {
-                    posCount = holdings.size();
-                    for (JsonNode h : holdings) {
-                        BigDecimal unitCost = num(h, "unit_cost", "unitCost");
-                        BigDecimal qty      = num(h, "quantity", "qty");
-                        costBasis = costBasis.add(unitCost.multiply(qty, MC), MC);
-                    }
+            Holdings h = holdings();
+            if (h.valid()) {
+                posCount = h.list().size();
+                for (Holding hold : h.list()) {
+                    costBasis = costBasis.add(
+                            hold.unitCost().multiply(BigDecimal.valueOf(hold.quantity()), MC), MC);
                 }
             }
 
