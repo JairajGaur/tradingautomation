@@ -82,17 +82,25 @@ public class OrderService {
     // -----------------------------------------------------------------------
 
     /**
-     * Checks the bid/ask spread guard. Returns a failure reason string when the
-     * trade must be blocked (spread too wide or bid/ask unavailable), else null.
+     * Quote/spread guard. Blocks a trade when bid/ask are unavailable (BUY/EXIT limit
+     * orders in extended hours are priced off the ask/bid — no quote means no valid
+     * price reference), or when the spread is too wide RELATIVE TO PRICE. The width cap
+     * is a percentage of the mid ({@code webull.trading.max-spread-pct}) so it scales
+     * across price levels — a flat dollar cap would wrongly pass wide spreads on cheap
+     * stocks and block tight spreads on expensive ones. Returns a failure reason string
+     * when the trade must be blocked, else null. A cap of 0 disables the width check.
      */
     private String spreadBlockReason(String ticker, Quote q) {
         if (!q.hasBidAsk()) {
             return "SPREAD_GUARD: bid/ask unavailable for " + ticker;
         }
-        BigDecimal spread = q.spread();
-        BigDecimal max = props.trading().maxSpreadUsd();
-        if (spread.compareTo(max) > 0) {
-            return "SPREAD_GUARD: spread=" + spread + " > max=" + max + " for " + ticker;
+        BigDecimal max = props.trading().maxSpreadPct();
+        if (max.signum() > 0) {
+            BigDecimal pct = q.spreadPct();
+            if (pct != null && pct.compareTo(max) > 0) {
+                return "SPREAD_GUARD: spread=" + q.spread() + " (" + pct.movePointRight(2) + "% of mid)"
+                        + " > max=" + max.movePointRight(2) + "% for " + ticker;
+            }
         }
         return null;
     }
@@ -604,6 +612,13 @@ public class OrderService {
         }
         public BigDecimal spread() {
             return hasBidAsk() ? ask.subtract(bid) : null;
+        }
+        /** Spread as a fraction of the mid price: (ask − bid) / ((ask + bid) / 2). Null when no quote. */
+        public BigDecimal spreadPct() {
+            if (!hasBidAsk()) return null;
+            BigDecimal mid = ask.add(bid).divide(BigDecimal.valueOf(2), java.math.MathContext.DECIMAL128);
+            if (mid.signum() <= 0) return null;
+            return ask.subtract(bid).divide(mid, 8, java.math.RoundingMode.HALF_UP);
         }
     }
 

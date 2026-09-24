@@ -16,15 +16,19 @@ import java.util.List;
 /**
  * Universal entry guard for long/call entries, shared by all strategies.
  *
- * <p>A BUY is only permitted when BOTH conditions hold on the latest
- * <em>completed</em> bar:</p>
+ * <p>Two legs, checked on the latest <em>completed</em> bar:</p>
  * <ol>
- *   <li><b>30m Supertrend UP</b>, ST params from {@code webull.supertrend}.</li>
- *   <li><b>EMA stack</b> on 1-minute bars: EMA(fast) and EMA(mid) both above
- *       EMA(slow) — default 100 &amp; 200 above 600.</li>
+ *   <li><b>Supertrend UP</b> on {@code entry-guard.supertrend-timespan} (default M30),
+ *       ST params from {@code webull.supertrend}.</li>
+ *   <li><b>EMA stack</b> on {@code entry-guard.ema-timespan} (default M1): EMA(fast)
+ *       above EMA(slow), and — when {@code ema-require-mid} is true (default) —
+ *       EMA(mid) above EMA(slow) too. Default 100 &amp; 200 above 600.</li>
  * </ol>
  *
- * <p>All bar data is read from the shared {@link BarDataManager} (single fetcher).</p>
+ * <p>{@code entry-guard.condition-logic} combines the legs: {@code AND} (default, both
+ * must pass) or {@code OR} (arm once either passes; an unavailable leg simply doesn't
+ * pass and can't veto the other). All bar data is read from the shared
+ * {@link BarDataManager} (single fetcher).</p>
  */
 @Service
 public class EntryGuard {
@@ -158,18 +162,34 @@ public class EntryGuard {
             return Decision.allow();
         }
 
-        // Evaluation order (fail-fast, cheapest/slowest-moving first):
-        //   1) 30m Supertrend  2) EMA stack (1m)
+        String stTf = props.entryGuard().supertrendTimespan();
+        boolean or = "OR".equalsIgnoreCase(props.entryGuard().conditionLogic());
 
-        // ── 1. 30-minute Supertrend UP (bars cached by BarDataManager) ───────
-        Decision st30 = supertrendCheck(ticker, "M30");
-        if (!st30.allowed()) return st30;
+        if (or) {
+            // ── OR: arm as soon as EITHER leg passes. Evaluate both so the block
+            //    reason (when neither passes) explains both legs. An unavailable leg
+            //    simply doesn't pass — it does not veto the other leg.
+            Decision st = supertrendCheck(ticker, stTf);
+            if (st.allowed()) {
+                log.info("[EntryGuard] PASS ticker={} — {} ST up (OR)", ticker, stTf);
+                return Decision.allow();
+            }
+            Decision ema = emaStackCheck(ticker);
+            if (ema.allowed()) {
+                log.info("[EntryGuard] PASS ticker={} — EMA stack ok (OR)", ticker);
+                return Decision.allow();
+            }
+            return Decision.block("OR_BOTH_FAIL [" + st.reason() + " | " + ema.reason() + "]");
+        }
 
-        // ── 2. EMA stack on 1m: fast & mid above slow ────────────────────────
+        // ── AND (default): both legs must pass; fail-fast (slowest/cached first).
+        Decision st = supertrendCheck(ticker, stTf);
+        if (!st.allowed()) return st;
+
         Decision ema = emaStackCheck(ticker);
         if (!ema.allowed()) return ema;
 
-        log.info("[EntryGuard] PASS ticker={} — 30m ST up, EMA stack ok", ticker);
+        log.info("[EntryGuard] PASS ticker={} — {} ST up, EMA stack ok", ticker, stTf);
         return Decision.allow();
     }
 
@@ -228,16 +248,26 @@ public class EntryGuard {
             return Decision.block("EMA_INSUFFICIENT_DATA (completed=" + closes.size() + ", need>=" + slow + ")");
         }
 
-        BigDecimal emaFast = EmaCalculator.calculate(closes, fast);
-        BigDecimal emaMid  = EmaCalculator.calculate(closes, mid);
-        BigDecimal emaSlow = EmaCalculator.calculate(closes, slow);
+        boolean requireMid = props.entryGuard().emaRequireMid();
 
+        BigDecimal emaFast = EmaCalculator.calculate(closes, fast);
+        BigDecimal emaSlow = EmaCalculator.calculate(closes, slow);
         boolean fastAbove = emaFast.compareTo(emaSlow) > 0;
-        boolean midAbove  = emaMid.compareTo(emaSlow) > 0;
+
+        BigDecimal emaMid = null;
+        boolean midAbove = true;   // when the mid leg isn't required, treat it as satisfied
+        if (requireMid) {
+            emaMid = EmaCalculator.calculate(closes, mid);
+            midAbove = emaMid.compareTo(emaSlow) > 0;
+        }
+
         if (fastAbove && midAbove) {
             return Decision.allow();
         }
-        return Decision.block("EMA_STACK_FAIL (ema" + fast + "=" + emaFast + " ema" + mid + "=" + emaMid
-                + " ema" + slow + "=" + emaSlow + " — need both above ema" + slow + ")");
+        String need = requireMid ? "need ema" + fast + " & ema" + mid + " above ema" + slow
+                                 : "need ema" + fast + " above ema" + slow;
+        return Decision.block("EMA_STACK_FAIL (ema" + fast + "=" + emaFast
+                + (requireMid ? " ema" + mid + "=" + emaMid : "")
+                + " ema" + slow + "=" + emaSlow + " — " + need + ")");
     }
 }

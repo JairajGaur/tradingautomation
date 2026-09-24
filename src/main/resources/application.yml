@@ -71,9 +71,11 @@ webull:
     # 429 TOO_MANY_REQUESTS. Webull's Data API limit is 300/60s (=5/s), so keep
     # this BELOW 5 for headroom (retries, order + snapshot calls also count). 0 = unlimited.
     max-requests-per-second: 4
-    # Max bid/ask spread ($). If ask-bid exceeds this, no trade in any session
-    # (buy or exit). Also blocks when bid/ask are unavailable.
-    max-spread-usd: 0.05
+    # Max bid/ask spread as a FRACTION of the mid price (scales across price levels).
+    # (ask-bid)/mid must be <= this or no trade is placed in any session (buy or exit).
+    # 0.003 = 0.30% of price. Also blocks when bid/ask are unavailable. 0 = disable width check.
+    max-spread-pct: 0.003
+
 
   # ── Strategy enable / disable ────────────────────────────────────────────
   strategies:
@@ -149,16 +151,25 @@ webull:
     factor: 3
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
-  # A BUY is only allowed when BOTH pass, checked on the latest COMPLETED bar,
-  # evaluated in order: 30m ST -> EMA stack
-  #   1. Supertrend is UP on 30m (uses webull.supertrend params)
-  #   2. On 1m: EMA100 > EMA600 AND EMA200 > EMA600
+  # Two legs, checked on the latest COMPLETED bar:
+  #   1. Supertrend is UP on `supertrend-timespan` (uses webull.supertrend params)
+  #   2. EMA stack on `ema-timespan`: EMA(fast) > EMA(slow), and (if ema-require-mid)
+  #      also EMA(mid) > EMA(slow).
+  # `condition-logic` combines the legs:
+  #   AND (default) = both must pass — strict, fewest but highest-quality arms.
+  #   OR            = arm once EITHER leg passes — looser, more arms. Under OR an
+  #                   unavailable leg just counts as "not passed"; the other can arm.
+  # Loosening levers (default = strict): drop the mid leg (ema-require-mid: false),
+  # use a faster ST timeframe (supertrend-timespan: M15), or switch to OR.
   entry-guard:
     enabled: true
     ema-fast: 100
     ema-mid: 200
     ema-slow: 600
     ema-timespan: "M1"
+    supertrend-timespan: "M10"      # M15 arms sooner / more often (more whipsaw)
+    ema-require-mid: false           # false = only require EMA(fast) > EMA(slow)
+    condition-logic: "OR"          # AND = both legs; OR = either leg arms
 
   # ── Market hours (America/New_York) ──────────────────────────────────────
   market-hours:

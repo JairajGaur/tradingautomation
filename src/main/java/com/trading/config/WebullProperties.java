@@ -90,11 +90,13 @@ public record WebullProperties(
             @DefaultValue("5") int maxRequestsPerSecond,
 
             /**
-             * Max allowed bid/ask spread in dollars. If (ask − bid) exceeds this, no
-             * trade is placed in ANY session (buy or exit). Also blocks when bid/ask
-             * are unavailable. Default 0.05 ($0.05).
+             * Max allowed bid/ask spread as a FRACTION of the mid price, i.e.
+             * (ask − bid) / ((ask + bid) / 2). If the spread exceeds this, no trade is
+             * placed in ANY session (buy or exit). A percentage cap scales across price
+             * levels (unlike a flat dollar cap): 0.003 = 0.30% of price. Also blocks
+             * when bid/ask are unavailable. Set to 0 to disable the width check.
              */
-            @DefaultValue("0.05") java.math.BigDecimal maxSpreadUsd
+            @DefaultValue("0.003") java.math.BigDecimal maxSpreadPct
     ) {}
 
     public record Strategies(
@@ -254,30 +256,45 @@ public record WebullProperties(
 
     /**
      * Universal entry guard applied to every BUY (long/call) across all strategies.
-     * A BUY is only allowed when ALL checks pass. They are evaluated fail-fast in
-     * this fixed order (slowest/cached first, fastest last):
+     * The guard has two legs:
      *
      * <ol>
-     *   <li><b>30m Supertrend UP</b> — using {@code webull.supertrend} params.</li>
-     *   <li><b>EMA stack</b> on 1-minute bars: EMA{@code emaFast} and EMA{@code emaMid}
-     *       are both above EMA{@code emaSlow} (default 100 &amp; 200 above 600).</li>
+     *   <li><b>Supertrend UP</b> on {@code supertrendTimespan} (default M30) — using
+     *       {@code webull.supertrend} params.</li>
+     *   <li><b>EMA stack</b> on {@code emaTimespan} (default M1): EMA{@code emaFast}
+     *       above EMA{@code emaSlow}, and — when {@code emaRequireMid} is true (default) —
+     *       EMA{@code emaMid} above EMA{@code emaSlow} too (default 100 &amp; 200 above 600).</li>
      * </ol>
      *
-     * <p>All Supertrend checks use the latest <em>completed</em> bar. The first
-     * failing check short-circuits and blocks the buy.</p>
+     * <p>{@code conditionLogic} controls how the two legs combine:</p>
+     * <ul>
+     *   <li><b>AND</b> (default) — both legs must pass. Strictest; fewest, highest-quality
+     *       arms. A missing/unavailable leg blocks.</li>
+     *   <li><b>OR</b> — the ticker arms once EITHER leg passes. Looser; more arms. A
+     *       missing/unavailable leg simply counts as "that leg didn't pass", so the other
+     *       leg can still arm the ticker.</li>
+     * </ul>
      *
-     * @param enabled      master on/off (default true)
-     * @param emaFast      fast EMA period that must exceed the slow EMA (default 100)
-     * @param emaMid       mid EMA period that must exceed the slow EMA (default 200)
-     * @param emaSlow      slow EMA baseline (default 600)
-     * @param emaTimespan  timespan for the EMA-stack check (default M1)
+     * <p>All Supertrend checks use the latest <em>completed</em> bar.</p>
+     *
+     * @param enabled            master on/off (default true)
+     * @param emaFast            fast EMA period that must exceed the slow EMA (default 100)
+     * @param emaMid             mid EMA period that must exceed the slow EMA (default 200)
+     * @param emaSlow            slow EMA baseline (default 600)
+     * @param emaTimespan        timespan for the EMA-stack check (default M1)
+     * @param supertrendTimespan timespan for the Supertrend leg (default M30)
+     * @param emaRequireMid      when true, also require EMA{@code emaMid} > EMA{@code emaSlow} (default true)
+     * @param conditionLogic     how the two legs combine: {@code AND} (both) or {@code OR} (either). Default AND
      */
     public record EntryGuard(
             @DefaultValue("true")  boolean enabled,
             @DefaultValue("100")   int emaFast,
             @DefaultValue("200")   int emaMid,
             @DefaultValue("600")   int emaSlow,
-            @DefaultValue("M1")    String emaTimespan
+            @DefaultValue("M1")    String emaTimespan,
+            @DefaultValue("M30")   String supertrendTimespan,
+            @DefaultValue("true")  boolean emaRequireMid,
+            @DefaultValue("AND")   String conditionLogic
     ) {}
 
     /**
