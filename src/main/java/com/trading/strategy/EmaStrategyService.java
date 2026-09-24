@@ -108,15 +108,38 @@ public class EmaStrategyService implements TradingStrategy {
         List<BigDecimal> closes = closes(completed);
         BigDecimal ema = EmaCalculator.calculate(closes, period);
 
-        // Entry: completed bar's open strictly above the 600-EMA.
-        if (signalBar.open().compareTo(ema) <= 0) {
-            log.debug("[{}] ticker={} open={} not above ema{}={} ({}) — no entry",
-                    name(), ticker, signalBar.open(), period, ema, tf);
+        // Entry: a bullish candle NEAR the 600-EMA (either side), closing above it, on
+        // the latest completed bar — captures a bounce OR an open-on-EMA momentum bar,
+        // while rejecting bars floating far above the EMA (chasing highs). Require:
+        // green, close above the EMA, low within the proximity band of the EMA,
+        // optional wick rejection (off by default), and a strong body.
+        BigDecimal open  = signalBar.open();
+        BigDecimal close = signalBar.close();
+        BigDecimal high  = signalBar.high();
+        BigDecimal low   = signalBar.low();
+
+        boolean bullish     = close.compareTo(open) > 0;
+        boolean heldAbove   = close.compareTo(ema) > 0;
+        BigDecimal band     = props.strategies().ema600ProximityBand();
+        BigDecimal nearMax  = ema.multiply(BigDecimal.ONE.add(band));      // low must be <= this
+        boolean nearEma     = low.compareTo(nearMax) <= 0;                 // dipped near the EMA
+        boolean wickOk      = !props.strategies().ema600RequireWickRejection()
+                              || low.compareTo(ema) < 0;                   // probed below the EMA
+        BigDecimal range    = high.subtract(low);
+        BigDecimal body     = close.subtract(open);
+        boolean bodyOk      = range.signum() <= 0
+                              || body.compareTo(range.multiply(props.strategies().ema600BodyMinRatio())) >= 0;
+
+        if (!(bullish && heldAbove && nearEma && wickOk && bodyOk)) {
+            log.debug("[{}] ticker={} {} no bounce entry (ema{}={} O={} H={} L={} C={} | "
+                            + "bullish={} heldAbove={} nearEma={} wickOk={} bodyOk={})",
+                    name(), ticker, tf, period, ema, open, high, low, close,
+                    bullish, heldAbove, nearEma, wickOk, bodyOk);
             return;
         }
 
-        log.info("[{}] *** BUY SIGNAL *** ticker={} {} open={} > ema{}={} (guard passed)",
-                name(), ticker, tf, signalBar.open(), period, ema);
+        log.info("[{}] *** BUY SIGNAL *** ticker={} {} bullish near 600-EMA: C={} > ema600={}, low={} (guard passed)",
+                name(), ticker, tf, close, ema, low);
 
         int qty = props.trading().orderQuantity();
 

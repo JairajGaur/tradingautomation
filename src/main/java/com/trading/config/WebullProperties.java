@@ -131,7 +131,29 @@ public record WebullProperties(
              * for this many minutes. Prevents immediate re-entry / churn on the same
              * name. Default 30. 0 disables.
              */
-            @DefaultValue("30") int reTradeCooldownMinutes
+            @DefaultValue("30") int reTradeCooldownMinutes,
+
+            /**
+             * 600-EMA strategy entry — a bullish candle NEAR the 600-EMA (either side),
+             * closing above it, on the latest completed bar. Captures both a bounce off
+             * the EMA and an open-on-EMA momentum candle, while rejecting bars floating
+             * far above the EMA (chasing highs). Checks:
+             * <ul>
+             *   <li>bullish: {@code close > open};</li>
+             *   <li>closing above the EMA: {@code close > ema600};</li>
+             *   <li>near the EMA: {@code low <= ema600 * (1 + proximityBand)} (low may be
+             *       above or below the EMA — just close to it);</li>
+             *   <li>optional wick rejection ({@code low < ema600}) — off by default;</li>
+             *   <li>body strength: body ≥ {@code bodyMinRatio} × candle range.</li>
+             * </ul>
+             *
+             * @param ema600ProximityBand how near the low must be to the EMA (default 0.005 = 0.5%)
+             * @param ema600RequireWickRejection require {@code low < ema600} (default false)
+             * @param ema600BodyMinRatio min body/range ratio, skips dojis (default 0.5)
+             */
+            @DefaultValue("0.005") java.math.BigDecimal ema600ProximityBand,
+            @DefaultValue("false") boolean ema600RequireWickRejection,
+            @DefaultValue("0.5")   java.math.BigDecimal ema600BodyMinRatio
     ) {}
 
     /**

@@ -94,6 +94,12 @@ webull:
     # Cooldown: once a ticker is bought or exited, don't trade it again for this
     # many minutes (prevents immediate re-entry / churn). 0 = disabled.
     re-trade-cooldown-minutes: 30
+    # 600-EMA entry = a bullish candle NEAR the 600-EMA (either side) closing above
+    # it, on the latest completed bar. Captures a bounce OR an open-on-EMA momentum
+    # candle, while rejecting bars floating far above the EMA (chasing highs).
+    ema600-proximity-band: 0.005          # low must be within 0.5% of the EMA
+    ema600-require-wick-rejection: false  # true = also require low < EMA
+    ema600-body-min-ratio: 0.5            # body >= 50% of candle range (skip dojis)
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
   # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),
