@@ -158,37 +158,48 @@ public record WebullProperties(
 
     /**
      * Universal EXIT rule for any bot-opened position (independent of the entry
-     * strategy). A position is sold at market when EITHER condition is met:
-     * <ol>
-     *   <li>price ≤ entry × (1 − {@code stopLossPct}) — default −10%; or</li>
-     *   <li>a fresh bearish EMA cross on {@code timeframe}: EMA{@code emaFast} was ≥
-     *       EMA{@code emaSlow} on the prior completed bar and is now below it
-     *       (default 8-EMA crossing under 20-EMA).</li>
-     * </ol>
-     * Evaluated every minute on the exit {@code timeframe}, separate from entry.
+     * strategy). Implements a staged trailing stop so losers are cut at a small,
+     * known risk while winners are allowed to run with the trend. The stop only ever
+     * ratchets UP; the position is sold at market once price falls to/through it, or
+     * when the trend fails on the EMA state.
      *
-     * <p><b>Breakeven stop:</b> once price reaches {@code breakevenTriggerPct} above
-     * entry (default +0.50%), a breakeven stop is armed at {@code entry + buffer},
-     * where buffer = the current bid/ask spread (at least {@code breakevenMinBufferUsd}).
-     * Thereafter the position is sold if price drops to or below that level — locking
-     * in a tiny profit so a pullback can't turn a winner into a loss.</p>
+     * <p><b>Stages (each raises the effective stop):</b></p>
+     * <ol>
+     *   <li><b>Hard stop</b> — initial backstop at {@code entry × (1 − stopLossPct)}
+     *       (default −2%). Bounds the worst-case single-trade loss.</li>
+     *   <li><b>Breakeven</b> — once price reaches {@code breakevenTriggerPct} above
+     *       entry (default +1%), the stop moves up to {@code entry + buffer}
+     *       (buffer = current spread, at least {@code breakevenMinBufferUsd}) so the
+     *       trade can no longer turn into a loss.</li>
+     *   <li><b>Structure trail</b> — once price reaches {@code trailArmPct} above entry
+     *       (default +1%), the stop trails the PREVIOUS completed candle's low on the
+     *       exit {@code timeframe}, ratcheting up as the trend prints higher lows. This
+     *       "lets the winner run" and only exits when the trend breaks structure.</li>
+     * </ol>
+     * <p>Independently, an <b>EMA-bearish state</b> exit fires when the {@code emaFast}
+     * EMA is below the {@code emaSlow} EMA on {@code timeframe} (a state check, not just
+     * the crossing bar) — a trend-failure catch.</p>
+     *
+     * <p>Evaluated every minute on the exit {@code timeframe}, separate from entry.</p>
      *
      * @param enabled            master on/off (default true)
-     * @param stopLossPct        stop-loss fraction below entry (default 0.10 = 10%)
-     * @param emaFast            fast EMA period for the bearish cross (default 8)
-     * @param emaSlow            slow EMA period for the bearish cross (default 20)
-     * @param timeframe          bar timeframe for the exit checks (default M1)
-     * @param breakevenTriggerPct profit fraction that arms the breakeven stop (default 0.005 = 0.50%)
+     * @param stopLossPct        hard-stop fraction below entry (default 0.02 = 2%)
+     * @param emaFast            fast EMA period for the bearish state exit (default 8)
+     * @param emaSlow            slow EMA period for the bearish state exit (default 20)
+     * @param timeframe          bar timeframe for the exit checks (default M5)
+     * @param breakevenTriggerPct profit fraction that arms the breakeven stop (default 0.01 = 1%)
      * @param breakevenMinBufferUsd minimum buffer above entry for the breakeven stop ($, default 0.02)
+     * @param trailArmPct        profit fraction that arms the structure trail (default 0.01 = 1%)
      */
     public record Exit(
             @DefaultValue("true")  boolean enabled,
-            @DefaultValue("0.10")  java.math.BigDecimal stopLossPct,
+            @DefaultValue("0.02")  java.math.BigDecimal stopLossPct,
             @DefaultValue("8")     int emaFast,
             @DefaultValue("20")    int emaSlow,
-            @DefaultValue("M1")    String timeframe,
-            @DefaultValue("0.005") java.math.BigDecimal breakevenTriggerPct,
-            @DefaultValue("0.02")  java.math.BigDecimal breakevenMinBufferUsd
+            @DefaultValue("M5")    String timeframe,
+            @DefaultValue("0.01")  java.math.BigDecimal breakevenTriggerPct,
+            @DefaultValue("0.02")  java.math.BigDecimal breakevenMinBufferUsd,
+            @DefaultValue("0.01")  java.math.BigDecimal trailArmPct
     ) {}
 
     /**

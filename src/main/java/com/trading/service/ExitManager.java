@@ -11,21 +11,25 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
  * Universal EXIT rule for every bot-opened position, independent of the strategy
  * that entered it. Evaluated every minute (on the configured exit timeframe).
  *
- * <p>A position is sold at market (full quantity) when ANY of these hits first,
- * checked on the exit timeframe's latest completed bar:</p>
+ * <p>Uses a staged TRAILING stop — small bounded risk on losers, room for winners to
+ * run the trend. The effective stop only ever ratchets UP. A position is sold at
+ * market (full quantity) when ANY of these hits first, checked on the exit timeframe's
+ * latest completed bar:</p>
  * <ol>
- *   <li><b>Stop-loss</b> — current price ≤ entry × (1 − {@code exit.stop-loss-pct}), default −10%.</li>
+ *   <li><b>Hard stop</b> — price ≤ entry × (1 − {@code exit.stop-loss-pct}), default −2%.</li>
+ *   <li><b>Trailing stop</b> — the ratcheted stop: breakeven (entry + buffer) once price
+ *       reaches +{@code breakeven-trigger-pct}, then the previous completed candle's low
+ *       once price reaches +{@code trail-arm-pct}. Sells when price falls to/through it.</li>
  *   <li><b>EMA bearish state</b> — {@code emaFast} EMA is below {@code emaSlow} EMA
  *       (a state check, not just the crossing bar — so it still exits when the cross
  *       happened earlier and remains bearish).</li>
- *   <li><b>Below previous low</b> — current price is below the previous completed
- *       candle's low.</li>
  * </ol>
  */
 @Service
@@ -42,9 +46,10 @@ public class ExitManager {
     private final AccountService accountService;
     private final TradeCooldown tradeCooldown;
 
-    // Per-ticker breakeven stop level, armed once price reaches the trigger profit.
-    // Present = armed; value = the stop price (entry + buffer).
-    private final java.util.Map<String, java.math.BigDecimal> breakevenStop =
+    // Per-ticker effective stop level. Starts unset (only the -stop-loss-pct hard
+    // stop applies); once breakeven arms it holds entry+buffer; once the structure
+    // trail arms it ratchets up to each higher previous-candle low. Only ever moves UP.
+    private final java.util.Map<String, java.math.BigDecimal> stopLevel =
             new java.util.concurrent.ConcurrentHashMap<>();
 
     public ExitManager(WebullProperties props,
@@ -81,7 +86,7 @@ public class ExitManager {
             log.info("[ExitManager] ticker={} no longer held on Webull (tracked={}) — "
                     + "clearing stale tracker entry (closed externally)", ticker, pos.quantity());
             positionTracker.closePosition(ticker);
-            breakevenStop.remove(ticker);
+            stopLevel.remove(ticker);
             tradeCooldown.record(ticker);   // externally closed also starts the cooldown
             return;
         }
@@ -98,7 +103,7 @@ public class ExitManager {
                 orderService.placeExitSell(ticker, pos.quantity(), "EXIT_" + reason);
         if (result.success()) {
             positionTracker.closePosition(ticker);
-            breakevenStop.remove(ticker);
+            stopLevel.remove(ticker);
             tradeCooldown.record(ticker);   // start the re-trade cooldown on exit
             log.info("[ExitManager] Closed ticker={} ({})", ticker, reason);
         } else {
@@ -108,7 +113,16 @@ public class ExitManager {
 
     /**
      * Returns a short reason string when the position should be exited, else null.
-     * Checks the stop-loss first (cheap, uses current price), then the EMA cross.
+     *
+     * <p>Staged trailing stop, evaluated on the exit timeframe's latest COMPLETED bar:</p>
+     * <ol>
+     *   <li><b>Hard stop</b> — price ≤ entry × (1 − stopLossPct). Bounded backstop.</li>
+     *   <li><b>Ratchet</b> — raise the effective stop as the trade proves itself:
+     *       breakeven (entry + buffer) at +breakevenTriggerPct, then the previous
+     *       candle's low at +trailArmPct. The stop only ever moves UP.</li>
+     *   <li><b>Trailing stop hit</b> — price ≤ the ratcheted stop level.</li>
+     *   <li><b>EMA-bearish state</b> — emaFast below emaSlow (trend-failure catch).</li>
+     * </ol>
      */
     private String exitReason(String ticker, Position pos) {
         String tf = props.exit().timeframe();
@@ -116,32 +130,7 @@ public class ExitManager {
         BigDecimal price = currentPrice(ticker);
         BigDecimal entry = pos.entryPrice();
 
-        if (price != null && entry != null && entry.signum() > 0) {
-            // 1. Hard stop-loss vs entry.
-            BigDecimal floor = entry.multiply(BigDecimal.ONE.subtract(props.exit().stopLossPct()));
-            if (price.compareTo(floor) <= 0) {
-                return "STOP_LOSS(price=" + price + "<=floor=" + floor + ")";
-            }
-
-            // 2. Breakeven stop. Arm it once price reaches the trigger profit, at
-            //    entry + buffer (buffer = current spread, min configured). Once armed,
-            //    exit if price drops to/below that level — locks a tiny profit so a
-            //    pullback can't turn the winner into a loss.
-            BigDecimal beStop = breakevenStop.get(ticker);
-            if (beStop == null) {
-                BigDecimal trigger = entry.multiply(BigDecimal.ONE.add(props.exit().breakevenTriggerPct()));
-                if (price.compareTo(trigger) >= 0) {
-                    BigDecimal buffer = currentSpread(ticker).max(props.exit().breakevenMinBufferUsd());
-                    beStop = entry.add(buffer);
-                    breakevenStop.put(ticker, beStop);
-                    log.info("[ExitManager] {} — breakeven stop ARMED at {} (entry={} +buffer={}); price={}",
-                            ticker, beStop, entry, buffer, price);
-                }
-            } else if (price.compareTo(beStop) <= 0) {
-                return "BREAKEVEN_STOP(price=" + price + "<=" + beStop + ")";
-            }
-        }
-
+        // Need the latest completed bar for the structure trail.
         int fast = props.exit().emaFast();
         int slow = props.exit().emaSlow();
         List<Candle> bars = barData.getBars(ticker, tf, slow + 100);
@@ -151,7 +140,45 @@ public class ExitManager {
         List<Candle> completed = bars.subList(0, n - 1);
         Candle prevBar = completed.get(completed.size() - 1);   // latest COMPLETED bar
 
-        // 2. EMA STATE: fast below slow (not just the crossing bar) → bearish → exit.
+        if (price != null && entry != null && entry.signum() > 0) {
+            // 1. Hard stop-loss vs entry — the bounded worst-case backstop.
+            BigDecimal floor = entry.multiply(BigDecimal.ONE.subtract(props.exit().stopLossPct()));
+            if (price.compareTo(floor) <= 0) {
+                return "STOP_LOSS(price=" + price + "<=floor=" + floor + ")";
+            }
+
+            // 2. Ratchet the effective stop UP as the trade earns it. Never lowers.
+            BigDecimal gainFrac = price.subtract(entry)
+                    .divide(entry, 8, RoundingMode.HALF_UP);      // (price-entry)/entry
+            BigDecimal current = stopLevel.get(ticker);
+            BigDecimal candidate = current;
+
+            // 2a. Breakeven: at +breakevenTriggerPct, lift stop to entry + buffer.
+            if (gainFrac.compareTo(props.exit().breakevenTriggerPct()) >= 0) {
+                BigDecimal buffer = currentSpread(ticker).max(props.exit().breakevenMinBufferUsd());
+                candidate = maxNullable(candidate, entry.add(buffer));
+            }
+            // 2b. Structure trail: at +trailArmPct, trail the previous candle's low.
+            if (gainFrac.compareTo(props.exit().trailArmPct()) >= 0) {
+                candidate = maxNullable(candidate, prevBar.low());
+            }
+
+            // Commit only upward moves (or the first arming).
+            if (candidate != null && (current == null || candidate.compareTo(current) > 0)) {
+                stopLevel.put(ticker, candidate);
+                log.info("[ExitManager] {} — stop ratcheted to {} (entry={} price={} gain={}%)",
+                        ticker, candidate, entry, price,
+                        gainFrac.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP));
+                current = candidate;
+            }
+
+            // 3. Trailing / breakeven stop hit.
+            if (current != null && price.compareTo(current) <= 0) {
+                return "TRAIL_STOP(price=" + price + "<=" + current + " on " + tf + ")";
+            }
+        }
+
+        // 4. EMA STATE: fast below slow (not just the crossing bar) → bearish → exit.
         //    Catches the case where the cross happened earlier and stays bearish.
         List<BigDecimal> closes = closes(completed);
         if (closes.size() >= slow) {
@@ -162,12 +189,14 @@ public class ExitManager {
             }
         }
 
-        // 3. Price broke below the previous completed candle's low → exit.
-        if (price != null && price.compareTo(prevBar.low()) < 0) {
-            return "BELOW_PREV_LOW(price=" + price + "<prevLow=" + prevBar.low() + " on " + tf + ")";
-        }
-
         return null;
+    }
+
+    /** Returns the larger of a (possibly null) current value and a candidate. */
+    private static BigDecimal maxNullable(BigDecimal current, BigDecimal candidate) {
+        if (current == null) return candidate;
+        if (candidate == null) return current;
+        return candidate.compareTo(current) > 0 ? candidate : current;
     }
 
     private BigDecimal currentPrice(String ticker) {

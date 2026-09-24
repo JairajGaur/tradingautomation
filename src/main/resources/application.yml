@@ -102,21 +102,29 @@ webull:
     ema600-body-min-ratio: 0.5            # body >= 50% of candle range (skip dojis)
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
-  # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),
-  # Sell when ANY hits first (on the exit timeframe): -stop-loss-pct from entry,
-  # OR ema-fast EMA below ema-slow EMA (state, not just the crossing bar),
-  # OR price below the previous completed candle's low.
+  # Staged TRAILING stop — cut losers small, let winners run the trend. The stop
+  # only ever ratchets UP; sell at market once price falls to/through it. Stages
+  # (checked on the exit timeframe, latest COMPLETED bar):
+  #   1. Hard stop      — entry * (1 - stop-loss-pct). Worst-case backstop.
+  #   2. Breakeven      — at +breakeven-trigger-pct, move stop to entry + buffer.
+  #   3. Structure trail— at +trail-arm-pct, trail the PREVIOUS candle's low,
+  #                       ratcheting up as the trend prints higher lows.
+  # Plus an EMA-bearish STATE exit (ema-fast below ema-slow) as a trend-failure catch.
   exit:
     enabled: true
-    stop-loss-pct: 0.10        # -10% hard stop from entry
+    stop-loss-pct: 0.02        # -2% hard stop from entry (real, bounded backstop)
     ema-fast: 20
     ema-slow: 50
-    timeframe: "M1"            # exit checks run every minute on this timeframe
-    # Breakeven stop: once price is >= this % above entry, arm a stop at
-    # entry + buffer (buffer = current bid/ask spread, min breakeven-min-buffer-usd).
-    # Then sell if price drops to/below that level (lock in a tiny profit, no loss).
-    breakeven-trigger-pct: 0.005     # +0.50%
+    timeframe: "M5"            # exit checks run on M5 (slower than entry; less noise)
+    # Breakeven stop: once price is >= this % above entry, move the stop up to
+    # entry + buffer (buffer = current bid/ask spread, min breakeven-min-buffer-usd)
+    # so the trade can no longer turn into a loss.
+    breakeven-trigger-pct: 0.01      # +1.0%
     breakeven-min-buffer-usd: 0.02
+    # Structure trail: once price is >= this % above entry, trail the stop at the
+    # previous completed candle's low (only moves up). Lets a winner run until the
+    # trend breaks structure. Keep >= breakeven-trigger-pct.
+    trail-arm-pct: 0.01              # +1.0%
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────
   diagnostics:
