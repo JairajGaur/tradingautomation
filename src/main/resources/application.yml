@@ -167,7 +167,7 @@ webull:
     ema-mid: 200
     ema-slow: 600
     ema-timespan: "M1"
-    supertrend-timespan: "M10"      # M15 arms sooner / more often (more whipsaw)
+    supertrend-timespan: "M15"      # M15 arms sooner / more often (more whipsaw). Webull has no M10.
     ema-require-mid: false           # false = only require EMA(fast) > EMA(slow)
     condition-logic: "OR"          # AND = both legs; OR = either leg arms
 
@@ -179,7 +179,7 @@ webull:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "07:30"
+    pre-market-open: "04:00"
     after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────

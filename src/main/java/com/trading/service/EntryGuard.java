@@ -209,18 +209,29 @@ public class EntryGuard {
         return Decision.allow();
     }
 
-    /** Computes the latest COMPLETED-bar Supertrend direction, or null if unavailable. */
+    /**
+     * Computes the latest COMPLETED-bar Supertrend direction, or null if unavailable.
+     * Any failure (e.g. an unsupported {@code timespan}, or a bar-fetch error) is
+     * caught and treated as "unavailable" rather than propagated — so one leg failing
+     * cleanly blocks/OR-skips instead of aborting the whole guard evaluation.
+     */
     private Direction computeLatestSupertrend(String ticker, String timespan) {
-        int len = supertrend.length();
-        // Need enough bars for a stable ATR seed; request a healthy window.
-        int count = Math.max(len * 10, 120);
-        List<Candle> bars = barData.getBars(ticker, timespan, count);
-        // latestCompletedDirection drops the last (possibly in-progress) bar itself.
-        Direction dir = supertrend.latestCompletedDirection(bars);
-        if (dir == null) {
-            log.warn("[EntryGuard] ST unavailable for {} {} (bars={})", ticker, timespan, bars.size());
+        try {
+            int len = supertrend.length();
+            // Need enough bars for a stable ATR seed; request a healthy window.
+            int count = Math.max(len * 10, 120);
+            List<Candle> bars = barData.getBars(ticker, timespan, count);
+            // latestCompletedDirection drops the last (possibly in-progress) bar itself.
+            Direction dir = supertrend.latestCompletedDirection(bars);
+            if (dir == null) {
+                log.warn("[EntryGuard] ST unavailable for {} {} (bars={})", ticker, timespan, bars.size());
+            }
+            return dir;
+        } catch (Exception e) {
+            log.warn("[EntryGuard] ST computation failed for {} {}: {} — treating as unavailable",
+                    ticker, timespan, e.getMessage());
+            return null;
         }
-        return dir;
     }
 
     // -----------------------------------------------------------------------
