@@ -1,0 +1,47 @@
+meta {
+  name: Scan
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/entry-guard/scan
+  body: none
+  auth: none
+}
+
+params:query {
+  ~tickers: AAPL,MSFT,TSLA
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Entry Guard — Scan
+  
+  Evaluates tickers against the universal entry guard and returns which ones
+  currently PASS. Read-only diagnostic: it runs the exact logic that gates every
+  BUY, under the current webull.entry-guard.* config, so results match what the
+  bot would allow right now. Does NOT arm tickers or place orders.
+  
+  ## Query
+  - `tickers` — optional comma-separated symbols to scan instead of the
+    watchlist (e.g. AAPL,MSFT,TSLA). Any US symbol works. Omit to scan the
+    configured watchlist.
+  
+  ## Response (200)
+  { guardConfig: { enabled, supertrendTimespan, emaTimespan, emaFast, emaMid,
+                   emaSlow, emaRequireMid, conditionLogic },
+    scanned, passedCount,
+    passed: [ ...tickers that passed... ],
+    results: [ { ticker, passed, reason } ],
+    mode, timestamp }
+  
+  The `reason` explains a failure (e.g. ST_NOT_UP_M15, EMA_STACK_FAIL(...),
+  ST_UNAVAILABLE_M15, or OR_BOTH_FAIL[...]). `passed` is the list you want.
+  
+  ## Errors
+  - `400` — nothing to scan (empty watchlist and no ?tickers=).
+}
