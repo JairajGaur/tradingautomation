@@ -86,7 +86,7 @@ webull:
     # Volume filter (all strategy BUYs): only enter when average 1-min volume is
     # rising — over the last `volume-lookback` completed bars, the recent-half average
     # volume must exceed the older-half average (e.g. last 10 vs prior 10).
-    volume-filter-enabled: true
+    volume-filter-enabled: false
     volume-lookback: 20
     # If a signal fires but volume isn't rising yet, hold it this many minutes and
     # re-check volume each bar; buy if it turns rising, else drop. 0 = no hold.
@@ -156,11 +156,11 @@ webull:
   market-hours:
     core-open: "09:30"
     core-close: "16:00"
-    # Extended hours ON so pre-market (04:00–09:30) is a valid ENTRY window.
+    # Extended hours ON so the pre-market (07:30–09:30) is a valid ENTRY window.
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
-    # run 04:00–16:00 ET (pre-market + regular), stopping at 4 PM.
+    # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "04:00"
+    pre-market-open: "07:30"
     after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────

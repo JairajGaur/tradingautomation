@@ -39,8 +39,18 @@ import java.util.stream.Collectors;
  *   <li><b>Market hours</b> — {@link MarketHoursGuard#isTradingAllowed()}</li>
  *   <li><b>Daily drawdown halt</b> — {@link RiskManager#isTradingHalted()}</li>
  * </ol>
- * Then, for each ticker × each enabled strategy, fetches the latest candle and
- * dispatches it via {@link TradingStrategy#onCandle}.
+ * <p>Bar-fetch scope depends on the minute:</p>
+ * <ul>
+ *   <li><b>30-min boundary (:01/:31):</b> fetch M1 + M30 for the full watchlist and
+ *       re-evaluate the entry guard for every ticker. This is the only minute arming
+ *       can change (guard state is driven by the completed 30m bar).</li>
+ *   <li><b>Every other minute:</b> fetch M1 and dispatch strategies ONLY for armed
+ *       tickers plus open positions. Un-armed, un-held tickers are skipped entirely —
+ *       they can't enter and their guard state can't change until the next :31 sweep,
+ *       so pulling their data would be wasted API calls.</li>
+ * </ul>
+ * Exits are unaffected by this scoping: {@code ExitManager} fetches its own bars on
+ * the exit timeframe and reads price/spread from the snapshot API.
  *
  * <h2>Daily reset</h2>
  * A separate {@code @Scheduled} method fires at 04:00 ET every day to reset the
@@ -214,29 +224,44 @@ public class TradingOrchestrator {
         }
 
         List<String> tickers = watchlistLoader.getTickers();
-
-        // Batch-refresh bars for the whole watchlist BEFORE guard/strategy work, so all
-        // the per-ticker getBars reads below are cache hits (1 Webull call per timeframe
-        // instead of one per ticker). M1 every tick; M30 only at the :01/:31 boundary.
         int warmupBars = props.trading().warmupBars();
-        barData.getBarsBatch(tickers, "M1", warmupBars);
-        if (isThirtyMinuteBoundary()) {
-            barData.getBarsBatch(tickers, "M30", warmupBars);
-        }
+        boolean boundary = isThirtyMinuteBoundary();
 
-        // Entry-guard arming:
-        //   • On each 30-min boundary (:01/:31) run the guard for EVERY ticker.
-        //   • Every other minute re-validate only ALREADY-ARMED tickers and drop
-        //     any whose guard has broken. Armed tickers wait for a strategy signal.
-        if (isThirtyMinuteBoundary()) {
+        if (boundary) {
+            // ── 30-min boundary (:01/:31) ──────────────────────────────────
+            // A ticker's guard state (30m Supertrend + EMA stack) can only change on a
+            // completed 30m bar, i.e. right here. So this is the ONLY minute we fetch
+            // the full watchlist and re-evaluate arming for every ticker.
+            barData.getBarsBatch(tickers, "M1", warmupBars);
+            barData.getBarsBatch(tickers, "M30", warmupBars);
+
             log.info("[Orchestrator] 30-min boundary — running entry guard for all {} ticker(s)", tickers.size());
             runPerTicker(tickers, entryGuard::refreshArmed);
-        } else {
-            runPerTicker(new ArrayList<>(entryGuard.armedTickers()), entryGuard::revalidateArmedTicker);
-        }
 
-        // Dispatch the tick to strategies, per ticker, in parallel.
-        runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
+            // Dispatch strategies to the full watchlist this tick (arming just refreshed).
+            runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
+        } else {
+            // ── Between boundaries ─────────────────────────────────────────
+            // Un-armed, un-held tickers CANNOT enter and their guard state won't change
+            // until the next :31 sweep — so we don't fetch or process them at all.
+            // Only armed tickers (candidates for a BUY) plus any open positions get a
+            // fresh M1 pull and a strategy tick.
+            java.util.Set<String> active = new java.util.LinkedHashSet<>(entryGuard.armedTickers());
+            active.addAll(positionTracker.allPositions().keySet());
+            if (active.isEmpty()) {
+                log.debug("[Orchestrator] No armed/held tickers — skipping M1 fetch and entries this tick");
+                return;
+            }
+
+            List<String> activeList = new ArrayList<>(active);
+            barData.getBarsBatch(activeList, "M1", warmupBars);
+
+            // Re-validate already-armed tickers and drop any whose guard has broken.
+            runPerTicker(new ArrayList<>(entryGuard.armedTickers()), entryGuard::revalidateArmedTicker);
+
+            // Dispatch strategies only to the armed/held set.
+            runPerTicker(activeList, ticker -> processTicker(ticker, enabled));
+        }
 
         // Re-check held signals (volume not yet rising) — buy if volume rose, else expire.
         pendingSignals.sweep();
