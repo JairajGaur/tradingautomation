@@ -42,6 +42,7 @@ public class EmaStrategyService implements TradingStrategy {
     private final com.trading.service.VolumeFilter volumeFilter;
     private final com.trading.service.PendingSignals pendingSignals;
     private final com.trading.service.EntryGuard entryGuard;
+    private final com.trading.service.TradeCooldown tradeCooldown;
 
     public EmaStrategyService(WebullProperties props,
                                BarDataManager barData,
@@ -49,7 +50,8 @@ public class EmaStrategyService implements TradingStrategy {
                                PositionTracker positionTracker,
                                com.trading.service.VolumeFilter volumeFilter,
                                com.trading.service.PendingSignals pendingSignals,
-                               com.trading.service.EntryGuard entryGuard) {
+                               com.trading.service.EntryGuard entryGuard,
+                               com.trading.service.TradeCooldown tradeCooldown) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
@@ -57,6 +59,7 @@ public class EmaStrategyService implements TradingStrategy {
         this.volumeFilter = volumeFilter;
         this.pendingSignals = pendingSignals;
         this.entryGuard = entryGuard;
+        this.tradeCooldown = tradeCooldown;
     }
 
     @Override
@@ -76,6 +79,11 @@ public class EmaStrategyService implements TradingStrategy {
         // A signal is already being held for this ticker (waiting on volume) — one per ticker.
         if (pendingSignals.isPending(ticker)) {
             log.debug("[{}] ticker={} — signal already pending on volume, skipping", name(), ticker);
+            return;
+        }
+        // Cooldown — don't re-trade a ticker within the window of its last buy/exit.
+        if (!tradeCooldown.canTrade(ticker)) {
+            log.debug("[{}] ticker={} — in re-trade cooldown, skipping", name(), ticker);
             return;
         }
 
@@ -133,6 +141,7 @@ public class EmaStrategyService implements TradingStrategy {
         BigDecimal fill = orderService.fetchFillPrice(ticker, signalBar.open())
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         positionTracker.openPosition(new Position(ticker, fill, qty, null, null, buyResult.clientOrderId()));
+        tradeCooldown.record(ticker);   // start the cooldown on entry
         log.info("[{}] ENTERED ticker={} fill={} qty={} (exit handled by ExitManager)",
                 name(), ticker, fill, qty);
     }

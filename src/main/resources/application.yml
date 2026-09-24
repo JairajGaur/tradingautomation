@@ -59,7 +59,7 @@ webull:
     ema-period: 600
     order-quantity: 1
     # EMA periods returned by the GET /api/ema/{ticker} endpoint
-    ema-periods: [20, 100, 200, 600]
+    ema-periods: [8, 20, 50, 100, 200, 600]
     # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):
     #   RTH = regular hours (09:30–16:00 ET), PRE = pre-market, ATH = after-hours, OVN = overnight
     # Endpoints accept a `sessions` query param to override this default per-request.
@@ -91,16 +91,26 @@ webull:
     # If a signal fires but volume isn't rising yet, hold it this many minutes and
     # re-check volume each bar; buy if it turns rising, else drop. 0 = no hold.
     volume-hold-minutes: 5
+    # Cooldown: once a ticker is bought or exited, don't trade it again for this
+    # many minutes (prevents immediate re-entry / churn). 0 = disabled.
+    re-trade-cooldown-minutes: 30
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
   # Sell at market when EITHER: price <= entry * (1 - stop-loss-pct),
-  # OR a fresh bearish cross of ema-fast below ema-slow on the exit timeframe.
+  # Sell when ANY hits first (on the exit timeframe): -stop-loss-pct from entry,
+  # OR ema-fast EMA below ema-slow EMA (state, not just the crossing bar),
+  # OR price below the previous completed candle's low.
   exit:
     enabled: true
     stop-loss-pct: 0.10        # -10% hard stop from entry
     ema-fast: 20
     ema-slow: 50
     timeframe: "M1"            # exit checks run every minute on this timeframe
+    # Breakeven stop: once price is >= this % above entry, arm a stop at
+    # entry + buffer (buffer = current bid/ask spread, min breakeven-min-buffer-usd).
+    # Then sell if price drops to/below that level (lock in a tiny profit, no loss).
+    breakeven-trigger-pct: 0.005     # +0.50%
+    breakeven-min-buffer-usd: 0.02
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────
   diagnostics:

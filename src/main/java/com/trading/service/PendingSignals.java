@@ -36,17 +36,20 @@ public class PendingSignals {
     private final OrderService orderService;
     private final PositionTracker positionTracker;
     private final EntryGuard entryGuard;
+    private final TradeCooldown tradeCooldown;
 
     public PendingSignals(WebullProperties props,
                           VolumeFilter volumeFilter,
                           @Lazy OrderService orderService,
                           PositionTracker positionTracker,
-                          @Lazy EntryGuard entryGuard) {
+                          @Lazy EntryGuard entryGuard,
+                          TradeCooldown tradeCooldown) {
         this.props = props;
         this.volumeFilter = volumeFilter;
         this.orderService = orderService;
         this.positionTracker = positionTracker;
         this.entryGuard = entryGuard;
+        this.tradeCooldown = tradeCooldown;
     }
 
     private record Pending(String strategy, int qty, Instant expiresAt) {}
@@ -114,12 +117,19 @@ public class PendingSignals {
                 continue;
             }
             // Volume rising → place the buy (guard/spread/affordability still apply).
+            // Respect the re-trade cooldown (the ticker may have traded since being held).
+            if (!tradeCooldown.canTrade(ticker)) {
+                log.info("[PendingSignals] DROPPED {} ({}) — in re-trade cooldown", ticker, p.strategy());
+                pending.remove(ticker);
+                continue;
+            }
             log.info("[PendingSignals] VOLUME ROSE for {} ({}) — placing held BUY", ticker, p.strategy());
             OrderService.OrderResult r = orderService.placeMarketBuy(ticker, p.qty(), p.strategy());
             if (r.success()) {
                 positionTracker.openPosition(new PositionTracker.Position(
                         ticker, orderService.fetchFillPrice(ticker, null), p.qty(),
                         null, null, r.clientOrderId()));
+                tradeCooldown.record(ticker);
             } else {
                 log.info("[PendingSignals] Held BUY for {} not placed: {}", ticker, r.message());
             }

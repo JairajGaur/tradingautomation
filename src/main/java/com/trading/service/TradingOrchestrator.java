@@ -60,6 +60,7 @@ public class TradingOrchestrator {
     private final ExitManager exitManager;
     private final BarDataManager barData;
     private final PendingSignals pendingSignals;
+    private final TradeCooldown tradeCooldown;
     private final com.trading.state.PositionTracker positionTracker;
     private final List<TradingStrategy> strategies;
 
@@ -79,6 +80,7 @@ public class TradingOrchestrator {
                                 ExitManager exitManager,
                                 BarDataManager barData,
                                 PendingSignals pendingSignals,
+                                TradeCooldown tradeCooldown,
                                 com.trading.state.PositionTracker positionTracker,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
@@ -92,6 +94,7 @@ public class TradingOrchestrator {
         this.exitManager = exitManager;
         this.barData = barData;
         this.pendingSignals = pendingSignals;
+        this.tradeCooldown = tradeCooldown;
         this.positionTracker = positionTracker;
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
@@ -334,6 +337,7 @@ public class TradingOrchestrator {
         riskManager.resetForNewDay();
         entryGuard.clearAll();   // no armed state carries over to the new day
         pendingSignals.clearAll();   // drop any held signals
+        tradeCooldown.clearAll();    // reset per-ticker cooldowns
         barData.clear();         // drop cached bars; re-fetched fresh for the new day
 
         // Re-seed start-of-day equity for the new session

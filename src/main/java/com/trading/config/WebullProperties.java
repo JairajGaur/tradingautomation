@@ -124,7 +124,14 @@ public record WebullProperties(
              * turns rising within the window, else drop it. 0 disables holding (a signal
              * blocked by volume is dropped immediately). Default 5.
              */
-            @DefaultValue("5") int volumeHoldMinutes
+            @DefaultValue("5") int volumeHoldMinutes,
+
+            /**
+             * Cooldown: once a ticker is bought OR exited, it cannot be traded again
+             * for this many minutes. Prevents immediate re-entry / churn on the same
+             * name. Default 30. 0 disables.
+             */
+            @DefaultValue("30") int reTradeCooldownMinutes
     ) {}
 
     /**
@@ -138,18 +145,28 @@ public record WebullProperties(
      * </ol>
      * Evaluated every minute on the exit {@code timeframe}, separate from entry.
      *
-     * @param enabled     master on/off (default true)
-     * @param stopLossPct stop-loss fraction below entry (default 0.10 = 10%)
-     * @param emaFast     fast EMA period for the bearish cross (default 8)
-     * @param emaSlow     slow EMA period for the bearish cross (default 20)
-     * @param timeframe   bar timeframe for the exit checks (default M1)
+     * <p><b>Breakeven stop:</b> once price reaches {@code breakevenTriggerPct} above
+     * entry (default +0.50%), a breakeven stop is armed at {@code entry + buffer},
+     * where buffer = the current bid/ask spread (at least {@code breakevenMinBufferUsd}).
+     * Thereafter the position is sold if price drops to or below that level — locking
+     * in a tiny profit so a pullback can't turn a winner into a loss.</p>
+     *
+     * @param enabled            master on/off (default true)
+     * @param stopLossPct        stop-loss fraction below entry (default 0.10 = 10%)
+     * @param emaFast            fast EMA period for the bearish cross (default 8)
+     * @param emaSlow            slow EMA period for the bearish cross (default 20)
+     * @param timeframe          bar timeframe for the exit checks (default M1)
+     * @param breakevenTriggerPct profit fraction that arms the breakeven stop (default 0.005 = 0.50%)
+     * @param breakevenMinBufferUsd minimum buffer above entry for the breakeven stop ($, default 0.02)
      */
     public record Exit(
             @DefaultValue("true")  boolean enabled,
             @DefaultValue("0.10")  java.math.BigDecimal stopLossPct,
             @DefaultValue("8")     int emaFast,
             @DefaultValue("20")    int emaSlow,
-            @DefaultValue("M1")    String timeframe
+            @DefaultValue("M1")    String timeframe,
+            @DefaultValue("0.005") java.math.BigDecimal breakevenTriggerPct,
+            @DefaultValue("0.02")  java.math.BigDecimal breakevenMinBufferUsd
     ) {}
 
     /**

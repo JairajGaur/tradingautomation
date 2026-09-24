@@ -46,6 +46,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final com.trading.service.VolumeFilter volumeFilter;
     private final com.trading.service.PendingSignals pendingSignals;
     private final com.trading.service.EntryGuard entryGuard;
+    private final com.trading.service.TradeCooldown tradeCooldown;
 
     public EmaCrossoverStrategyService(WebullProperties props,
                                         BarDataManager barData,
@@ -53,7 +54,8 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
                                         PositionTracker positionTracker,
                                         com.trading.service.VolumeFilter volumeFilter,
                                         com.trading.service.PendingSignals pendingSignals,
-                                        com.trading.service.EntryGuard entryGuard) {
+                                        com.trading.service.EntryGuard entryGuard,
+                                        com.trading.service.TradeCooldown tradeCooldown) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
@@ -61,6 +63,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         this.volumeFilter = volumeFilter;
         this.pendingSignals = pendingSignals;
         this.entryGuard = entryGuard;
+        this.tradeCooldown = tradeCooldown;
     }
 
     @Override
@@ -77,6 +80,10 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         }
         if (pendingSignals.isPending(ticker)) {
             log.debug("[{}] ticker={} — signal already pending on volume, skipping", name(), ticker);
+            return;
+        }
+        if (!tradeCooldown.canTrade(ticker)) {
+            log.debug("[{}] ticker={} — in re-trade cooldown, skipping", name(), ticker);
             return;
         }
 
@@ -138,6 +145,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         BigDecimal fill = orderService.fetchFillPrice(ticker, completed.get(completed.size() - 1).open())
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         positionTracker.openPosition(new Position(ticker, fill, qty, null, null, buyResult.clientOrderId()));
+        tradeCooldown.record(ticker);   // start the cooldown on entry
         log.info("[{}] ENTERED ticker={} fill={} qty={} (exit handled by ExitManager)",
                 name(), ticker, fill, qty);
     }
