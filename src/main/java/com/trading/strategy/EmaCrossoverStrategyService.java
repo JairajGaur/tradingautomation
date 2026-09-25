@@ -47,6 +47,8 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final com.trading.service.PendingSignals pendingSignals;
     private final com.trading.service.EntryGuard entryGuard;
     private final com.trading.service.TradeCooldown tradeCooldown;
+    private final com.trading.service.QuantityManager quantityManager;
+    private final com.trading.service.AccountService accountService;
 
     public EmaCrossoverStrategyService(WebullProperties props,
                                         BarDataManager barData,
@@ -55,7 +57,9 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
                                         com.trading.service.VolumeFilter volumeFilter,
                                         com.trading.service.PendingSignals pendingSignals,
                                         com.trading.service.EntryGuard entryGuard,
-                                        com.trading.service.TradeCooldown tradeCooldown) {
+                                        com.trading.service.TradeCooldown tradeCooldown,
+                                        com.trading.service.QuantityManager quantityManager,
+                                        com.trading.service.AccountService accountService) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
@@ -64,6 +68,8 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         this.pendingSignals = pendingSignals;
         this.entryGuard = entryGuard;
         this.tradeCooldown = tradeCooldown;
+        this.quantityManager = quantityManager;
+        this.accountService = accountService;
     }
 
     @Override
@@ -123,7 +129,16 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={} (guard passed)",
                 name(), ticker, tf, ema20Now, ema100Now);
 
-        int qty = props.trading().orderQuantity();
+        // Common sizing via QuantityManager (SHARES or PERCENT-of-buying-power).
+        // Price basis = marketable ask; fall back to the latest completed close.
+        OrderService.Quote quote = orderService.fetchQuote(ticker);
+        BigDecimal sizingPrice = quote.ask() != null
+                ? quote.ask() : completed.get(completed.size() - 1).close();
+        int qty = quantityManager.quantityFor(ticker, sizingPrice, accountService.getBuyingPowerLive());
+        if (qty < 1) {
+            log.info("[{}] ticker={} — sizing resolved to 0 shares; skipping", name(), ticker);
+            return;
+        }
 
         // Volume filter: only enter when average 1-min volume is increasing. If not,
         // HOLD the signal (re-checked for the configured window) instead of dropping.

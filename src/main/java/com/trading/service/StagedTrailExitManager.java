@@ -33,11 +33,14 @@ import java.util.List;
  * </ol>
  */
 @Service
-public class ExitManager {
+public class StagedTrailExitManager implements PositionExitManager {
 
-    private static final Logger log = LoggerFactory.getLogger(ExitManager.class);
+    private static final Logger log = LoggerFactory.getLogger(StagedTrailExitManager.class);
 
     private static final String CATEGORY_US_STOCK = "US_STOCK";
+
+    @Override
+    public Kind kind() { return Kind.STAGED; }
 
     private final WebullProperties props;
     private final BarDataManager barData;
@@ -52,7 +55,7 @@ public class ExitManager {
     private final java.util.Map<String, java.math.BigDecimal> stopLevel =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    public ExitManager(WebullProperties props,
+    public StagedTrailExitManager(WebullProperties props,
                        BarDataManager barData,
                        PositionTracker positionTracker,
                        @Lazy OrderService orderService,
@@ -67,6 +70,7 @@ public class ExitManager {
     }
 
     /** Evaluates and, if warranted, exits a single ticker's open position. */
+    @Override
     public void evaluate(String ticker) {
         Position pos = positionTracker.getPosition(ticker).orElse(null);
         if (pos == null || pos.quantity() <= 0) return;

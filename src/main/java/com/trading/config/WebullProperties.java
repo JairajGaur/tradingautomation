@@ -96,7 +96,25 @@ public record WebullProperties(
              * levels (unlike a flat dollar cap): 0.003 = 0.30% of price. Also blocks
              * when bid/ask are unavailable. Set to 0 to disable the width check.
              */
-            @DefaultValue("0.003") java.math.BigDecimal maxSpreadPct
+            @DefaultValue("0.003") java.math.BigDecimal maxSpreadPct,
+
+            /**
+             * Position-sizing mode:
+             * <ul>
+             *   <li>{@code SHARES} — buy exactly {@code orderQuantity} shares (as long as
+             *       buying power covers it). {@code orderBuyingPowerPct} is ignored.</li>
+             *   <li>{@code PERCENT} — buy {@code floor(orderBuyingPowerPct × buyingPower / price)}
+             *       shares. {@code orderQuantity} is ignored. Skips when it resolves to 0.</li>
+             * </ul>
+             * Default SHARES (unchanged behavior).
+             */
+            @DefaultValue("SHARES") String sizingMode,
+
+            /**
+             * Fraction of live buying power to deploy per trade when {@code sizingMode=PERCENT}
+             * (e.g. 0.40 = 40%). Ignored in SHARES mode. Default 0.40.
+             */
+            @DefaultValue("0.40") java.math.BigDecimal orderBuyingPowerPct
     ) {}
 
     public record Strategies(
@@ -155,7 +173,26 @@ public record WebullProperties(
              */
             @DefaultValue("0.005") java.math.BigDecimal ema600ProximityBand,
             @DefaultValue("false") boolean ema600RequireWickRejection,
-            @DefaultValue("0.5")   java.math.BigDecimal ema600BodyMinRatio
+            @DefaultValue("0.5")   java.math.BigDecimal ema600BodyMinRatio,
+
+            /**
+             * "1m Supertrend + 20/50 Cross" strategy (standalone; bypasses the universal
+             * entry guard). Enters when, on {@code stCrossTimeframe}: the Supertrend is UP,
+             * a FRESH 20/50 EMA golden cross prints, price is above the EMAs listed in
+             * {@code stCrossAboveEmas}, and price is within {@code stCrossEma600Band} of the
+             * 600-EMA (either side). Exit is owned by the ST_CROSS exit manager.
+             *
+             * @param stCrossEnabled    enable this strategy (default false)
+             * @param stCrossTimeframe  timeframe for all its indicators (default M1)
+             * @param stCrossEmaCrossFast fast EMA of the golden cross (default 20)
+             * @param stCrossEmaCrossSlow slow EMA of the golden cross (default 50)
+             * @param stCrossEma600Band proximity to the 600-EMA required at entry (default 0.005 = 0.5%)
+             */
+            @DefaultValue("false") boolean stCrossEnabled,
+            @DefaultValue("M1")    String stCrossTimeframe,
+            @DefaultValue("20")    int stCrossEmaCrossFast,
+            @DefaultValue("50")    int stCrossEmaCrossSlow,
+            @DefaultValue("0.005") java.math.BigDecimal stCrossEma600Band
     ) {}
 
     /**
@@ -192,6 +229,11 @@ public record WebullProperties(
      * @param breakevenTriggerPct profit fraction that arms the breakeven stop (default 0.01 = 1%)
      * @param breakevenMinBufferUsd minimum buffer above entry for the breakeven stop ($, default 0.02)
      * @param trailArmPct        profit fraction that arms the structure trail (default 0.01 = 1%)
+     * @param manager            which exit manager is active: STAGED (staged trailing stop) or
+     *                           ST_CROSS (single 50-EMA trail). Exactly one runs. Default STAGED.
+     * @param ema50TrailTimeframe timeframe for the ST_CROSS 50-EMA trail (default M1)
+     * @param ema50TrailPct      ST_CROSS trail = ema50 × (1 − this); exit when price falls to/below
+     *                           it. Ratchets up only. Default 0.0005 = 0.05% below the 50-EMA.
      */
     public record Exit(
             @DefaultValue("true")  boolean enabled,
@@ -201,7 +243,10 @@ public record WebullProperties(
             @DefaultValue("M5")    String timeframe,
             @DefaultValue("0.01")  java.math.BigDecimal breakevenTriggerPct,
             @DefaultValue("0.02")  java.math.BigDecimal breakevenMinBufferUsd,
-            @DefaultValue("0.01")  java.math.BigDecimal trailArmPct
+            @DefaultValue("0.01")  java.math.BigDecimal trailArmPct,
+            @DefaultValue("STAGED") String manager,
+            @DefaultValue("M1")    String ema50TrailTimeframe,
+            @DefaultValue("0.0005") java.math.BigDecimal ema50TrailPct
     ) {}
 
     /**
@@ -215,12 +260,16 @@ public record WebullProperties(
      *       power (cash) falls below this dollar amount.  Default: $100.</li>
      *   <li>{@code accountRefreshEnabled} — fetch a fresh account snapshot after every
      *       order.  Disable to reduce API traffic in paper mode.  Default: true.</li>
+     *   <li>{@code drawdownHaltEnabled} — when false, the daily drawdown halt never
+     *       engages (entries are not blocked by drawdown). {@code maxDailyDrawdownPct}
+     *       is ignored while disabled. Default: true.</li>
      * </ul>
      */
     public record Risk(
             @DefaultValue("0.10")  java.math.BigDecimal maxDailyDrawdownPct,
             @DefaultValue("100.0") java.math.BigDecimal minBuyingPowerUsd,
-            @DefaultValue("true")  boolean accountRefreshEnabled
+            @DefaultValue("true")  boolean accountRefreshEnabled,
+            @DefaultValue("true")  boolean drawdownHaltEnabled
     ) {}
 
     /**

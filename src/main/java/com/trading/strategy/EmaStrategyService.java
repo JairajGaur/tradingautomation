@@ -43,6 +43,8 @@ public class EmaStrategyService implements TradingStrategy {
     private final com.trading.service.PendingSignals pendingSignals;
     private final com.trading.service.EntryGuard entryGuard;
     private final com.trading.service.TradeCooldown tradeCooldown;
+    private final com.trading.service.QuantityManager quantityManager;
+    private final com.trading.service.AccountService accountService;
 
     public EmaStrategyService(WebullProperties props,
                                BarDataManager barData,
@@ -51,7 +53,9 @@ public class EmaStrategyService implements TradingStrategy {
                                com.trading.service.VolumeFilter volumeFilter,
                                com.trading.service.PendingSignals pendingSignals,
                                com.trading.service.EntryGuard entryGuard,
-                               com.trading.service.TradeCooldown tradeCooldown) {
+                               com.trading.service.TradeCooldown tradeCooldown,
+                               com.trading.service.QuantityManager quantityManager,
+                               com.trading.service.AccountService accountService) {
         this.props = props;
         this.barData = barData;
         this.orderService = orderService;
@@ -60,6 +64,8 @@ public class EmaStrategyService implements TradingStrategy {
         this.pendingSignals = pendingSignals;
         this.entryGuard = entryGuard;
         this.tradeCooldown = tradeCooldown;
+        this.quantityManager = quantityManager;
+        this.accountService = accountService;
     }
 
     @Override
@@ -141,7 +147,15 @@ public class EmaStrategyService implements TradingStrategy {
         log.info("[{}] *** BUY SIGNAL *** ticker={} {} bullish near 600-EMA: C={} > ema600={}, low={} (guard passed)",
                 name(), ticker, tf, close, ema, low);
 
-        int qty = props.trading().orderQuantity();
+        // Common sizing via QuantityManager (SHARES or PERCENT-of-buying-power).
+        // Price basis = marketable ask; fall back to the signal bar's close.
+        OrderService.Quote quote = orderService.fetchQuote(ticker);
+        BigDecimal sizingPrice = quote.ask() != null ? quote.ask() : close;
+        int qty = quantityManager.quantityFor(ticker, sizingPrice, accountService.getBuyingPowerLive());
+        if (qty < 1) {
+            log.info("[{}] ticker={} — sizing resolved to 0 shares; skipping", name(), ticker);
+            return;
+        }
 
         // Volume filter: only enter when average 1-min volume is increasing. If not,
         // HOLD the signal (re-checked for the configured window) instead of dropping.

@@ -148,6 +148,10 @@ public class RiskManager {
      * @param currentEquity the latest net liquidation value from the account snapshot
      */
     public void evaluateDrawdown(BigDecimal currentEquity) {
+        if (!props.risk().drawdownHaltEnabled()) {
+            // Drawdown halt disabled by config — never auto-halt on drawdown.
+            return;
+        }
         if (tradingHalted.get()) return;  // already halted
 
         BigDecimal start = startOfDayEquity.get();

@@ -67,7 +67,7 @@ public class TradingOrchestrator {
     private final RiskManager riskManager;
     private final AccountService accountService;
     private final EntryGuard entryGuard;
-    private final ExitManager exitManager;
+    private final PositionExitManager exitManager;   // the single ACTIVE exit manager (by config)
     private final BarDataManager barData;
     private final PendingSignals pendingSignals;
     private final TradeCooldown tradeCooldown;
@@ -77,6 +77,7 @@ public class TradingOrchestrator {
     // Kept for instanceof enable/disable check
     private final EmaStrategyService emaStrategyService;
     private final EmaCrossoverStrategyService emaCrossoverStrategyService;
+    private final com.trading.strategy.StCrossStrategyService stCrossStrategyService;
 
     // Bounded pool for parallel per-ticker work within a tick (null when concurrency<=1).
     private final ExecutorService tickerPool;
@@ -87,21 +88,22 @@ public class TradingOrchestrator {
                                 RiskManager riskManager,
                                 AccountService accountService,
                                 EntryGuard entryGuard,
-                                ExitManager exitManager,
+                                List<PositionExitManager> exitManagers,
                                 BarDataManager barData,
                                 PendingSignals pendingSignals,
                                 TradeCooldown tradeCooldown,
                                 com.trading.state.PositionTracker positionTracker,
                                 List<TradingStrategy> strategies,
                                 EmaStrategyService emaStrategyService,
-                                EmaCrossoverStrategyService emaCrossoverStrategyService) {
+                                EmaCrossoverStrategyService emaCrossoverStrategyService,
+                                com.trading.strategy.StCrossStrategyService stCrossStrategyService) {
         this.props = props;
         this.watchlistLoader = watchlistLoader;
         this.marketHoursGuard = marketHoursGuard;
         this.riskManager = riskManager;
         this.accountService = accountService;
         this.entryGuard = entryGuard;
-        this.exitManager = exitManager;
+        this.exitManager = selectExitManager(exitManagers, props);
         this.barData = barData;
         this.pendingSignals = pendingSignals;
         this.tradeCooldown = tradeCooldown;
@@ -109,6 +111,7 @@ public class TradingOrchestrator {
         this.strategies = strategies;
         this.emaStrategyService = emaStrategyService;
         this.emaCrossoverStrategyService = emaCrossoverStrategyService;
+        this.stCrossStrategyService = stCrossStrategyService;
 
         int concurrency = Math.max(1, props.trading().tickerConcurrency());
         this.tickerPool = concurrency > 1
@@ -119,6 +122,30 @@ public class TradingOrchestrator {
                 })
                 : null;   // sequential when concurrency == 1
         log.info("[Orchestrator] Ticker concurrency = {}", concurrency);
+        log.info("[Orchestrator] Active exit manager = {}", this.exitManager.kind());
+    }
+
+    /**
+     * Picks the single ACTIVE exit manager from the available beans, per
+     * {@code webull.exit.manager} (STAGED | ST_CROSS). Exactly one runs — the others are
+     * never invoked. Falls back to STAGED if the config value is unknown/missing.
+     */
+    private static PositionExitManager selectExitManager(List<PositionExitManager> managers,
+                                                         WebullProperties props) {
+        PositionExitManager.Kind want;
+        try {
+            want = PositionExitManager.Kind.valueOf(props.exit().manager().trim().toUpperCase());
+        } catch (Exception e) {
+            want = PositionExitManager.Kind.STAGED;
+        }
+        for (PositionExitManager m : managers) {
+            if (m.kind() == want) return m;
+        }
+        // Fallback: prefer STAGED if present, else the first available.
+        for (PositionExitManager m : managers) {
+            if (m.kind() == PositionExitManager.Kind.STAGED) return m;
+        }
+        return managers.get(0);
     }
 
     @PreDestroy
@@ -389,6 +416,9 @@ public class TradingOrchestrator {
         }
         if (strategy instanceof EmaCrossoverStrategyService) {
             return props.strategies().emaCrossoverEnabled();
+        }
+        if (strategy instanceof com.trading.strategy.StCrossStrategyService) {
+            return props.strategies().stCrossEnabled();
         }
         log.warn("[Orchestrator] No enable flag for strategy '{}' — treating as enabled",
                 strategy.name());

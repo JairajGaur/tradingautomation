@@ -57,7 +57,14 @@ webull:
     watchlist-path: "classpath:tickers.txt"
     warmup-bars: 700
     ema-period: 600
-    order-quantity: 1
+    # ── Position sizing ──────────────────────────────────────────────────
+    #   SHARES  = buy exactly order-quantity shares (if buying power covers it).
+    #   PERCENT = buy floor(order-buying-power-pct * buyingPower / price) shares;
+    #             order-quantity is ignored. Skips if it resolves to < 1 share or
+    #             buying power is below risk.min-buying-power-usd.
+    sizing-mode: "PERCENT"
+    order-quantity: 5                 # used only when sizing-mode: SHARES
+    order-buying-power-pct: 0.40      # used only when sizing-mode: PERCENT (40%)
     # EMA periods returned by the GET /api/ema/{ticker} endpoint
     ema-periods: [8, 20, 50, 100, 200, 600]
     # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):
@@ -79,8 +86,17 @@ webull:
 
   # ── Strategy enable / disable ────────────────────────────────────────────
   strategies:
-    ema600-enabled: true
-    ema-crossover-enabled: true
+    ema600-enabled: false            # disabled — running the ST+cross strategy instead
+    ema-crossover-enabled: false     # disabled — running the ST+cross strategy instead
+    # "1m Supertrend + 20/50 Cross" strategy (standalone; BYPASSES the universal entry
+    # guard). Entry on st-cross-timeframe: ST UP + fresh 20/50 cross + price above
+    # 20/100/200 EMA + price within st-cross-ema600-band of the 600-EMA. Exit is the
+    # ST_CROSS exit manager below (single 50-EMA trail). Set exit.manager: ST_CROSS.
+    st-cross-enabled: true
+    st-cross-timeframe: "M1"
+    st-cross-ema-cross-fast: 20
+    st-cross-ema-cross-slow: 50
+    st-cross-ema600-band: 0.01       # price within 1% of the 600-EMA at entry (above or below)
     # Bar timeframe each strategy evaluates its ENTRY on (M1/M5/M15/M30/...).
     # Strategies are entry-only; exits are handled by the universal exit rule below.
     ema600-timeframe: "M1"
@@ -95,7 +111,7 @@ webull:
     volume-hold-minutes: 5
     # Cooldown: once a ticker is bought or exited, don't trade it again for this
     # many minutes (prevents immediate re-entry / churn). 0 = disabled.
-    re-trade-cooldown-minutes: 30
+    re-trade-cooldown-minutes: 10
     # 600-EMA entry = a bullish candle NEAR the 600-EMA (either side) closing above
     # it, on the latest completed bar. Captures a bounce OR an open-on-EMA momentum
     # candle, while rejecting bars floating far above the EMA (chasing highs).
@@ -127,6 +143,14 @@ webull:
     # previous completed candle's low (only moves up). Lets a winner run until the
     # trend breaks structure. Keep >= breakeven-trigger-pct.
     trail-arm-pct: 0.01              # +1.0%
+    # ── Which exit manager is ACTIVE (exactly one runs) ──────────────────────
+    #   STAGED   = the staged trailing stop above (hard stop + breakeven + M5 trail).
+    #   ST_CROSS = a single 50-EMA trail for the "1m ST + 20/50 Cross" strategy:
+    #              sell when price <= ema50 * (1 - ema50-trail-pct). Ratchets up only.
+    #              No hard stop / breakeven — the pure 50-EMA ride.
+    manager: "ST_CROSS"
+    ema50-trail-timeframe: "M1"      # timeframe for the ST_CROSS 50-EMA
+    ema50-trail-pct: 0.0005          # exit at ema50 - 0.05%
 
   # ── Diagnostics (local debugging only) ────────────────────────────────────
   diagnostics:
@@ -139,11 +163,14 @@ webull:
   risk:
     # Halt trading for the rest of the day once losses exceed this % of
     # start-of-day equity.  0.10 = 10 %.
-    max-daily-drawdown-pct: 0.10
+    max-daily-drawdown-pct: 0.30
     # Refuse new BUY orders when available buying power is below this amount ($).
     min-buying-power-usd: 100.0
     # Fetch a fresh account snapshot after every order.
     account-refresh-enabled: true
+    # Daily drawdown halt. false = never auto-halt on drawdown (max-daily-drawdown-pct
+    # is ignored while disabled). The $100 buying-power floor still applies.
+    drawdown-halt-enabled: false
 
   # ── Supertrend indicator params (used app-wide via SupertrendService) ─────
   supertrend:
