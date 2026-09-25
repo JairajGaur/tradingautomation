@@ -38,10 +38,8 @@ docs {
     universe.txt file (e.g. TQQQ,SQQQ). Omit to screen the universe file.
   
   ## Response (200)
-  { direction, timeframes: [...], scanned, passedCount,
-    passed: [ ...tickers UP/DOWN on all timeframes... ],
-    results: [ { ticker, passed, supertrend: { M5: UP, M15: UP, M30: DOWN } } ],
-    supertrendParams: { length, factor }, timestamp }
+  A plain JSON array of the tickers that matched `direction` on ALL requested
+  timeframes, e.g. [ "TQQQ", "SQQQ" ].
   
   ## Errors
   - `400` — invalid direction/timeframe, or nothing to screen.

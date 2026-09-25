@@ -68,7 +68,7 @@ public class SupertrendFilterController {
     }
 
     @GetMapping("/supertrend")
-    public ResponseEntity<Map<String, Object>> filter(
+    public ResponseEntity<?> filter(
             @RequestParam(defaultValue = "M15") String timeframes,
             @RequestParam(defaultValue = "UP") String direction,
             @RequestParam(required = false) String tickers) {
@@ -124,35 +124,16 @@ public class SupertrendFilterController {
         }
 
         List<String> passed = new ArrayList<>();
-        List<Map<String, Object>> results = new ArrayList<>(symbols.size());
         for (String symbol : symbols) {
-            Map<String, Object> perTf = new LinkedHashMap<>();
             boolean all = true;
             for (String tf : tfs) {
-                Direction dir = directionFor(symbol, tf);
-                perTf.put(tf, dir == null ? "UNAVAILABLE" : dir.name());
-                if (dir != want) all = false;
+                if (directionFor(symbol, tf) != want) { all = false; break; }
             }
             if (all) passed.add(symbol);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("ticker", symbol);
-            row.put("passed", all);
-            row.put("supertrend", perTf);
-            results.add(row);
         }
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("direction", want.name());
-        body.put("timeframes", tfs);
-        body.put("scanned", symbols.size());
-        body.put("passedCount", passed.size());
-        body.put("passed", passed);
-        body.put("results", results);
-        body.put("supertrendParams", Map.of(
-                "length", supertrend.length(),
-                "factor", supertrend.factor().toPlainString()));
-        body.put("timestamp", TimeFormat.nowEt());
-        return ResponseEntity.ok(body);
+        // Response is just the list of tickers that passed.
+        return ResponseEntity.ok(passed);
     }
 
     /** Latest COMPLETED-bar Supertrend direction for one timeframe, or null if unavailable. */
