@@ -26,8 +26,9 @@ import java.util.List;
  * <h2>Entry (all on {@code strategies.st-cross-timeframe}, default M1, latest COMPLETED bar)</h2>
  * <ol>
  *   <li>Supertrend is <b>UP</b> (state — using {@code webull.supertrend} params);</li>
- *   <li>a <b>fresh 20/50 EMA golden cross</b> (prev bar: 20 ≤ 50, now: 20 &gt; 50);</li>
- *   <li>price (last close) is <b>above the 20, 100 and 200 EMAs</b>;</li>
+ *   <li>the <b>20/50 EMA is in an up-state</b> (EMA20 &gt; EMA50) — or, when
+ *       {@code st-cross-require-fresh-cross} is true, only the exact crossover bar;</li>
+ *   <li>price (last close) is <b>above the 20 and 200 EMAs</b>;</li>
  *   <li>price is <b>near the 600-EMA</b> — within {@code st-cross-ema600-band} on either
  *       side — so the move is starting at the 600, not extended far above it.</li>
  * </ol>
@@ -44,7 +45,6 @@ public class StCrossStrategyService implements TradingStrategy {
 
     private static final int PRICE_SCALE = 8;
     private static final int EMA_20 = 20;
-    private static final int EMA_100 = 100;
     private static final int EMA_200 = 200;
     private static final int EMA_600 = 600;
 
@@ -116,31 +116,37 @@ public class StCrossStrategyService implements TradingStrategy {
         List<BigDecimal> closesPrev = closesNow.subList(0, closesNow.size() - 1);
         if (closesPrev.size() < slow) return;
 
-        // 2) Fresh 20/50 golden cross across the last two completed bars.
+        // 2) 20/50 relationship. Default is STATE (fast > slow = trend up); optionally a
+        //    FRESH cross (only the exact crossover bar) via st-cross-require-fresh-cross.
         BigDecimal fastNow  = EmaCalculator.calculate(closesNow, fast);
         BigDecimal slowNow  = EmaCalculator.calculate(closesNow, slow);
-        BigDecimal fastPrev = EmaCalculator.calculate(closesPrev, fast);
-        BigDecimal slowPrev = EmaCalculator.calculate(closesPrev, slow);
-        boolean freshCross = fastPrev.compareTo(slowPrev) <= 0 && fastNow.compareTo(slowNow) > 0;
-        if (!freshCross) {
-            log.debug("[{}] ticker={} {} — no fresh {}/{} cross (fast={} slow={})",
+        boolean upState = fastNow.compareTo(slowNow) > 0;
+        if (props.strategies().stCrossRequireFreshCross()) {
+            BigDecimal fastPrev = EmaCalculator.calculate(closesPrev, fast);
+            BigDecimal slowPrev = EmaCalculator.calculate(closesPrev, slow);
+            boolean freshCross = fastPrev.compareTo(slowPrev) <= 0 && upState;
+            if (!freshCross) {
+                log.debug("[{}] ticker={} {} — no fresh {}/{} cross (fast={} slow={})",
+                        name(), ticker, tf, fast, slow, fastNow, slowNow);
+                return;
+            }
+        } else if (!upState) {
+            log.debug("[{}] ticker={} {} — {}/{} not in up-state (fast={} <= slow={})",
                     name(), ticker, tf, fast, slow, fastNow, slowNow);
             return;
         }
 
-        // 3) Price above the 20/100/200 EMAs.
+        // 3) Price above the 20 and 200 EMAs.
         BigDecimal ema20  = EmaCalculator.calculate(closesNow, EMA_20);
-        BigDecimal ema100 = EmaCalculator.calculate(closesNow, EMA_100);
         BigDecimal ema200 = EmaCalculator.calculate(closesNow, EMA_200);
         BigDecimal ema600 = EmaCalculator.calculate(closesNow, EMA_600);
         BigDecimal price  = closesNow.get(closesNow.size() - 1);   // last completed close
 
         boolean aboveStack = price.compareTo(ema20) > 0
-                          && price.compareTo(ema100) > 0
                           && price.compareTo(ema200) > 0;
         if (!aboveStack) {
-            log.debug("[{}] ticker={} — price {} not above 20/100/200 ({}/{}/{})",
-                    name(), ticker, price, ema20, ema100, ema200);
+            log.debug("[{}] ticker={} — price {} not above 20/200 ({}/{})",
+                    name(), ticker, price, ema20, ema200);
             return;
         }
 

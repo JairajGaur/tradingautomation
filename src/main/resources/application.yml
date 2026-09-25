@@ -16,6 +16,10 @@ spring:
 logging:
   level:
     com.trading.webull.WebullV3Client: INFO   # set to DEBUG to emit request/response logs
+    # DEBUG here logs WHY a strategy skipped a ticker each bar (no fresh cross, not above
+    # EMAs, not a strong green candle, ST not UP, cooldown, etc.). Noisy but essential for
+    # answering "why didn't it take the trade?". Set back to INFO to quiet it.
+    com.trading.strategy: DEBUG
   # Write logs to a rolling file (in addition to the console).
   file:
     name: logs/tradingautomation.log
@@ -96,6 +100,10 @@ webull:
     st-cross-timeframe: "M1"
     st-cross-ema-cross-fast: 20
     st-cross-ema-cross-slow: 50
+    # false = STATE: enter whenever EMA20 > EMA50 (trend already up) — catches trends
+    #         in progress, not just the crossover bar.
+    # true  = FRESH CROSS: only the exact bar where 20 crosses above 50.
+    st-cross-require-fresh-cross: false
     st-cross-ema600-band: 1.0       # 1.0 = effectively "buy anywhere" (100% band, always passes)
     # Shared "strong green candle" gate used by ALL strategies (CandleStrength):
     # the signal bar must be green and its body >= this fraction of its high-low range.
@@ -180,6 +188,17 @@ webull:
   supertrend:
     length: 7
     factor: 3
+
+  # ── ADX / Directional-Movement params (used app-wide via AdxService) ──────
+  # +DI / −DI give direction; ADX gives trend strength. `threshold` separates a
+  # real trend (>=) from weak/ranging (<); `rising` is how many bars back ADX is
+  # compared against to judge "rising" for the LOW_ADX_RISING pattern.
+  # The GET /api/adx/{ticker} inspection endpoint can override any of these per
+  # request via ?period= / ?threshold= / ?rising= query params.
+  adx:
+    period: 14
+    threshold: 25
+    rising: 3
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

@@ -16,6 +16,7 @@ public record WebullProperties(
         Risk risk,
         MarketHours marketHours,
         Supertrend supertrend,
+        @DefaultValue Adx adx,
         EntryGuard entryGuard,
         Endpoints endpoints
 ) {
@@ -201,6 +202,18 @@ public record WebullProperties(
             @DefaultValue("0.005") java.math.BigDecimal stCrossEma600Band,
 
             /**
+             * How the 20/50 relationship qualifies an entry:
+             * <ul>
+             *   <li>{@code false} (default) — <b>state</b>: enter whenever EMA(fast) &gt; EMA(slow)
+             *       (trend already up), not just the crossover bar. Catches trends in progress.</li>
+             *   <li>{@code true} — <b>fresh cross</b>: enter only on the exact bar where EMA(fast)
+             *       crosses above EMA(slow). Misses trends already underway.</li>
+             * </ul>
+             * The one-position, cooldown, ST-UP and strong-body gates prevent churn either way.
+             */
+            @DefaultValue("false") boolean stCrossRequireFreshCross,
+
+            /**
              * Shared "strong green candle" body/range ratio used by ALL strategies (single
              * source of truth via {@code CandleStrength}). A signal bar must be green and
              * its body ≥ this fraction of its high-low range. Default 0.5 (body ≥ 50%).
@@ -314,6 +327,22 @@ public record WebullProperties(
     public record Supertrend(
             @DefaultValue("7") int length,
             @DefaultValue("3") java.math.BigDecimal factor
+    ) {}
+
+    /**
+     * ADX / Directional-Movement parameters — a property of the indicator itself,
+     * used anywhere the app computes its canonical ADX (via {@code AdxService}).
+     *
+     * @param period    DI/ADX lookback (Wilder default 14)
+     * @param threshold ADX level separating weak/ranging from trending (default 25).
+     *                  At/above this ADX reads as a real trend; below it is weak/ranging.
+     * @param rising    bars back ADX is compared against to judge "rising" (default 3),
+     *                  used by the LOW_ADX_RISING pattern flag.
+     */
+    public record Adx(
+            @DefaultValue("14") int period,
+            @DefaultValue("25") java.math.BigDecimal threshold,
+            @DefaultValue("3")  int rising
     ) {}
 
     /**

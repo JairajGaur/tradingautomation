@@ -1,0 +1,65 @@
+meta {
+  name: Recommend
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/adx/recommend?timespan=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M5
+  ~ticker: AAPL
+  ~tickers: AAPL,TSLA,NVDA
+  ~period: 14
+  ~threshold: 25
+  ~rising: 3
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # ADX Recommendation — BUY / SELL / HOLD
+
+  A simple, actionable verdict from the ADX / +DI / −DI reading on the latest
+  COMPLETED bar. Read-only — it does NOT place orders.
+
+  ## Symbol resolution
+  - `?ticker=AAPL`            — verdict for one symbol (returns a single object).
+  - `?tickers=AAPL,TSLA,NVDA` — verdict for each (returns a list).
+  - Neither given            — screens the whole configured universe
+    (`webull.trading.universe-path`).
+
+  ## Query
+  - `timespan`  — bar granularity (default M1). M1/M5/M15/M30/M60/M120/M240/D/W/M/Y.
+  - `period` / `threshold` / `rising` — optional overrides of `webull.adx.*`.
+
+  ## How the verdict is decided
+  Based on direction (+DI vs −DI) and strength (ADX) on the latest completed bar:
+  - **BUY**  — confirmed/emerging up-trend: STRONG_UP, bullish reversal
+    (+DI crosses above −DI with ADX >= threshold), or up-trend waking up
+    (ADX low but rising, +DI on top).
+  - **SELL** — the bearish mirror of the above.
+  - **HOLD** — weak lean (ADX < threshold), no trend (choppy), or not enough data.
+
+  ## Response
+  Single ticker:
+    { ticker, action (BUY|SELL|HOLD), reason, close }
+
+  Multiple / universe:
+    { source (requested|universe), timespan, evaluated,
+      counts: { buy, sell, hold },
+      recommendations: [ { ticker, action, reason, close } ],  # BUY first, then SELL, then HOLD
+      timestamp }
+
+  ## Notes
+  - The verdict uses the last COMPLETED bar (drops the in-progress bar) so it
+    doesn't flicker mid-candle.
+  - This is a trend-strength recommendation only — it is not wired to order flow
+    and does not consider your positions, buying power, or spread.
+}

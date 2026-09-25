@@ -1,0 +1,102 @@
+meta {
+  name: Get ADX Values
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/adx/AAPL?timespan=M1
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M1
+  ~period: 14
+  ~threshold: 25
+  ~rising: 3
+  ~sessions: RTH
+  ~bars: 0
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get ADX / +DI / −DI Values
+
+  Computes Wilder's Directional Movement system per bar so you can verify the
+  values against a charting platform and see where trends turn. This endpoint
+  does NOT place orders — it is for inspection/validation only.
+
+  - **+DI / −DI** give DIRECTION (whichever is on top is the dominant side).
+  - **ADX** gives STRENGTH (higher = stronger trend; direction-agnostic).
+  - **diCross** flags a DI crossover: `UP` = +DI crossed above −DI (bullish
+    up-turn), `DOWN` = −DI crossed above +DI (bearish down-turn).
+  - **pattern** flags one of two setups (see below).
+
+  Any US stock symbol works (the ticker need NOT be in the watchlist).
+
+  ## Query
+  All indicator params default from config (`webull.adx.*`); pass them only to
+  override per request.
+  - `period`    — DI/ADX lookback (default from `webull.adx.period`, 14).
+  - `threshold` — ADX level separating weak/ranging from trending (default from
+    `webull.adx.threshold`, 25).
+  - `rising`    — bars back ADX is compared against to judge "rising" (default
+    from `webull.adx.rising`, 3).
+  - `timespan`  — bar granularity (default M1). Supported: M1, M5, M15, M30,
+    M60, M120, M240, D, W, M, Y.
+  - `sessions`  — trading sessions (comma-separated). Supported: RTH, PRE,
+    ATH, OVN. Omit to use the configured default.
+  - `count`     — number of bars to fetch (default = webull.trading.warmup-bars).
+  - `bars`      — per-bar `series` is OPT-IN. Default 0 = omit the series entirely
+    (response is just the summary + latest values). Pass `bars=N` to include the
+    N most-recent bars.
+
+  ## Patterns flagged
+  - `LOW_ADX_RISING`   — ADX below `threshold` but rising over the last `rising`
+    bars: a trend may be waking up before it is confirmed. Trade the anticipation.
+  - `HIGH_ADX_REVERSAL` — a DI crossover while ADX is at/above `threshold`
+    (strong existing trend): a meaningful reversal rather than noise.
+
+  ## Response (200)
+  { ticker, period, threshold, risingLookback, timespan, sessions, barsFetched,
+    summary: {                       # read this first — plain-English trend read
+      text,                          # e.g. "Strong UP trend (ADX 32.5, gaining strength). +DI above −DI."
+      direction (UP|DOWN|FLAT),      # which side (+DI vs −DI)
+      strength (NO_TREND|WEAK|STRONG|VERY_STRONG|EXTREME),  # ADX bucket
+      trendSlope (RISING|FALLING|FLAT|UNKNOWN),             # is ADX growing?
+      signal,                        # STRONG_UP|UP|STRONG_DOWN|DOWN|CHOP|REVERSAL_UP|...
+      pattern, diCross },
+    latestPlusDi, latestMinusDi, latestAdx, latestDirection, latestDiCross,
+    latestPattern, latestClose }
+
+  Only when `bars=N` is passed, the response also includes:
+    returned,
+    series: [ { timestamp, timestampEt, close, plusDi, minusDi, adx,
+                diCross (UP|DOWN|null), direction (UP|DOWN|FLAT),
+                pattern (LOW_ADX_RISING|HIGH_ADX_REVERSAL|null),
+                strength (NO_TREND|WEAK|STRONG|VERY_STRONG|EXTREME),
+                signal (STRONG_UP|UP|CHOP|REVERSAL_UP|...) } ]
+
+  ## Reading the summary
+  - `direction` says which side controls (+DI vs −DI); `strength`/`adx` say how
+    strong; `trendSlope` says whether that strength is growing or fading.
+  - `signal` is the at-a-glance verdict: `STRONG_UP` / `STRONG_DOWN` (trend with
+    ADX >= 25), `UP` / `DOWN` (weak lean), `CHOP` (no trend / ADX < 20),
+    `REVERSAL_UP|DOWN` (DI cross while ADX high), `WAKING_UP_UP|DOWN`
+    (low ADX but rising), `WARMING_UP` (not enough history).
+  - Example — UP direction with ADX falling below 25 reads as "no clear trend /
+    choppy, losing strength": a low-quality long, better to stand aside.
+
+  Warm-up bars carry null plusDi/minusDi (first DI ~ index `period`) and null
+  adx (first ADX ~ index 2*period-1).
+
+  ## Errors
+  - `400` — invalid period/threshold/rising/timespan/session, or not enough bars
+    (needs at least 2*period).
+  - `502` — Webull market-data error.
+  - `503` — no bars returned.
+}
