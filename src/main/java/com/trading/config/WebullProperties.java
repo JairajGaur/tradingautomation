@@ -177,11 +177,9 @@ public record WebullProperties(
              *
              * @param ema600ProximityBand how near the low must be to the EMA (default 0.005 = 0.5%)
              * @param ema600RequireWickRejection require {@code low < ema600} (default false)
-             * @param ema600BodyMinRatio min body/range ratio, skips dojis (default 0.5)
              */
             @DefaultValue("0.005") java.math.BigDecimal ema600ProximityBand,
             @DefaultValue("false") boolean ema600RequireWickRejection,
-            @DefaultValue("0.5")   java.math.BigDecimal ema600BodyMinRatio,
 
             /**
              * "1m Supertrend + 20/50 Cross" strategy (standalone; bypasses the universal
@@ -200,7 +198,14 @@ public record WebullProperties(
             @DefaultValue("M1")    String stCrossTimeframe,
             @DefaultValue("20")    int stCrossEmaCrossFast,
             @DefaultValue("50")    int stCrossEmaCrossSlow,
-            @DefaultValue("0.005") java.math.BigDecimal stCrossEma600Band
+            @DefaultValue("0.005") java.math.BigDecimal stCrossEma600Band,
+
+            /**
+             * Shared "strong green candle" body/range ratio used by ALL strategies (single
+             * source of truth via {@code CandleStrength}). A signal bar must be green and
+             * its body ≥ this fraction of its high-low range. Default 0.5 (body ≥ 50%).
+             */
+            @DefaultValue("0.5")   java.math.BigDecimal bodyMinRatio
     ) {}
 
     /**

@@ -124,23 +124,21 @@ public class EmaStrategyService implements TradingStrategy {
         BigDecimal high  = signalBar.high();
         BigDecimal low   = signalBar.low();
 
-        boolean bullish     = close.compareTo(open) > 0;
+        // Strong GREEN body via the shared, reusable check (green + body >= bodyMinRatio × range).
+        boolean strongBody  = com.trading.indicator.CandleStrength.isStrongGreenBody(
+                signalBar, props.strategies().bodyMinRatio());
         boolean heldAbove   = close.compareTo(ema) > 0;
         BigDecimal band     = props.strategies().ema600ProximityBand();
         BigDecimal nearMax  = ema.multiply(BigDecimal.ONE.add(band));      // low must be <= this
         boolean nearEma     = low.compareTo(nearMax) <= 0;                 // dipped near the EMA
         boolean wickOk      = !props.strategies().ema600RequireWickRejection()
                               || low.compareTo(ema) < 0;                   // probed below the EMA
-        BigDecimal range    = high.subtract(low);
-        BigDecimal body     = close.subtract(open);
-        boolean bodyOk      = range.signum() <= 0
-                              || body.compareTo(range.multiply(props.strategies().ema600BodyMinRatio())) >= 0;
 
-        if (!(bullish && heldAbove && nearEma && wickOk && bodyOk)) {
+        if (!(strongBody && heldAbove && nearEma && wickOk)) {
             log.debug("[{}] ticker={} {} no bounce entry (ema{}={} O={} H={} L={} C={} | "
-                            + "bullish={} heldAbove={} nearEma={} wickOk={} bodyOk={})",
+                            + "strongBody={} heldAbove={} nearEma={} wickOk={})",
                     name(), ticker, tf, period, ema, open, high, low, close,
-                    bullish, heldAbove, nearEma, wickOk, bodyOk);
+                    strongBody, heldAbove, nearEma, wickOk);
             return;
         }
 

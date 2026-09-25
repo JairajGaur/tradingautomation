@@ -96,7 +96,10 @@ webull:
     st-cross-timeframe: "M1"
     st-cross-ema-cross-fast: 20
     st-cross-ema-cross-slow: 50
-    st-cross-ema600-band: 0.01       # price within 1% of the 600-EMA at entry (above or below)
+    st-cross-ema600-band: 1.0       # 1.0 = effectively "buy anywhere" (100% band, always passes)
+    # Shared "strong green candle" gate used by ALL strategies (CandleStrength):
+    # the signal bar must be green and its body >= this fraction of its high-low range.
+    body-min-ratio: 0.5
     # Bar timeframe each strategy evaluates its ENTRY on (M1/M5/M15/M30/...).
     # Strategies are entry-only; exits are handled by the universal exit rule below.
     ema600-timeframe: "M1"
@@ -117,7 +120,7 @@ webull:
     # candle, while rejecting bars floating far above the EMA (chasing highs).
     ema600-proximity-band: 0.005          # low must be within 0.5% of the EMA
     ema600-require-wick-rejection: false  # true = also require low < EMA
-    ema600-body-min-ratio: 0.5            # body >= 50% of candle range (skip dojis)
+    # (body strength now uses the shared strategies.body-min-ratio above)
 
   # ── Universal EXIT rule (all bot-opened positions; independent of entry) ──
   # Staged TRAILING stop — cut losers small, let winners run the trend. The stop
@@ -210,7 +213,7 @@ webull:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "22:00"
+    pre-market-open: "07:00"
     after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────

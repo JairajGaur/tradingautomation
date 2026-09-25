@@ -155,7 +155,16 @@ public class StCrossStrategyService implements TradingStrategy {
             return;
         }
 
-        log.info("[{}] *** BUY SIGNAL *** ticker={} {} ST=UP, {}/{} cross, price={} above 20/100/200, near ema600={}",
+        // 5) Strong GREEN body on the signal bar (shared, reusable check).
+        Candle signalBar = completed.get(completed.size() - 1);
+        if (!com.trading.indicator.CandleStrength.isStrongGreenBody(signalBar, props.strategies().bodyMinRatio())) {
+            log.debug("[{}] ticker={} — signal bar not a strong green candle (O={} H={} L={} C={}, minRatio={})",
+                    name(), ticker, signalBar.open(), signalBar.high(), signalBar.low(), signalBar.close(),
+                    props.strategies().bodyMinRatio());
+            return;
+        }
+
+        log.info("[{}] *** BUY SIGNAL *** ticker={} {} ST=UP, {}/{} cross, price={} above 20/100/200, near ema600={}, strong green body",
                 name(), ticker, tf, fast, slow, price, ema600);
 
         // Size the order via the QuantityManager (SHARES or PERCENT-of-buying-power).
