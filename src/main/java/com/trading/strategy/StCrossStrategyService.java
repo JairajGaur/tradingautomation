@@ -162,6 +162,15 @@ public class StCrossStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "never buy below the EMA floor" filter (config-gated, all strategies).
+        if (props.strategies().noBuyBelowEnabled()
+                && com.trading.indicator.EntryPriceFilter.isBelowEma(
+                        closesNow, price, props.strategies().noBuyBelowRefEma())) {
+            log.debug("[{}] ticker={} — price {} at/below ema{} floor; skipping",
+                    name(), ticker, price, props.strategies().noBuyBelowRefEma());
+            return;
+        }
+
         // 4) Move starting NEAR the 600-EMA (either side, within the band).
         BigDecimal band = props.strategies().stCrossEma600Band();
         BigDecimal lower = ema600.multiply(BigDecimal.ONE.subtract(band));

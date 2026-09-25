@@ -217,6 +217,13 @@ public class TradingOrchestrator {
     @Scheduled(cron = "0 * * * * *")
     public void onMinuteTick() {
 
+        // Master switch: when automated trading is disabled, the loop is a FULL STOP —
+        // no entries and no automatic exits. REST endpoints and MANUAL trades still work.
+        if (!props.trading().tradingEnabled()) {
+            log.debug("[Orchestrator] Automated trading disabled (trading-enabled=false) — skipping tick");
+            return;
+        }
+
         // Nothing runs on weekends (equities don't trade).
         if (!marketHoursGuard.isTradingDay()) {
             log.debug("[Orchestrator] Weekend — skipping tick");

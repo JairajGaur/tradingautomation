@@ -35,4 +35,21 @@ public final class EntryPriceFilter {
         BigDecimal ceiling = refEma.multiply(BigDecimal.ONE.add(maxExtension));
         return price.compareTo(ceiling) > 0;
     }
+
+    /**
+     * Returns {@code true} when the buy should be BLOCKED because price is at/below the
+     * reference EMA (a floor). "Never buy below the {@code refEmaPeriod}-EMA."
+     *
+     * @param closes       completed-bar closes (oldest first) — enough for {@code refEmaPeriod}
+     * @param price        the price being evaluated for entry
+     * @param refEmaPeriod reference EMA period (e.g. 50)
+     * @return true = below the EMA, block the buy; false = above it, allow
+     */
+    public static boolean isBelowEma(List<BigDecimal> closes, BigDecimal price, int refEmaPeriod) {
+        if (closes == null || closes.size() < refEmaPeriod || price == null) {
+            return false;   // not enough data to judge — don't block on that basis
+        }
+        BigDecimal refEma = EmaCalculator.calculate(closes, refEmaPeriod);
+        return price.compareTo(refEma) <= 0;
+    }
 }

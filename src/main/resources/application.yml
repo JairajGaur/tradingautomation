@@ -57,6 +57,9 @@ webull:
     #   LIVE  = PRODUCTION endpoint (api.webull.com) — REAL orders, real money
     # Orders are always submitted to the endpoint the mode selects.
     mode: LIVE
+    # Master switch for AUTOMATED trading. false = full stop (no strategy entries,
+    # no automatic exits) — but REST endpoints and MANUAL trades still work.
+    trading-enabled: false
     ticker: AAPL                              # fallback when tickers.txt is absent
     watchlist-path: "classpath:tickers.txt"
     warmup-bars: 700
@@ -112,7 +115,12 @@ webull:
     # block a BUY when price is extended more than max-extension above the ref EMA.
     no-buy-high-enabled: true
     no-buy-high-ref-ema: 200
-    no-buy-high-max-extension: 0.01   # block if price > ema200 * (1 + 1%)
+    no-buy-high-max-extension: 0.002  # block if price > ema200 * (1 + 0.2%)
+    # Shared "never buy below an EMA floor" filter (EntryPriceFilter): block a BUY
+    # when price is at/below this EMA. With the ceiling above, entries are confined to
+    # a band — above the 50-EMA floor, within 0.2% above the 200-EMA.
+    no-buy-below-enabled: true
+    no-buy-below-ref-ema: 50
     # Bar timeframe each strategy evaluates its ENTRY on (M1/M5/M15/M30/...).
     # Strategies are entry-only; exits are handled by the universal exit rule below.
     ema600-timeframe: "M1"

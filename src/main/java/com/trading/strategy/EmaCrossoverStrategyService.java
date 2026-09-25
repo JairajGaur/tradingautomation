@@ -139,6 +139,15 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "never buy below the EMA floor" filter (config-gated, all strategies).
+        if (props.strategies().noBuyBelowEnabled()
+                && com.trading.indicator.EntryPriceFilter.isBelowEma(
+                        closesNow, lastClose, props.strategies().noBuyBelowRefEma())) {
+            log.debug("[{}] ticker={} — price {} at/below ema{} floor; skipping",
+                    name(), ticker, lastClose, props.strategies().noBuyBelowRefEma());
+            return;
+        }
+
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={} (guard passed)",
                 name(), ticker, tf, ema20Now, ema100Now);
 

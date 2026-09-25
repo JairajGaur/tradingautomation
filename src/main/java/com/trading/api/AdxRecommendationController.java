@@ -161,6 +161,7 @@ public class AdxRecommendationController {
             // Need at least 2*period completed bars (+1 for the dropped in-progress bar).
             if (bars == null || bars.size() < 2 * period + 1) {
                 row.put("action", "HOLD");
+                row.put("bias", "NEUTRAL");
                 row.put("reason", "Not enough data to evaluate ADX.");
                 return row;
             }
@@ -184,14 +185,30 @@ public class AdxRecommendationController {
 
             Advice advice = AdxCalculator.recommend(latest, prevAdx);
             row.put("action", advice.action().name());
+            row.put("bias", biasOf(latest));   // BULLISH / BEARISH / NEUTRAL
             row.put("reason", advice.reason());
             row.put("close", completed.get(completed.size() - 1).close().toPlainString());
         } catch (Exception e) {
             log.warn("[AdxRecommend] eval failed for {} {}: {}", symbol, ts, e.getMessage());
             row.put("action", "HOLD");
+            row.put("bias", "NEUTRAL");
             row.put("reason", "Could not evaluate (data unavailable).");
         }
         return row;
+    }
+
+    /**
+     * Directional bias from the DMI reading: +DI over −DI → BULLISH, −DI over +DI →
+     * BEARISH, else (equal / warm-up / no data) → NEUTRAL. Independent of trend
+     * strength — this is direction only, not "how strong".
+     */
+    private static String biasOf(AdxCalculator.Point p) {
+        if (p == null || p.direction() == null) return "NEUTRAL";
+        return switch (p.direction()) {
+            case UP -> "BULLISH";
+            case DOWN -> "BEARISH";
+            default -> "NEUTRAL";   // FLAT
+        };
     }
 
     /** Ordering for the response: BUY first, then SELL, then HOLD. */

@@ -55,6 +55,15 @@ public record WebullProperties(
 
     public record Trading(
             @DefaultValue("PAPER") Mode mode,
+
+            /**
+             * Master switch for the AUTOMATED trading loop. When {@code false}, the
+             * scheduled per-minute tick does nothing — no strategy entries and no
+             * automatic exits (full stop). REST endpoints are unaffected, and MANUAL
+             * trades via the manual-trade endpoint still work (the override). Default true.
+             */
+            @DefaultValue("true") boolean tradingEnabled,
+
             @DefaultValue("AAPL") String ticker,
             @DefaultValue("classpath:tickers.txt") String watchlistPath,
 
@@ -232,7 +241,18 @@ public record WebullProperties(
              */
             @DefaultValue("false") boolean noBuyHighEnabled,
             @DefaultValue("200")   int noBuyHighRefEma,
-            @DefaultValue("0.01")  java.math.BigDecimal noBuyHighMaxExtension
+            @DefaultValue("0.01")  java.math.BigDecimal noBuyHighMaxExtension,
+
+            /**
+             * Shared "never buy below an EMA floor" filter used by ALL strategies. When
+             * enabled, a BUY is blocked if price is at/below the {@code noBuyBelowRefEma}
+             * EMA. Default: block below the 50-EMA.
+             *
+             * @param noBuyBelowEnabled master on/off (default false)
+             * @param noBuyBelowRefEma  reference EMA floor period (default 50)
+             */
+            @DefaultValue("false") boolean noBuyBelowEnabled,
+            @DefaultValue("50")    int noBuyBelowRefEma
     ) {}
 
     /**

@@ -154,6 +154,15 @@ public class EmaStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "never buy below the EMA floor" filter (config-gated, all strategies).
+        if (props.strategies().noBuyBelowEnabled()
+                && com.trading.indicator.EntryPriceFilter.isBelowEma(
+                        closes, close, props.strategies().noBuyBelowRefEma())) {
+            log.debug("[{}] ticker={} — price {} at/below ema{} floor; skipping",
+                    name(), ticker, close, props.strategies().noBuyBelowRefEma());
+            return;
+        }
+
         log.info("[{}] *** BUY SIGNAL *** ticker={} {} bullish near 600-EMA: C={} > ema600={}, low={} (guard passed)",
                 name(), ticker, tf, close, ema, low);
 
