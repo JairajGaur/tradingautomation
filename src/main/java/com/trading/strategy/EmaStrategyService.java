@@ -142,6 +142,18 @@ public class EmaStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "don't buy the high" filter (config-gated, common to all strategies).
+        if (props.strategies().noBuyHighEnabled()
+                && com.trading.indicator.EntryPriceFilter.isTooHigh(
+                        closes, close,
+                        props.strategies().noBuyHighRefEma(),
+                        props.strategies().noBuyHighMaxExtension())) {
+            log.debug("[{}] ticker={} — price {} too extended above ema{} (max {}%); skipping",
+                    name(), ticker, close, props.strategies().noBuyHighRefEma(),
+                    props.strategies().noBuyHighMaxExtension().multiply(BigDecimal.valueOf(100)));
+            return;
+        }
+
         log.info("[{}] *** BUY SIGNAL *** ticker={} {} bullish near 600-EMA: C={} > ema600={}, low={} (guard passed)",
                 name(), ticker, tf, close, ema, low);
 

@@ -126,6 +126,19 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "don't buy the high" filter (config-gated, common to all strategies).
+        BigDecimal lastClose = closesNow.get(closesNow.size() - 1);
+        if (props.strategies().noBuyHighEnabled()
+                && com.trading.indicator.EntryPriceFilter.isTooHigh(
+                        closesNow, lastClose,
+                        props.strategies().noBuyHighRefEma(),
+                        props.strategies().noBuyHighMaxExtension())) {
+            log.debug("[{}] ticker={} — price {} too extended above ema{} (max {}%); skipping",
+                    name(), ticker, lastClose, props.strategies().noBuyHighRefEma(),
+                    props.strategies().noBuyHighMaxExtension().multiply(BigDecimal.valueOf(100)));
+            return;
+        }
+
         log.info("[{}] *** GOLDEN CROSS BUY SIGNAL *** ticker={} {} ema20={} crossed above ema100={} (guard passed)",
                 name(), ticker, tf, ema20Now, ema100Now);
 

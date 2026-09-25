@@ -218,7 +218,21 @@ public record WebullProperties(
              * source of truth via {@code CandleStrength}). A signal bar must be green and
              * its body ≥ this fraction of its high-low range. Default 0.5 (body ≥ 50%).
              */
-            @DefaultValue("0.5")   java.math.BigDecimal bodyMinRatio
+            @DefaultValue("0.5")   java.math.BigDecimal bodyMinRatio,
+
+            /**
+             * Shared "don't buy the high" filter used by ALL strategies. When enabled, a BUY
+             * is blocked if price is extended too far above the reference EMA — i.e.
+             * {@code price > ema(noBuyHighRefEma) × (1 + noBuyHighMaxExtension)}. Prevents
+             * chasing a move that has already run far from its trend baseline.
+             *
+             * @param noBuyHighEnabled       master on/off (default false — no restriction)
+             * @param noBuyHighRefEma        reference EMA period (default 200)
+             * @param noBuyHighMaxExtension  max fraction above that EMA (default 0.02 = 2%)
+             */
+            @DefaultValue("false") boolean noBuyHighEnabled,
+            @DefaultValue("200")   int noBuyHighRefEma,
+            @DefaultValue("0.01")  java.math.BigDecimal noBuyHighMaxExtension
     ) {}
 
     /**

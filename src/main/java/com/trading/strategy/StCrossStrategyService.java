@@ -150,6 +150,18 @@ public class StCrossStrategyService implements TradingStrategy {
             return;
         }
 
+        // Shared "don't buy the high" filter (config-gated, applies to all strategies).
+        if (props.strategies().noBuyHighEnabled()
+                && com.trading.indicator.EntryPriceFilter.isTooHigh(
+                        closesNow, price,
+                        props.strategies().noBuyHighRefEma(),
+                        props.strategies().noBuyHighMaxExtension())) {
+            log.debug("[{}] ticker={} — price {} too extended above ema{} (max {}%); skipping",
+                    name(), ticker, price, props.strategies().noBuyHighRefEma(),
+                    props.strategies().noBuyHighMaxExtension().multiply(BigDecimal.valueOf(100)));
+            return;
+        }
+
         // 4) Move starting NEAR the 600-EMA (either side, within the band).
         BigDecimal band = props.strategies().stCrossEma600Band();
         BigDecimal lower = ema600.multiply(BigDecimal.ONE.subtract(band));

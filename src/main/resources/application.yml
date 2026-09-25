@@ -108,6 +108,11 @@ webull:
     # Shared "strong green candle" gate used by ALL strategies (CandleStrength):
     # the signal bar must be green and its body >= this fraction of its high-low range.
     body-min-ratio: 0.5
+    # Shared "don't buy the high" filter used by ALL strategies (EntryPriceFilter):
+    # block a BUY when price is extended more than max-extension above the ref EMA.
+    no-buy-high-enabled: true
+    no-buy-high-ref-ema: 200
+    no-buy-high-max-extension: 0.01   # block if price > ema200 * (1 + 1%)
     # Bar timeframe each strategy evaluates its ENTRY on (M1/M5/M15/M30/...).
     # Strategies are entry-only; exits are handled by the universal exit rule below.
     ema600-timeframe: "M1"
