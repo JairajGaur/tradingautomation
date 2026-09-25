@@ -64,7 +64,7 @@ webull:
     #             buying power is below risk.min-buying-power-usd.
     sizing-mode: "PERCENT"
     order-quantity: 5                 # used only when sizing-mode: SHARES
-    order-buying-power-pct: 0.40      # used only when sizing-mode: PERCENT (40%)
+    order-buying-power-pct: 0.30      # used only when sizing-mode: PERCENT (40%)
     # EMA periods returned by the GET /api/ema/{ticker} endpoint
     ema-periods: [8, 20, 50, 100, 200, 600]
     # Trading sessions included in bar/market-data requests (comma-separated, multiple allowed):
@@ -145,9 +145,10 @@ webull:
     trail-arm-pct: 0.01              # +1.0%
     # ── Which exit manager is ACTIVE (exactly one runs) ──────────────────────
     #   STAGED   = the staged trailing stop above (hard stop + breakeven + M5 trail).
-    #   ST_CROSS = a single 50-EMA trail for the "1m ST + 20/50 Cross" strategy:
-    #              sell when price <= ema50 * (1 - ema50-trail-pct). Ratchets up only.
-    #              No hard stop / breakeven — the pure 50-EMA ride.
+    #   ST_CROSS = 50-EMA trail for the "1m ST + 20/50 Cross" strategy: sell when
+    #              price <= ema50 * (1 - ema50-trail-pct) (ratchets up only), OR when
+    #              price <= entry * (1 - stop-loss-pct) hard stop (bounded backstop).
+    #              Whichever hits first.
     manager: "ST_CROSS"
     ema50-trail-timeframe: "M1"      # timeframe for the ST_CROSS 50-EMA
     ema50-trail-pct: 0.0005          # exit at ema50 - 0.05%
@@ -163,7 +164,7 @@ webull:
   risk:
     # Halt trading for the rest of the day once losses exceed this % of
     # start-of-day equity.  0.10 = 10 %.
-    max-daily-drawdown-pct: 0.30
+    max-daily-drawdown-pct: 0.20
     # Refuse new BUY orders when available buying power is below this amount ($).
     min-buying-power-usd: 100.0
     # Fetch a fresh account snapshot after every order.
@@ -188,8 +189,11 @@ webull:
   #                   unavailable leg just counts as "not passed"; the other can arm.
   # Loosening levers (default = strict): drop the mid leg (ema-require-mid: false),
   # use a faster ST timeframe (supertrend-timespan: M15), or switch to OR.
+  # Applies to ALL strategies uniformly (no per-strategy bypass). When disabled, the
+  # orchestrator dispatches the full watchlist every minute (no arming), so 1-minute
+  # strategies run at true 1-minute cadence.
   entry-guard:
-    enabled: true
+    enabled: false                   # OFF — the active ST+cross strategy carries its own trend logic
     ema-fast: 100
     ema-mid: 200
     ema-slow: 600
@@ -206,7 +210,7 @@ webull:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "04:00"
+    pre-market-open: "22:00"
     after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────

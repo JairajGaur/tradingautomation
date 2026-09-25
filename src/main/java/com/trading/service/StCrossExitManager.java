@@ -22,9 +22,12 @@ import java.util.List;
  *
  * <p>The trail ratchets UP only: as the 50-EMA rises, the stop rises with it; it never
  * moves down. In a real trend price stays above the 50-EMA and the position rides; the
- * moment price dips to just under the 50-EMA, it exits. There is deliberately NO hard
- * stop, breakeven, or high-water trail here — this manager implements the pure 50-EMA
- * ride the strategy asks for.</p>
+ * moment price dips to just under the 50-EMA, it exits.</p>
+ *
+ * <p>A fixed <b>hard stop</b> at {@code entry × (1 − exit.stop-loss-pct)} (default −2%)
+ * also applies as a bounded backstop — it catches a fast drop that gaps below the trail
+ * between the per-minute checks. Whichever condition triggers first closes the position.
+ * There is no breakeven or high-water trail.</p>
  *
  * <p>Reconciliation against live holdings, cooldown-on-close, and the no-short guard
  * (in {@link OrderService}) behave exactly as in {@link StagedTrailExitManager}.</p>
@@ -87,7 +90,7 @@ public class StCrossExitManager implements PositionExitManager {
 
         if (!props.exit().enabled()) return;
 
-        String reason = exitReason(ticker);
+        String reason = exitReason(ticker, pos);
         if (reason == null) return;
 
         log.warn("[StCrossExit] EXIT ticker={} qty={} entry={} — reason={}",
@@ -106,16 +109,30 @@ public class StCrossExitManager implements PositionExitManager {
     }
 
     /**
-     * Returns an exit reason when price is at/below the ratcheted 50-EMA trail, else null.
-     * The stop = highest-reached {@code ema50 × (1 − ema50TrailPct)}.
+     * Returns an exit reason when EITHER hits first, else null:
+     * <ol>
+     *   <li><b>Hard stop</b> — price ≤ entry × (1 − {@code exit.stop-loss-pct}). A fixed,
+     *       bounded backstop against a fast drop below the trail (e.g. a gap between the
+     *       per-minute checks). Fires regardless of the 50-EMA.</li>
+     *   <li><b>50-EMA trail</b> — price ≤ the ratcheted {@code ema50 × (1 − ema50TrailPct)}.</li>
+     * </ol>
      */
-    private String exitReason(String ticker) {
+    private String exitReason(String ticker, Position pos) {
         String tf = props.exit().ema50TrailTimeframe();
         int period = props.strategies().stCrossEmaCrossSlow();   // the "50" of the 20/50 strategy
         BigDecimal trailPct = props.exit().ema50TrailPct();
 
         BigDecimal price = currentPrice(ticker);
         if (price == null) return null;   // no quote this tick — can't evaluate
+
+        // 1. Hard stop-loss vs entry — bounded worst-case backstop.
+        BigDecimal entry = pos.entryPrice();
+        if (entry != null && entry.signum() > 0) {
+            BigDecimal floor = entry.multiply(BigDecimal.ONE.subtract(props.exit().stopLossPct()));
+            if (price.compareTo(floor) <= 0) {
+                return "STOP_LOSS(price=" + price + "<=floor=" + floor + " [entry=" + entry + "])";
+            }
+        }
 
         List<Candle> bars = barData.getBars(ticker, tf, period + 100);
         int n = bars.size();

@@ -252,6 +252,22 @@ public class TradingOrchestrator {
 
         List<String> tickers = watchlistLoader.getTickers();
         int warmupBars = props.trading().warmupBars();
+
+        // ── Entry guard DISABLED ───────────────────────────────────────────
+        // No arming exists, so the armed-scoping optimization would starve every
+        // strategy (nothing is ever armed). Fetch M1 and dispatch strategies for the
+        // FULL watchlist every minute, so strategies run at true 1-minute cadence.
+        if (!props.entryGuard().enabled()) {
+            barData.getBarsBatch(tickers, "M1", warmupBars);
+            runPerTicker(tickers, ticker -> processTicker(ticker, enabled));
+            pendingSignals.sweep();
+            AccountService.AccountSnapshot snapNoGuard = accountService.getSnapshot();
+            if (snapNoGuard.netLiquidationValue().compareTo(BigDecimal.ZERO) > 0) {
+                riskManager.evaluateDrawdown(snapNoGuard.netLiquidationValue());
+            }
+            return;
+        }
+
         boolean boundary = isThirtyMinuteBoundary();
 
         if (boundary) {

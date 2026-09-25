@@ -32,10 +32,10 @@ import java.util.List;
  *       side — so the move is starting at the 600, not extended far above it.</li>
  * </ol>
  *
- * <p>This strategy <b>bypasses the universal entry guard</b> (it carries its own trend
- * logic). Exits are owned by the ST_CROSS exit manager (a single 50-EMA trail). The
- * 30-minute re-trade cooldown and one-position-per-ticker rule still apply. Enable via
- * {@code webull.strategies.st-cross-enabled}.</p>
+ * <p>The universal entry guard applies uniformly to all strategies, governed solely by
+ * {@code webull.entry-guard.enabled} (there is no per-strategy bypass). Exits are owned
+ * by the ST_CROSS exit manager. The re-trade cooldown and one-position-per-ticker rule
+ * still apply. Enable via {@code webull.strategies.st-cross-enabled}.</p>
  */
 @Service
 public class StCrossStrategyService implements TradingStrategy {
@@ -169,15 +169,19 @@ public class StCrossStrategyService implements TradingStrategy {
             return;
         }
 
-        // BUY — bypass the universal entry guard (this strategy is standalone). Routing,
-        // spread guard, affordability and no-short checks still apply inside OrderService.
-        OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name(), true);
+        // BUY — the universal entry guard is applied uniformly to ALL strategies,
+        // governed solely by webull.entry-guard.enabled (no per-strategy bypass).
+        // Session routing, spread guard, affordability and no-short checks apply inside.
+        OrderResult buyResult = orderService.placeMarketBuy(ticker, qty, name(), false);
         if (!buyResult.success()) {
             logBuyNotPlaced(ticker, buyResult.message());
             return;
         }
 
-        BigDecimal fill = orderService.fetchFillPrice(ticker, price)
+        // Record the actual fill basis: resolve a FRESH price after acceptance, using the
+        // marketable ask (what a market BUY pays) as the fallback — NOT the stale
+        // signal-bar close. This keeps the -2% hard stop anchored to the true cost.
+        BigDecimal fill = orderService.fetchFillPrice(ticker, sizingPrice)
                                .setScale(PRICE_SCALE, RoundingMode.HALF_UP);
         positionTracker.openPosition(new Position(ticker, fill, qty, null, null, buyResult.clientOrderId()));
         tradeCooldown.record(ticker);

@@ -361,9 +361,11 @@ public class OrderService {
     }
 
     /**
-     * Session-aware EXIT sell used by the {@code ExitManager}: subject to the spread
-     * guard (all sessions) and the no-short guard; routed by session — REGULAR →
-     * MARKET, PRE_MARKET → LIMIT at the current bid.
+     * Session-aware EXIT sell used by the exit managers. Subject to the no-short guard,
+     * but <b>NOT the spread guard</b> — an exit must never be blocked by a wide or
+     * unavailable spread (that would trap the position in exactly the volatile
+     * conditions where getting out matters most). Routed by session — REGULAR → MARKET,
+     * PRE_MARKET → LIMIT at the current bid (falling back to last when bid is missing).
      */
     public OrderResult placeExitSell(String ticker, int qty, String strategy) {
         String clientOrderId = newClientOrderId();
@@ -372,12 +374,7 @@ public class OrderService {
         if (shortBlock != null) return shortBlock;
 
         Quote quote = fetchQuote(ticker);
-        String spreadBlock = spreadBlockReason(ticker, quote);
-        if (spreadBlock != null) {
-            log.warn("[OrderService] EXIT-SELL BLOCKED — {}", spreadBlock);
-            recordFailure(strategy, "EXIT-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, spreadBlock);
-            return OrderResult.failure(clientOrderId, spreadBlock);
-        }
+        // NOTE: the spread guard is intentionally NOT applied to exits — see Javadoc.
 
         MarketHoursGuard.Session session = marketHoursGuard.currentSession();
         Map<String, Object> body;
@@ -385,9 +382,16 @@ public class OrderService {
         BigDecimal price;
         if (session == MarketHoursGuard.Session.PRE_MARKET) {
             orderType = TYPE_LIMIT;
-            price = quote.bid();
+            // Prefer the live bid; fall back to last trade so a missing bid can't
+            // stop the exit. A pre-market limit still needs SOME price to submit.
+            price = quote.bid() != null ? quote.bid() : quote.last();
+            if (price == null) {
+                log.error("[OrderService] EXIT-SELL {} — no bid/last available pre-market; cannot price limit exit", ticker);
+                recordFailure(strategy, "EXIT-SELL", ticker, qty, null, TYPE_LIMIT, clientOrderId, "NO_PRICE_FOR_EXIT");
+                return OrderResult.failure(clientOrderId, "NO_PRICE_FOR_EXIT");
+            }
             body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_LIMIT);
-            body.put("limit_price", quote.bid().toPlainString());
+            body.put("limit_price", price.toPlainString());
             body.put("support_trading_session", "ALL");
         } else {
             orderType = TYPE_MARKET;
