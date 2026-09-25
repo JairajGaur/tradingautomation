@@ -1,0 +1,50 @@
+meta {
+  name: Confluence
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/adx/confluence?tickers=TQQQ,SQQQ&timeframes=M1,M5
+  body: none
+  auth: none
+}
+
+params:query {
+  tickers: TQQQ,SQQQ
+  timeframes: M1,M5
+  ~ticker: TQQQ
+  ~period: 14
+  ~threshold: 25
+  ~rising: 3
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # ADX Confluence — high-confidence trend read
+  
+  Fuses multiple confirmations rather than trusting raw ADX alone. Read-only.
+  Per ticker, on each requested timeframe (latest completed bar):
+  - bias gated on strength (direction only when ADX >= threshold, else NEUTRAL),
+  - DI spread and whether it is widening,
+  - ADX slope (rising across the `rising` lookback),
+  - ADXR (smoothed ADX rating).
+  Then combines across timeframes + a volume-expansion check into a 0–N score
+  and a verdict: STRONG_BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG_BEARISH.
+  
+  ## Query
+  - `ticker` / `tickers` — one or many; omit to screen the universe.txt pool.
+  - `timeframes` — comma-separated (default M1,M5). All must agree for a STRONG verdict.
+  - `period` / `threshold` / `rising` — optional overrides of webull.adx.*.
+  
+  ## Response (200)
+  { verdict, score, volumeExpanding, timeframeAgreement,
+    byTimeframe: [ { timeframe, adx, adxr, plusDi, minusDi, diSpread,
+                     diWidening, adxRising, trending, bias, pattern } ],
+    reason }
+  (single explicit ticker returns just that object; multiple/universe returns a list
+   sorted by score, highest first.)
+}
