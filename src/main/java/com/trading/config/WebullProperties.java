@@ -56,6 +56,14 @@ public record WebullProperties(
             @DefaultValue("PAPER") Mode mode,
             @DefaultValue("AAPL") String ticker,
             @DefaultValue("classpath:tickers.txt") String watchlistPath,
+
+            /**
+             * Pool of candidate symbols screened by the Supertrend filter endpoint
+             * (GET /api/filter/supertrend) when no explicit {@code ?tickers=} list is
+             * passed. NOT the trading watchlist. Any Spring resource path.
+             */
+            @DefaultValue("classpath:universe.txt") String universePath,
+
             @DefaultValue("700") int warmupBars,
             @DefaultValue("600") int emaPeriod,
             @DefaultValue("1") int orderQuantity,

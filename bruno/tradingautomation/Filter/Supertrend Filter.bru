@@ -1,0 +1,48 @@
+meta {
+  name: Supertrend Filter
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/filter/supertrend?timeframes=M5,M15,M30&direction=UP
+  body: none
+  auth: none
+}
+
+params:query {
+  timeframes: M5,M15,M30
+  direction: UP
+  ~tickers: TQQQ,SQQQ
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Supertrend Filter
+  
+  Screens a universe of tickers by Supertrend DIRECTION across one or more
+  timeframes. Read-only — no orders, no state change.
+  
+  A ticker PASSES only if its Supertrend matches `direction` on EVERY requested
+  timeframe (AND). Uses the app's Supertrend params (webull.supertrend, 7/3) on
+  the latest COMPLETED bar.
+  
+  ## Query
+  - `timeframes` — comma-separated ST timeframes (e.g. M5,M15,M30). Supported:
+    M1, M5, M15, M30, M60, M120, M240, D, W, M, Y. Default M15.
+  - `direction`  — UP or DOWN. Default UP.
+  - `tickers`    — optional comma-separated symbols to screen instead of the
+    universe.txt file (e.g. TQQQ,SQQQ). Omit to screen the universe file.
+  
+  ## Response (200)
+  { direction, timeframes: [...], scanned, passedCount,
+    passed: [ ...tickers UP/DOWN on all timeframes... ],
+    results: [ { ticker, passed, supertrend: { M5: UP, M15: UP, M30: DOWN } } ],
+    supertrendParams: { length, factor }, timestamp }
+  
+  ## Errors
+  - `400` — invalid direction/timeframe, or nothing to screen.
+}

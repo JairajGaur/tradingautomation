@@ -1,0 +1,18 @@
+# Universe of candidate tickers for the Supertrend filter endpoint
+# (GET /api/filter/supertrend). This is NOT the trading watchlist — it is only
+# the pool screened by the filter endpoint when no ?tickers= list is passed.
+#
+# Format: one symbol per line. Lines starting with '#' and blank lines are ignored.
+# Symbols are upper-cased and de-duplicated automatically.
+
+TQQQ
+SQQQ
+AAPL
+MSFT
+META
+AMZN
+TSLA
+SPY
+QQQ
+IWM
+UVXY
