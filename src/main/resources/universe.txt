@@ -16,3 +16,6 @@ SPY
 QQQ
 IWM
 UVXY
+SPY
+BA
+

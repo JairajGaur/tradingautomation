@@ -5,15 +5,17 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/supertrend/AAPL?timespan=M1&sessions=RTH&bars=50
+  url: {{baseUrl}}/api/supertrend/AAPL?timespan=M1
   body: none
   auth: none
 }
 
 params:query {
   timespan: M1
-  sessions: RTH
-  bars: 50
+  ~length: 7
+  ~factor: 3
+  ~sessions: RTH
+  ~bars: 50
 }
 
 headers {
@@ -22,40 +24,39 @@ headers {
 
 docs {
   # Get Supertrend Values
-
+  
   Computes the Supertrend indicator per bar so you can verify the values
   against the Webull chart across timeframes. This endpoint does NOT place
   orders — it is for inspection/validation only.
-
-  Uses the app's configured Supertrend params (webull.supertrend.length /
-  factor, default 7 / 3) — the SAME values the entry guard uses. length and
-  factor are NOT request params.
-
+  
   Any US stock symbol works (the ticker need NOT be in the watchlist).
-
+  
   ## Query
+  - `length`   — ATR period (default 7).
+  - `factor`   — ATR multiplier (default 3).
   - `timespan` — bar granularity (default M1). Supported: M1, M5, M15, M30,
     M60, M120, M240, D, W, M, Y.
   - `sessions` — trading sessions (comma-separated). Supported: RTH, PRE,
     ATH, OVN. Omit to use the configured default.
   - `count`    — number of bars to fetch (default = webull.trading.warmup-bars).
   - `bars`     — how many most-recent points to return (default 50; use 0 for all).
-
+  
   ## Response (200)
   { ticker, length, factor, timespan, sessions, barsFetched,
     latestSupertrend, latestDirection, latestClose, returned,
     series: [ { timestamp, timestampEt, open, high, low, close,
                 atr, supertrend, direction (UP|DOWN), flip } ] }
-
-  length/factor in the response reflect the configured values used.
-
+  
+  Warm-up bars (before the first ATR at index length-1) have null
+  atr/supertrend/direction. `flip` is true on the bar where direction changed.
+  
   ## Verifying against Webull
-  Set the chart's Supertrend to the same params on the SAME timeframe and
+  Set the chart's Supertrend to (length=7, factor=3) on the SAME timeframe and
   compare on COMPLETED bars. The most recent bar may still be forming, so if
   the last value looks off, compare the previous (completed) bar instead.
-
+  
   ## Errors
-  - `400` — invalid timespan/session, or not enough bars.
+  - `400` — invalid length/factor/timespan/session, or not enough bars.
   - `502` — Webull market-data error.
   - `503` — no bars returned.
 }

@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/trade/sell/AAPL?quantity=1
+  url: {{baseUrl}}/api/trade/sell/ACHR?quantity=1
   body: none
   auth: none
 }
@@ -20,29 +20,29 @@ headers {
 
 docs {
   # Manual Sell
-
+  
   Places a manual market SELL for testing. Subject to the no-short guardrail —
   the quantity cannot exceed the tracked held quantity, so this can only
   flatten/reduce an existing long position, never open a short. Recorded in the
   trade log as strategy "MANUAL". Reduces or clears the tracked position on success.
-
+  
   ## Path / Query
   - `{ticker}` — equity symbol, case-insensitive (e.g. AAPL)
   - `quantity` — shares to sell (default 1)
-
+  
   ## Responses
   - `200` — { side, ticker, quantity, success, orderId, message, orderRequest,
     webullHttpStatus, webullResponse, submittedToWebull, mode, heldAfter, timestamp }
   - `422` — guardrail rejection (e.g. SHORT_BLOCKED when selling more than held)
   - `400` — invalid input (non-positive quantity)
-
+  
   ## Debugging fields
   - `orderRequest` — the exact order payload we sent to Webull. Manual SELL uses
     order_type=MARKET. (Strategy bracket exits use STOP_LOSS / LIMIT with prices.)
   - `webullHttpStatus` — HTTP status from Webull (-1 = not sent / simulated / guardrail)
   - `webullResponse` — raw Webull success/failure body
   - `submittedToWebull` — true only when the order actually reached Webull
-
+  
   ## Note
   Orders only reach Webull when webull.trading.submit-orders=true. POST places a
   REAL order in LIVE mode; sent to the sandbox in PAPER mode (with submit-orders).
