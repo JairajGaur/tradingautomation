@@ -40,11 +40,12 @@ docs {
   - `timeframes` — comma-separated (default M1,M5). All must agree for a STRONG verdict.
   - `period` / `threshold` / `rising` — optional overrides of webull.adx.*.
   
-  ## Response (200)
-  { verdict, score, volumeExpanding, timeframeAgreement,
-    byTimeframe: [ { timeframe, adx, adxr, plusDi, minusDi, diSpread,
-                     diWidening, adxRising, trending, bias, pattern } ],
-    reason }
-  (single explicit ticker returns just that object; multiple/universe returns a list
-   sorted by score, highest first.)
+  ## Response (200) — same shape as /api/adx/recommend
+  Single explicit ticker → one row: { ticker, action (BUY/SELL/HOLD), bias
+    (BULLISH/BEARISH/NEUTRAL), reason, close }.
+  Multiple / universe → { source, timeframes, evaluated,
+    counts: { buy, sell, hold }, recommendations: [ ...rows... ], timestamp },
+    sorted BUY, then SELL, then HOLD.
+  The multi-timeframe/DI/volume confluence still drives action & bias internally;
+  it is just not returned in the response.
 }

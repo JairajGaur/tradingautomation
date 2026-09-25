@@ -130,144 +130,109 @@ public class AdxConfluenceController {
         }
 
         List<Map<String, Object>> results = new ArrayList<>();
+        int buy = 0, sell = 0, hold = 0;
         for (String symbol : symbols) {
-            results.add(evaluate(symbol, tfs, effPeriod, effThreshold, effRising, warmup));
+            Map<String, Object> r = evaluate(symbol, tfs, effPeriod, effThreshold, effRising, warmup);
+            results.add(r);
+            switch (String.valueOf(r.get("action"))) {
+                case "BUY" -> buy++;
+                case "SELL" -> sell++;
+                default -> hold++;
+            }
         }
 
+        // Single explicit ticker → return just that row (same as the recommend endpoint).
         if (explicit != null && symbols.size() == 1) {
             return ResponseEntity.ok(results.get(0));
         }
-        // Highest score first.
-        results.sort((a, b) -> ((Integer) b.get("score")) - ((Integer) a.get("score")));
+        // Sort BUY, then SELL, then HOLD (same as recommend).
+        results.sort((a, b) -> rank(String.valueOf(a.get("action")))
+                - rank(String.valueOf(b.get("action"))));
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("source", scannedUniverse ? "universe" : "requested");
         body.put("timeframes", tfs);
         body.put("evaluated", results.size());
-        body.put("results", results);
+        body.put("counts", Map.of("buy", buy, "sell", sell, "hold", hold));
+        body.put("recommendations", results);
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }
 
-    /** Per-ticker confluence across all requested timeframes + volume. */
+    /** Ordering for the response: BUY first, then SELL, then HOLD (matches recommend). */
+    private static int rank(String action) {
+        return switch (action) {
+            case "BUY" -> 0;
+            case "SELL" -> 1;
+            default -> 2;
+        };
+    }
+
+    /**
+     * Per-ticker confluence across all requested timeframes + volume, reduced to the
+     * same fields as the recommend endpoint: ticker, action, bias, reason, close.
+     * The per-timeframe confluence detail (bias gated on ADX≥threshold, DI widening,
+     * ADX slope) is computed internally to derive the verdict but is not returned.
+     */
     private Map<String, Object> evaluate(String symbol, List<String> tfs, int period,
                                          BigDecimal threshold, int rising, int warmup) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("ticker", symbol);
 
-        List<Map<String, Object>> perTf = new ArrayList<>();
         int bull = 0, bear = 0, evaluated = 0;
-        int score = 0;
+        String lastClose = null;
 
         for (String tf : tfs) {
-            Map<String, Object> tfRow = new LinkedHashMap<>();
-            tfRow.put("timeframe", tf);
             try {
                 List<Candle> bars = barData.getBars(symbol, tf, warmup);
-                if (bars == null || bars.size() < 2 * period + 2) {
-                    tfRow.put("bias", "NEUTRAL");
-                    tfRow.put("note", "insufficient data");
-                    perTf.add(tfRow);
-                    continue;
-                }
+                if (bars == null || bars.size() < 2 * period + 2) continue;
                 List<Candle> completed = bars.subList(0, bars.size() - 1);
-                List<Point> pts = AdxCalculator.calculate(completed, period, threshold, rising);
+                lastClose = completed.get(completed.size() - 1).close().toPlainString();
 
+                List<Point> pts = AdxCalculator.calculate(completed, period, threshold, rising);
                 int latestIdx = -1;
                 for (int i = pts.size() - 1; i >= 0; i--) {
                     if (pts.get(i).adx() != null) { latestIdx = i; break; }
                 }
-                if (latestIdx < 0) {
-                    tfRow.put("bias", "NEUTRAL");
-                    tfRow.put("note", "ADX warming up");
-                    perTf.add(tfRow);
-                    continue;
-                }
+                if (latestIdx < 0) continue;
                 Point p = pts.get(latestIdx);
-                evaluated++;
 
+                // Bias gated on strength: only claim direction when ADX >= threshold.
                 boolean trending = p.adx().compareTo(threshold) >= 0;
-
-                // Bias gated on strength: only claim a direction when ADX >= threshold.
-                String bias = "NEUTRAL";
-                if (trending && p.direction() == Direction.UP) bias = "BULLISH";
-                else if (trending && p.direction() == Direction.DOWN) bias = "BEARISH";
-
-                // DI spread + widening.
-                BigDecimal spread = p.plusDi().subtract(p.minusDi()).abs();
-                Boolean widening = null;
-                if (latestIdx - 1 >= 0 && pts.get(latestIdx - 1).plusDi() != null) {
-                    Point prev = pts.get(latestIdx - 1);
-                    BigDecimal prevSpread = prev.plusDi().subtract(prev.minusDi()).abs();
-                    widening = spread.compareTo(prevSpread) > 0;
-                }
-
-                // ADX slope across the rising lookback.
-                Boolean adxRising = null;
-                int backIdx = latestIdx - rising;
-                if (backIdx >= 0 && pts.get(backIdx).adx() != null) {
-                    adxRising = p.adx().compareTo(pts.get(backIdx).adx()) > 0;
-                }
-
-                // ADXR = (ADX now + ADX `period` bars ago) / 2.
-                BigDecimal adxr = null;
-                int adxrBack = latestIdx - period;
-                if (adxrBack >= 0 && pts.get(adxrBack).adx() != null) {
-                    adxr = p.adx().add(pts.get(adxrBack).adx())
-                            .divide(BigDecimal.valueOf(2), 4, RoundingMode.HALF_UP);
-                }
-
-                // Per-timeframe confirmations → up to 3 points each (trending, widening, slope),
-                // signed by direction so opposing timeframes cancel.
-                int tfPoints = 0;
-                if (trending) tfPoints++;
-                if (Boolean.TRUE.equals(widening)) tfPoints++;
-                if (Boolean.TRUE.equals(adxRising)) tfPoints++;
-                if ("BULLISH".equals(bias)) { bull++; score += tfPoints; }
-                else if ("BEARISH".equals(bias)) { bear++; score += tfPoints; }
-
-                tfRow.put("adx", p.adx().stripTrailingZeros().toPlainString());
-                tfRow.put("adxr", adxr == null ? null : adxr.stripTrailingZeros().toPlainString());
-                tfRow.put("plusDi", p.plusDi().stripTrailingZeros().toPlainString());
-                tfRow.put("minusDi", p.minusDi().stripTrailingZeros().toPlainString());
-                tfRow.put("diSpread", spread.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString());
-                tfRow.put("diWidening", widening);
-                tfRow.put("adxRising", adxRising);
-                tfRow.put("trending", trending);
-                tfRow.put("bias", bias);
-                tfRow.put("pattern", p.pattern() == null ? null : p.pattern().name());
+                if (!trending) continue;   // no trend → contributes nothing to the verdict
+                evaluated++;               // count only trending timeframes toward agreement
+                if (p.direction() == Direction.UP) bull++;
+                else if (p.direction() == Direction.DOWN) bear++;
             } catch (Exception e) {
                 log.warn("[AdxConfluence] {} {} failed: {}", symbol, tf, e.getMessage());
-                tfRow.put("bias", "NEUTRAL");
-                tfRow.put("note", "evaluation error");
             }
-            perTf.add(tfRow);
         }
 
-        // Volume expansion on the base (first) timeframe — one confirmation point.
         boolean volumeExpanding = false;
         try {
             volumeExpanding = volumeFilter.isVolumeIncreasing(symbol);
         } catch (Exception ignored) { }
-        if (volumeExpanding) score += 1;
 
-        // Multi-timeframe agreement → the verdict.
-        String verdict;
+        // Multi-timeframe agreement → internal verdict → BUY/SELL/HOLD action + bias.
         boolean allAgreeBull = evaluated > 0 && bull == evaluated;
         boolean allAgreeBear = evaluated > 0 && bear == evaluated;
+        String verdict;
         if (allAgreeBull) verdict = volumeExpanding ? "STRONG_BULLISH" : "BULLISH";
         else if (allAgreeBear) verdict = volumeExpanding ? "STRONG_BEARISH" : "BEARISH";
         else if (bull > bear) verdict = "BULLISH";
         else if (bear > bull) verdict = "BEARISH";
         else verdict = "NEUTRAL";
 
-        row.put("verdict", verdict);
-        row.put("score", score);          // higher = more confirmations aligned
-        row.put("volumeExpanding", volumeExpanding);
-        row.put("timeframeAgreement", (allAgreeBull || allAgreeBear)
-                ? "ALL_AGREE" : (bull > 0 && bear > 0 ? "CONFLICTED" : "MIXED"));
-        row.put("byTimeframe", perTf);
+        String action = verdict.contains("BULL") ? "BUY"
+                : verdict.contains("BEAR") ? "SELL" : "HOLD";
+        String bias = verdict.contains("BULL") ? "BULLISH"
+                : verdict.contains("BEAR") ? "BEARISH" : "NEUTRAL";
+
+        // Same fields as the recommend endpoint: ticker, action, bias, reason, close.
+        row.put("action", action);
+        row.put("bias", bias);
         row.put("reason", reason(verdict, allAgreeBull || allAgreeBear, volumeExpanding, tfs));
+        if (lastClose != null) row.put("close", lastClose);
         return row;
     }
 
