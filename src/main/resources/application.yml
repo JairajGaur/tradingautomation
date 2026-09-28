@@ -230,7 +230,7 @@ webull:
   # reusing the shared market-data cache (no separate fetch). message-prefix is
   # prepended to every message. Alerts are deduped (posted only when state changes).
   alerts:
-    enabled: false
+    enabled: true
     scan-minutes: 5
     # BULLISH when Supertrend is UP and ADX recommends BUY; BEARISH when Supertrend is
     # DOWN and ADX recommends SELL — on `timeframe`. Each alert has its OWN message-prefix.
@@ -238,6 +238,16 @@ webull:
       enabled: true
       timeframe: "M5"
       message-prefix: "5MIN - "             # e.g. "[ST+ADX] " — prepended to this alert's messages
+    # Opening-Range Breakout: opening range = the 09:30 ET candle on orb-timeframe
+    # (M5 = 9:30–9:35, M15 = 9:30–9:45, M30 = 9:30–10:00; Webull has NO M10). A break is
+    # a 1-min candle CLOSE beyond the range. UP and DOWN toggle independently, own prefix.
+    orb-timeframe: "M5"
+    orb-up:
+      enabled: false
+      message-prefix: "ORB UP - "
+    orb-down:
+      enabled: false
+      message-prefix: "ORB DOWN - "
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

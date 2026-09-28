@@ -57,7 +57,15 @@ public record WebullProperties(
     public record Alerts(
             @DefaultValue("false") boolean enabled,
             @DefaultValue("5")     int scanMinutes,
-            @DefaultValue StAdxAlertCfg stAdx
+            @DefaultValue StAdxAlertCfg stAdx,
+            /**
+             * Opening-range timeframe for the ORB alerts (the candle whose 09:30 ET bar
+             * defines the range). Must be a Webull-supported timespan — M5, M15, M30, ...
+             * NOTE: Webull has NO M10. Shared by both orbUp and orbDown. Default M5.
+             */
+            @DefaultValue("M5")    String orbTimeframe,
+            @DefaultValue OrbAlertCfg orbUp,
+            @DefaultValue OrbAlertCfg orbDown
     ) {
         /**
          * "Supertrend + ADX agree" alert: on {@code timeframe} (default M5), flag a ticker
@@ -69,6 +77,17 @@ public record WebullProperties(
                 @DefaultValue("true") boolean enabled,
                 @DefaultValue("M5")   String timeframe,
                 @DefaultValue("")     String messagePrefix
+        ) {}
+
+        /**
+         * Opening-Range-Breakout alert config (used independently for the UP and DOWN
+         * directions). The opening range is the 09:30–09:35 ET 5-minute candle; a break
+         * is a 1-minute candle CLOSE beyond the range high (up) / low (down). Once per
+         * ticker per day. Each direction has its own enable flag + message prefix.
+         */
+        public record OrbAlertCfg(
+                @DefaultValue("false") boolean enabled,
+                @DefaultValue("")      String messagePrefix
         ) {}
     }
 
