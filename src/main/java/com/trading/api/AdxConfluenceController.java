@@ -61,18 +61,18 @@ public class AdxConfluenceController {
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final AdxService adx;
-    private final VolumeFilter volumeFilter;
+    private final com.trading.service.ConfluenceService confluenceService;
 
     public AdxConfluenceController(WebullProperties props,
                                    UniverseLoader universeLoader,
                                    BarDataManager barData,
                                    AdxService adx,
-                                   VolumeFilter volumeFilter) {
+                                   com.trading.service.ConfluenceService confluenceService) {
         this.props = props;
         this.universeLoader = universeLoader;
         this.barData = barData;
         this.adx = adx;
-        this.volumeFilter = volumeFilter;
+        this.confluenceService = confluenceService;
     }
 
     @GetMapping("/confluence")
@@ -132,9 +132,11 @@ public class AdxConfluenceController {
         List<Map<String, Object>> results = new ArrayList<>();
         int buy = 0, sell = 0, hold = 0;
         for (String symbol : symbols) {
-            Map<String, Object> r = evaluate(symbol, tfs, effPeriod, effThreshold, effRising, warmup);
+            com.trading.service.ConfluenceService.Result res =
+                    confluenceService.evaluate(symbol, tfs, effPeriod, effThreshold, effRising);
+            Map<String, Object> r = toRow(res);
             results.add(r);
-            switch (String.valueOf(r.get("action"))) {
+            switch (res.action()) {
                 case "BUY" -> buy++;
                 case "SELL" -> sell++;
                 default -> hold++;
@@ -168,126 +170,17 @@ public class AdxConfluenceController {
         };
     }
 
-    /**
-     * Per-ticker confluence across all requested timeframes + volume, reduced to the
-     * same fields as the recommend endpoint: ticker, action, bias, reason, close.
-     * The per-timeframe confluence detail (bias gated on ADX≥threshold, DI widening,
-     * ADX slope) is computed internally to derive the verdict but is not returned.
-     */
-    private Map<String, Object> evaluate(String symbol, List<String> tfs, int period,
-                                         BigDecimal threshold, int rising, int warmup) {
+    /** Maps a {@link com.trading.service.ConfluenceService.Result} to the response row. */
+    private static Map<String, Object> toRow(com.trading.service.ConfluenceService.Result res) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("ticker", symbol);
-
-        int bull = 0, bear = 0, evaluated = 0;
-        String lastClose = null;
-
-        // Raw confidence contribution vs the max possible, so we can normalize to 0–100.
-        // Per trending timeframe: ADX-strength (1–3) + DI-widening (1) + ADX-rising (1) = up to 5.
-        double rawPoints = 0.0;
-        double maxPoints = 0.0;
-        final double perTfMax = 5.0;
-
-        for (String tf : tfs) {
-            maxPoints += perTfMax;
-            try {
-                List<Candle> bars = barData.getBars(symbol, tf, warmup);
-                if (bars == null || bars.size() < 2 * period + 2) continue;
-                List<Candle> completed = bars.subList(0, bars.size() - 1);
-                lastClose = completed.get(completed.size() - 1).close().toPlainString();
-
-                List<Point> pts = AdxCalculator.calculate(completed, period, threshold, rising);
-                int latestIdx = -1;
-                for (int i = pts.size() - 1; i >= 0; i--) {
-                    if (pts.get(i).adx() != null) { latestIdx = i; break; }
-                }
-                if (latestIdx < 0) continue;
-                Point p = pts.get(latestIdx);
-
-                // Bias gated on strength: only claim direction when ADX >= threshold.
-                boolean trending = p.adx().compareTo(threshold) >= 0;
-                if (!trending) continue;   // no trend → contributes nothing to the verdict
-                evaluated++;               // count only trending timeframes toward agreement
-                if (p.direction() == Direction.UP) bull++;
-                else if (p.direction() == Direction.DOWN) bear++;
-
-                // ── Confidence contribution for this trending timeframe ──
-                AdxCalculator.Strength s = AdxCalculator.strengthOf(p.adx());
-                rawPoints += switch (s) {
-                    case STRONG -> 1.5;
-                    case VERY_STRONG -> 2.5;
-                    case EXTREME -> 3.0;
-                    default -> 1.0;   // WEAK (already >= threshold)
-                };
-                if (latestIdx - 1 >= 0 && pts.get(latestIdx - 1).plusDi() != null) {
-                    Point prev = pts.get(latestIdx - 1);
-                    BigDecimal spread = p.plusDi().subtract(p.minusDi()).abs();
-                    BigDecimal prevSpread = prev.plusDi().subtract(prev.minusDi()).abs();
-                    if (spread.compareTo(prevSpread) > 0) rawPoints += 1.0;   // DI widening
-                }
-                int backIdx = latestIdx - rising;
-                if (backIdx >= 0 && pts.get(backIdx).adx() != null
-                        && p.adx().compareTo(pts.get(backIdx).adx()) > 0) {
-                    rawPoints += 1.0;   // ADX rising over the lookback
-                }
-            } catch (Exception e) {
-                log.warn("[AdxConfluence] {} {} failed: {}", symbol, tf, e.getMessage());
-            }
-        }
-
-        boolean volumeExpanding = false;
-        try {
-            volumeExpanding = volumeFilter.isVolumeIncreasing(symbol);
-        } catch (Exception ignored) { }
-
-        // Multi-timeframe agreement → internal verdict → BUY/SELL/HOLD action + bias.
-        boolean allAgreeBull = evaluated > 0 && bull == evaluated;
-        boolean allAgreeBear = evaluated > 0 && bear == evaluated;
-        String verdict;
-        if (allAgreeBull) verdict = volumeExpanding ? "STRONG_BULLISH" : "BULLISH";
-        else if (allAgreeBear) verdict = volumeExpanding ? "STRONG_BEARISH" : "BEARISH";
-        else if (bull > bear) verdict = "BULLISH";
-        else if (bear > bull) verdict = "BEARISH";
-        else verdict = "NEUTRAL";
-
-        String action = verdict.contains("BULL") ? "BUY"
-                : verdict.contains("BEAR") ? "SELL" : "HOLD";
-        String bias = verdict.contains("BULL") ? "BULLISH"
-                : verdict.contains("BEAR") ? "BEARISH" : "NEUTRAL";
-
-        // ── Confidence score (0–100) — a HEURISTIC, NOT a calibrated probability. ──
-        // Base = normalized confluence points (up to 80); +10 if all trending TFs agree,
-        // +10 if volume confirms. Conflicted or no-trend collapses to 0.
-        int confidence = 0;
-        if (!"NEUTRAL".equals(verdict) && !(bull > 0 && bear > 0)) {
-            double base = maxPoints > 0 ? (rawPoints / maxPoints) * 80.0 : 0.0;
-            double bonus = 0.0;
-            if (allAgreeBull || allAgreeBear) bonus += 10.0;
-            if (volumeExpanding) bonus += 10.0;
-            confidence = (int) Math.round(Math.min(100.0, base + bonus));
-        }
-        String confLabel = confidence >= 70 ? "HIGH" : confidence >= 40 ? "MEDIUM" : "LOW";
-
-        // Same fields as the recommend endpoint, plus the confidence heuristic.
-        row.put("action", action);
-        row.put("bias", bias);
-        row.put("confidenceScore", confidence);   // 0–100 heuristic, NOT a probability
-        row.put("confidence", confLabel);         // LOW / MEDIUM / HIGH
-        row.put("reason", reason(verdict, allAgreeBull || allAgreeBear, volumeExpanding, tfs));
-        if (lastClose != null) row.put("close", lastClose);
+        row.put("ticker", res.ticker());
+        row.put("action", res.action());
+        row.put("bias", res.bias());
+        row.put("confidenceScore", res.confidenceScore());
+        row.put("confidence", res.confidence());
+        row.put("reason", res.reason());
+        if (res.close() != null) row.put("close", res.close());
         return row;
-    }
-
-    private static String reason(String verdict, boolean allAgree, boolean vol, List<String> tfs) {
-        if ("NEUTRAL".equals(verdict)) {
-            return "No aligned trend across " + tfs + " (weak/mixed) — stand aside.";
-        }
-        String dir = verdict.contains("BULL") ? "up" : "down";
-        StringBuilder sb = new StringBuilder();
-        sb.append(allAgree ? "All timeframes " + tfs + " agree on an " + dir + "-trend"
-                           : "Majority of " + tfs + " lean " + dir);
-        sb.append(vol ? ", confirmed by expanding volume." : ", but volume is NOT expanding (lower conviction).");
-        return sb.toString();
     }
 
     private List<String> resolveSymbols(String explicit) {

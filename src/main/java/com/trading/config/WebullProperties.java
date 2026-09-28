@@ -19,32 +19,58 @@ public record WebullProperties(
         @DefaultValue Adx adx,
         EntryGuard entryGuard,
         @DefaultValue Notifications notifications,
+        @DefaultValue Alerts alerts,
         Endpoints endpoints
 ) {
 
     public enum Mode { PAPER, LIVE }
 
     /**
-     * Push-notification config. When {@code enabled} and {@code channel=TELEGRAM}, trade
-     * events are pushed to a Telegram chat via the Bot API. Failures never affect trading.
+     * Push-notification transport config. When {@code enabled} and {@code channel=TELEGRAM},
+     * messages are delivered to a Telegram chat/channel via the Bot API. This is just the
+     * delivery channel — WHAT gets sent is driven by the alert framework ({@code webull.alerts})
+     * and the {@code /api/notifications/test} endpoint. Failures never affect trading.
      *
      * @param enabled          master on/off (default false)
      * @param channel          delivery channel: TELEGRAM (only one for now); NONE disables
      * @param telegramBotToken bot token from @BotFather
-     * @param telegramChatId   target chat id (your user id, or a group/channel id)
-     * @param notifyEntries    push on BUY entries (default true)
-     * @param notifyExits      push on SELL/exits (default true)
-     * @param notifyFailures   push on order failures (default true)
+     * @param telegramChatId   target chat id (your user id, or a group/channel id like @name or -100...)
      */
     public record Notifications(
             @DefaultValue("false") boolean enabled,
             @DefaultValue("TELEGRAM") String channel,
             @DefaultValue("") String telegramBotToken,
-            @DefaultValue("") String telegramChatId,
-            @DefaultValue("true") boolean notifyEntries,
-            @DefaultValue("true") boolean notifyExits,
-            @DefaultValue("true") boolean notifyFailures
+            @DefaultValue("") String telegramChatId
     ) {}
+
+    /**
+     * Pluggable market-alert framework. One scheduler ({@code AlertEngine}) runs every
+     * {@code scanMinutes} minutes, evaluating each enabled {@code Alert} over the universe
+     * using the shared {@code BarDataManager} (no separate data fetching), and posts hits
+     * to the notification channel. Every message is prefixed with {@code messagePrefix}.
+     *
+     * @param enabled        master on/off for all alerts (default false)
+     * @param scanMinutes    scan interval in minutes (default 5)
+     * @param messagePrefix  text prepended to every alert message (default "")
+     * @param stAdx          the "M5 Supertrend + ADX" alert config
+     */
+    public record Alerts(
+            @DefaultValue("false") boolean enabled,
+            @DefaultValue("5")     int scanMinutes,
+            @DefaultValue StAdxAlertCfg stAdx
+    ) {
+        /**
+         * "Supertrend + ADX agree" alert: on {@code timeframe} (default M5), flag a ticker
+         * BULLISH when Supertrend is UP and the ADX recommendation is BUY, or BEARISH when
+         * Supertrend is DOWN and ADX recommends SELL. {@code messagePrefix} is prepended to
+         * THIS alert's messages (each alert has its own prefix).
+         */
+        public record StAdxAlertCfg(
+                @DefaultValue("true") boolean enabled,
+                @DefaultValue("M5")   String timeframe,
+                @DefaultValue("")     String messagePrefix
+        ) {}
+    }
 
     public record Api(
             String appKey,

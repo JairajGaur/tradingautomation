@@ -216,14 +216,28 @@ webull:
   # ── Notifications (push trade alerts to your phone) ───────────────────────
   # Telegram: create a bot via @BotFather for the token, and get your chat id
   # (e.g. message @userinfobot). Failures never affect trading.
+  # Telegram DELIVERY channel only. WHAT gets sent is driven by webull.alerts below
+  # (and the /api/notifications/test endpoint). For a channel, set the chat id to
+  # @channelname (public) or a -100... id (private) and make the bot a channel admin.
   notifications:
     enabled: true                    # turn on when token + chat id are set
     channel: "TELEGRAM"
     telegram-bot-token: "${TELEGRAM_BOT_TOKEN:}"
     telegram-chat-id: "${TELEGRAM_CHAT_ID:}"
-    notify-entries: true
-    notify-exits: true
-    notify-failures: true
+
+  # ── Market alerts (pluggable; posted to the notification channel) ─────────
+  # One scheduler evaluates each ENABLED alert over universe.txt every scan-minutes,
+  # reusing the shared market-data cache (no separate fetch). message-prefix is
+  # prepended to every message. Alerts are deduped (posted only when state changes).
+  alerts:
+    enabled: false
+    scan-minutes: 5
+    # BULLISH when Supertrend is UP and ADX recommends BUY; BEARISH when Supertrend is
+    # DOWN and ADX recommends SELL — on `timeframe`. Each alert has its OWN message-prefix.
+    st-adx:
+      enabled: true
+      timeframe: "M5"
+      message-prefix: "5MIN - "             # e.g. "[ST+ADX] " — prepended to this alert's messages
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
