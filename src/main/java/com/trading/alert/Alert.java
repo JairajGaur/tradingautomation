@@ -28,6 +28,9 @@ public interface Alert {
     /** This alert's own message prefix, prepended to its notifications (may be empty). */
     String messagePrefix();
 
+    /** How often (minutes) this alert should run — its own cadence (min 1). */
+    int scanIntervalMinutes();
+
     /** Timeframes this alert reads, so the engine can batch-prefetch them once. */
     List<String> timeframesNeeded();
 

@@ -56,37 +56,41 @@ public record WebullProperties(
      */
     public record Alerts(
             @DefaultValue("false") boolean enabled,
-            @DefaultValue("5")     int scanMinutes,
             @DefaultValue StAdxAlertCfg stAdx,
             /**
-             * Opening-range timeframe for the ORB alerts (the candle whose 09:30 ET bar
-             * defines the range). Must be a Webull-supported timespan — M5, M15, M30, ...
-             * NOTE: Webull has NO M10. Shared by both orbUp and orbDown. Default M5.
+             * Opening-range length in MINUTES for the ORB alerts. The range = the high/low
+             * of the first N one-minute bars from 09:30 ET (so the range is final at
+             * 09:30 + N). Any value works (5, 10, 15, 20, 30, ...) since it's built from M1
+             * bars, not a fixed Webull timeframe. Shared by orbUp and orbDown. Default 5.
              */
-            @DefaultValue("M5")    String orbTimeframe,
+            @DefaultValue("5")     int orbRangeMinutes,
             @DefaultValue OrbAlertCfg orbUp,
             @DefaultValue OrbAlertCfg orbDown
     ) {
         /**
          * "Supertrend + ADX agree" alert: on {@code timeframe} (default M5), flag a ticker
          * BULLISH when Supertrend is UP and the ADX recommendation is BUY, or BEARISH when
-         * Supertrend is DOWN and ADX recommends SELL. {@code messagePrefix} is prepended to
-         * THIS alert's messages (each alert has its own prefix).
+         * Supertrend is DOWN and ADX recommends SELL. Each alert runs on its OWN
+         * {@code scanMinutes} cadence and has its own {@code messagePrefix}.
          */
         public record StAdxAlertCfg(
                 @DefaultValue("true") boolean enabled,
                 @DefaultValue("M5")   String timeframe,
+                @DefaultValue("5")    int scanMinutes,
                 @DefaultValue("")     String messagePrefix
         ) {}
 
         /**
          * Opening-Range-Breakout alert config (used independently for the UP and DOWN
-         * directions). The opening range is the 09:30–09:35 ET 5-minute candle; a break
-         * is a 1-minute candle CLOSE beyond the range high (up) / low (down). Once per
-         * ticker per day. Each direction has its own enable flag + message prefix.
+         * directions). The opening range is the first {@code orbRangeMinutes} one-minute
+         * bars from 09:30 ET; a break is a 1-minute candle CLOSE beyond the range high (up)
+         * / low (down). Because the break is a 1-minute event, {@code scanMinutes} defaults
+         * to 1. Once per ticker per day. Each direction has its own enable flag, cadence,
+         * and prefix.
          */
         public record OrbAlertCfg(
                 @DefaultValue("false") boolean enabled,
+                @DefaultValue("1")     int scanMinutes,
                 @DefaultValue("")      String messagePrefix
         ) {}
     }

@@ -226,27 +226,30 @@ webull:
     telegram-chat-id: "${TELEGRAM_CHAT_ID:}"
 
   # ── Market alerts (pluggable; posted to the notification channel) ─────────
-  # One scheduler evaluates each ENABLED alert over universe.txt every scan-minutes,
-  # reusing the shared market-data cache (no separate fetch). message-prefix is
-  # prepended to every message. Alerts are deduped (posted only when state changes).
+  # One scheduler ticks every minute; each ENABLED alert runs on its OWN scan-minutes
+  # cadence over universe.txt, reusing the shared market-data cache (no separate fetch).
+  # Each alert has its own message-prefix. Deduped (posted only when state changes).
   alerts:
     enabled: true
-    scan-minutes: 5
-    # BULLISH when Supertrend is UP and ADX recommends BUY; BEARISH when Supertrend is
-    # DOWN and ADX recommends SELL — on `timeframe`. Each alert has its OWN message-prefix.
+    # ST+ADX changes at most per M5 bar → scan every 5 min. BULLISH when Supertrend is UP
+    # and ADX recommends BUY; BEARISH when Supertrend is DOWN and ADX recommends SELL.
     st-adx:
       enabled: true
       timeframe: "M5"
-      message-prefix: "5MIN - "             # e.g. "[ST+ADX] " — prepended to this alert's messages
-    # Opening-Range Breakout: opening range = the 09:30 ET candle on orb-timeframe
-    # (M5 = 9:30–9:35, M15 = 9:30–9:45, M30 = 9:30–10:00; Webull has NO M10). A break is
-    # a 1-min candle CLOSE beyond the range. UP and DOWN toggle independently, own prefix.
-    orb-timeframe: "M5"
+      scan-minutes: 5
+      message-prefix: "5MIN TREND - "
+    # Opening-Range Breakout: opening range = high/low of the first orb-range-minutes
+    # ONE-MINUTE bars from 09:30 ET (range final at 09:30 + N; any N: 5/10/15/20/30...).
+    # Computed once/day per ticker and cached. The break is a 1-MINUTE candle CLOSE beyond
+    # the range → scan every 1 min (per-alert scan-minutes below) so it isn't missed.
+    orb-range-minutes: 15
     orb-up:
-      enabled: false
+      enabled: true
+      scan-minutes: 1
       message-prefix: "ORB UP - "
     orb-down:
-      enabled: false
+      enabled: true
+      scan-minutes: 1
       message-prefix: "ORB DOWN - "
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────

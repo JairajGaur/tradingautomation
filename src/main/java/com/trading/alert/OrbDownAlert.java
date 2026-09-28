@@ -44,42 +44,38 @@ public class OrbDownAlert implements Alert {
         return p == null ? "" : p;
     }
 
-    private String orbTf() {
-        try {
-            return com.trading.service.MarketDataService.normaliseTimespan(props.alerts().orbTimeframe());
-        } catch (Exception e) {
-            log.warn("[OrbDownAlert] invalid orb-timeframe '{}' — using M5", props.alerts().orbTimeframe());
-            return "M5";
-        }
+    @Override
+    public int scanIntervalMinutes() {
+        return Math.max(1, props.alerts().orbDown().scanMinutes());
     }
 
     @Override
     public List<String> timeframesNeeded() {
-        return List.of(orbTf(), "M1");
+        return List.of("M1");   // opening range + break are both derived from M1
     }
 
     @Override
     public List<AlertHit> evaluate(List<String> universe) {
         int warmup = props.trading().warmupBars();
+        int rangeMin = props.alerts().orbRangeMinutes();
         String day = OrbSupport.todayKey();
-        String orTf = orbTf();
         List<AlertHit> hits = new ArrayList<>();
 
         for (String symbol : universe) {
             try {
-                Candle or = OrbSupport.openingRangeCandle(barData.getBars(symbol, orTf, warmup));
-                if (or == null) continue;   // no 09:30 candle yet today
-                BigDecimal orLow = or.low();
+                List<Candle> m1Bars = barData.getBars(symbol, "M1", warmup);
+                OrbSupport.Range range = OrbSupport.openingRange(symbol, m1Bars, rangeMin);
+                if (range == null) continue;   // opening range not complete yet today
 
-                Candle m1 = OrbSupport.latestCompletedM1(barData.getBars(symbol, "M1", warmup));
+                Candle m1 = OrbSupport.latestCompletedM1(m1Bars);
                 if (m1 == null) continue;
 
-                if (OrbSupport.closesBelow(m1, orLow)) {
-                    String state = "BREAKOUT_DOWN_" + day;
+                if (OrbSupport.closesBelow(m1, range.low())) {
+                    String state = "BREAKOUT_DOWN_" + day;   // per-day → re-arms each session
                     hits.add(new AlertHit(id(), symbol, state,
                             "⬇️ ORB DOWN " + symbol + " @ " + m1.close().toPlainString()
-                                    + "\n1m close broke below the " + orTf
-                                    + " opening range low " + orLow.toPlainString()));
+                                    + "\n1m close broke below the " + rangeMin
+                                    + "-min opening range low " + range.low().toPlainString()));
                 }
             } catch (Exception e) {
                 log.warn("[OrbDownAlert] {} failed (ignored): {}", symbol, e.getMessage());

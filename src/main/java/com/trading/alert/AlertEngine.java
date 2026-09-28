@@ -47,7 +47,8 @@ public class AlertEngine {
     /** Last posted state per "alertId|ticker" for dedupe. */
     private final Map<String, String> lastState = new ConcurrentHashMap<>();
 
-    private long lastRunEpochMin = 0;
+    /** Last run epoch-minute per alert id — each alert runs on its OWN cadence. */
+    private final Map<String, Long> lastRunByAlert = new ConcurrentHashMap<>();
 
     public AlertEngine(WebullProperties props,
                        UniverseLoader universeLoader,
@@ -63,7 +64,7 @@ public class AlertEngine {
         this.alerts = alerts;
     }
 
-    /** Fires every minute; runs the scan only when the configured interval has elapsed. */
+    /** Fires every minute; runs each alert only when ITS OWN interval has elapsed. */
     @Scheduled(cron = "0 * * * * *")
     public void tick() {
         try {
@@ -79,28 +80,34 @@ public class AlertEngine {
                 return;
             }
 
-            int everyMin = Math.max(1, cfg.scanMinutes());
+            // Which enabled alerts are DUE this minute (each on its own cadence)?
             long nowMin = System.currentTimeMillis() / 60_000L;
-            if (nowMin - lastRunEpochMin < everyMin) return;
-            lastRunEpochMin = nowMin;
+            List<Alert> due = new java.util.ArrayList<>();
+            for (Alert a : alerts) {
+                if (!a.isEnabled()) continue;
+                Long last = lastRunByAlert.get(a.id());
+                int every = Math.max(1, a.scanIntervalMinutes());
+                if (last == null || nowMin - last >= every) {
+                    due.add(a);
+                    lastRunByAlert.put(a.id(), nowMin);
+                }
+            }
+            if (due.isEmpty()) return;
 
-            run(cfg);
+            run(due);
         } catch (Exception e) {
             log.warn("[AlertEngine] tick failed (ignored): {}", e.getMessage());
         }
     }
 
-    private void run(WebullProperties.Alerts cfg) {
+    private void run(List<Alert> due) {
         List<String> universe = universeLoader.getUniverse();
         if (universe.isEmpty()) return;
 
-        List<Alert> enabled = alerts.stream().filter(Alert::isEnabled).toList();
-        if (enabled.isEmpty()) return;
-
-        // Batch-prefetch every timeframe any enabled alert needs — once, shared cache.
+        // Batch-prefetch only the timeframes the DUE alerts need — once, shared cache.
         int warmup = props.trading().warmupBars();
         Set<String> tfs = new LinkedHashSet<>();
-        for (Alert a : enabled) {
+        for (Alert a : due) {
             for (String tf : a.timeframesNeeded()) {
                 try { tfs.add(MarketDataService.normaliseTimespan(tf)); } catch (Exception ignored) { }
             }
@@ -111,7 +118,7 @@ public class AlertEngine {
             }
         }
 
-        for (Alert a : enabled) {
+        for (Alert a : due) {
             try {
                 String prefix = a.messagePrefix() == null ? "" : a.messagePrefix();   // per-alert prefix
                 List<AlertHit> hits = a.evaluate(universe);

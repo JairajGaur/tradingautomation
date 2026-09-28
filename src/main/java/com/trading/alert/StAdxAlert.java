@@ -60,6 +60,11 @@ public class StAdxAlert implements Alert {
     }
 
     @Override
+    public int scanIntervalMinutes() {
+        return Math.max(1, props.alerts().stAdx().scanMinutes());
+    }
+
+    @Override
     public List<String> timeframesNeeded() {
         return List.of(tf());
     }

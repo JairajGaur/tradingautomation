@@ -44,44 +44,38 @@ public class OrbUpAlert implements Alert {
         return p == null ? "" : p;
     }
 
-    private String orbTf() {
-        // Validate against supported timespans; fall back to M5 on a bad value (e.g. M10).
-        try {
-            return com.trading.service.MarketDataService.normaliseTimespan(props.alerts().orbTimeframe());
-        } catch (Exception e) {
-            log.warn("[OrbUpAlert] invalid orb-timeframe '{}' — using M5", props.alerts().orbTimeframe());
-            return "M5";
-        }
+    @Override
+    public int scanIntervalMinutes() {
+        return Math.max(1, props.alerts().orbUp().scanMinutes());
     }
 
     @Override
     public List<String> timeframesNeeded() {
-        return List.of(orbTf(), "M1");
+        return List.of("M1");   // opening range + break are both derived from M1
     }
 
     @Override
     public List<AlertHit> evaluate(List<String> universe) {
         int warmup = props.trading().warmupBars();
+        int rangeMin = props.alerts().orbRangeMinutes();
         String day = OrbSupport.todayKey();
-        String orTf = orbTf();
         List<AlertHit> hits = new ArrayList<>();
 
         for (String symbol : universe) {
             try {
-                Candle or = OrbSupport.openingRangeCandle(barData.getBars(symbol, orTf, warmup));
-                if (or == null) continue;   // no 09:30 candle yet today
-                BigDecimal orHigh = or.high();
+                List<Candle> m1Bars = barData.getBars(symbol, "M1", warmup);
+                OrbSupport.Range range = OrbSupport.openingRange(symbol, m1Bars, rangeMin);
+                if (range == null) continue;   // opening range not complete yet today
 
-                Candle m1 = OrbSupport.latestCompletedM1(barData.getBars(symbol, "M1", warmup));
+                Candle m1 = OrbSupport.latestCompletedM1(m1Bars);
                 if (m1 == null) continue;
 
-                if (OrbSupport.closesAbove(m1, orHigh)) {
-                    // State includes the day so it re-arms each new session.
-                    String state = "BREAKOUT_UP_" + day;
+                if (OrbSupport.closesAbove(m1, range.high())) {
+                    String state = "BREAKOUT_UP_" + day;   // per-day → re-arms each session
                     hits.add(new AlertHit(id(), symbol, state,
                             "⬆️ ORB UP " + symbol + " @ " + m1.close().toPlainString()
-                                    + "\n1m close broke above the " + orTf
-                                    + " opening range high " + orHigh.toPlainString()));
+                                    + "\n1m close broke above the " + rangeMin
+                                    + "-min opening range high " + range.high().toPlainString()));
                 }
             } catch (Exception e) {
                 log.warn("[OrbUpAlert] {} failed (ignored): {}", symbol, e.getMessage());
