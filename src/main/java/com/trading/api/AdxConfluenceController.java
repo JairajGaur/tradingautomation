@@ -182,7 +182,14 @@ public class AdxConfluenceController {
         int bull = 0, bear = 0, evaluated = 0;
         String lastClose = null;
 
+        // Raw confidence contribution vs the max possible, so we can normalize to 0–100.
+        // Per trending timeframe: ADX-strength (1–3) + DI-widening (1) + ADX-rising (1) = up to 5.
+        double rawPoints = 0.0;
+        double maxPoints = 0.0;
+        final double perTfMax = 5.0;
+
         for (String tf : tfs) {
+            maxPoints += perTfMax;
             try {
                 List<Candle> bars = barData.getBars(symbol, tf, warmup);
                 if (bars == null || bars.size() < 2 * period + 2) continue;
@@ -203,6 +210,26 @@ public class AdxConfluenceController {
                 evaluated++;               // count only trending timeframes toward agreement
                 if (p.direction() == Direction.UP) bull++;
                 else if (p.direction() == Direction.DOWN) bear++;
+
+                // ── Confidence contribution for this trending timeframe ──
+                AdxCalculator.Strength s = AdxCalculator.strengthOf(p.adx());
+                rawPoints += switch (s) {
+                    case STRONG -> 1.5;
+                    case VERY_STRONG -> 2.5;
+                    case EXTREME -> 3.0;
+                    default -> 1.0;   // WEAK (already >= threshold)
+                };
+                if (latestIdx - 1 >= 0 && pts.get(latestIdx - 1).plusDi() != null) {
+                    Point prev = pts.get(latestIdx - 1);
+                    BigDecimal spread = p.plusDi().subtract(p.minusDi()).abs();
+                    BigDecimal prevSpread = prev.plusDi().subtract(prev.minusDi()).abs();
+                    if (spread.compareTo(prevSpread) > 0) rawPoints += 1.0;   // DI widening
+                }
+                int backIdx = latestIdx - rising;
+                if (backIdx >= 0 && pts.get(backIdx).adx() != null
+                        && p.adx().compareTo(pts.get(backIdx).adx()) > 0) {
+                    rawPoints += 1.0;   // ADX rising over the lookback
+                }
             } catch (Exception e) {
                 log.warn("[AdxConfluence] {} {} failed: {}", symbol, tf, e.getMessage());
             }
@@ -228,9 +255,24 @@ public class AdxConfluenceController {
         String bias = verdict.contains("BULL") ? "BULLISH"
                 : verdict.contains("BEAR") ? "BEARISH" : "NEUTRAL";
 
-        // Same fields as the recommend endpoint: ticker, action, bias, reason, close.
+        // ── Confidence score (0–100) — a HEURISTIC, NOT a calibrated probability. ──
+        // Base = normalized confluence points (up to 80); +10 if all trending TFs agree,
+        // +10 if volume confirms. Conflicted or no-trend collapses to 0.
+        int confidence = 0;
+        if (!"NEUTRAL".equals(verdict) && !(bull > 0 && bear > 0)) {
+            double base = maxPoints > 0 ? (rawPoints / maxPoints) * 80.0 : 0.0;
+            double bonus = 0.0;
+            if (allAgreeBull || allAgreeBear) bonus += 10.0;
+            if (volumeExpanding) bonus += 10.0;
+            confidence = (int) Math.round(Math.min(100.0, base + bonus));
+        }
+        String confLabel = confidence >= 70 ? "HIGH" : confidence >= 40 ? "MEDIUM" : "LOW";
+
+        // Same fields as the recommend endpoint, plus the confidence heuristic.
         row.put("action", action);
         row.put("bias", bias);
+        row.put("confidenceScore", confidence);   // 0–100 heuristic, NOT a probability
+        row.put("confidence", confLabel);         // LOW / MEDIUM / HIGH
         row.put("reason", reason(verdict, allAgreeBull || allAgreeBear, volumeExpanding, tfs));
         if (lastClose != null) row.put("close", lastClose);
         return row;
