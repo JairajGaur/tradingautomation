@@ -27,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * condition holds. When a ticker stops matching, its state is cleared so the next match
  * re-alerts. Every message is prefixed with {@code webull.alerts.message-prefix}.</p>
  *
+ * <p>Only runs within the configured market-hours window (weekdays), reusing
+ * {@code MarketHoursGuard.isTradingAllowed()} — the same window the trading loop uses.</p>
+ *
  * <p>Fully fail-safe — evaluation/delivery errors are logged, never thrown.</p>
  */
 @Service
@@ -38,6 +41,7 @@ public class AlertEngine {
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final NotificationService notifier;
+    private final com.trading.service.MarketHoursGuard marketHoursGuard;
     private final List<Alert> alerts;
 
     /** Last posted state per "alertId|ticker" for dedupe. */
@@ -49,11 +53,13 @@ public class AlertEngine {
                        UniverseLoader universeLoader,
                        BarDataManager barData,
                        NotificationService notifier,
+                       com.trading.service.MarketHoursGuard marketHoursGuard,
                        List<Alert> alerts) {
         this.props = props;
         this.universeLoader = universeLoader;
         this.barData = barData;
         this.notifier = notifier;
+        this.marketHoursGuard = marketHoursGuard;
         this.alerts = alerts;
     }
 
@@ -64,6 +70,14 @@ public class AlertEngine {
             WebullProperties.Alerts cfg = props.alerts();
             if (cfg == null || !cfg.enabled()) return;
             if (!notifier.isEnabled()) return;   // nowhere to post
+
+            // Only alert within the configured market-hours window (weekdays), reusing the
+            // same guard as the trading loop — one source of truth for "market hours".
+            if (!marketHoursGuard.isTradingAllowed()) {
+                log.debug("[AlertEngine] Outside market hours ({}) — skipping scan",
+                        marketHoursGuard.currentSessionDescription());
+                return;
+            }
 
             int everyMin = Math.max(1, cfg.scanMinutes());
             long nowMin = System.currentTimeMillis() / 60_000L;
