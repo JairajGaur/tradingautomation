@@ -18,10 +18,33 @@ public record WebullProperties(
         Supertrend supertrend,
         @DefaultValue Adx adx,
         EntryGuard entryGuard,
+        @DefaultValue Notifications notifications,
         Endpoints endpoints
 ) {
 
     public enum Mode { PAPER, LIVE }
+
+    /**
+     * Push-notification config. When {@code enabled} and {@code channel=TELEGRAM}, trade
+     * events are pushed to a Telegram chat via the Bot API. Failures never affect trading.
+     *
+     * @param enabled          master on/off (default false)
+     * @param channel          delivery channel: TELEGRAM (only one for now); NONE disables
+     * @param telegramBotToken bot token from @BotFather
+     * @param telegramChatId   target chat id (your user id, or a group/channel id)
+     * @param notifyEntries    push on BUY entries (default true)
+     * @param notifyExits      push on SELL/exits (default true)
+     * @param notifyFailures   push on order failures (default true)
+     */
+    public record Notifications(
+            @DefaultValue("false") boolean enabled,
+            @DefaultValue("TELEGRAM") String channel,
+            @DefaultValue("") String telegramBotToken,
+            @DefaultValue("") String telegramChatId,
+            @DefaultValue("true") boolean notifyEntries,
+            @DefaultValue("true") boolean notifyExits,
+            @DefaultValue("true") boolean notifyFailures
+    ) {}
 
     public record Api(
             String appKey,

@@ -1,0 +1,40 @@
+meta {
+  name: Test
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/notifications/test?message=Test alert from the trading bot
+  body: none
+  auth: none
+}
+
+params:query {
+  message: Test alert from the trading bot
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Notifications — Test
+  
+  Sends a TEST notification on demand through the configured notifier (Telegram),
+  so you can verify token / chat id / connectivity without waiting for a real trade.
+  
+  ## Query
+  - `message` — optional custom text (default "Test alert from the trading bot").
+  
+  ## Response (200)
+  { notifierEnabled, sent, note/hint, timestamp }
+  - notifierEnabled=false → notifications are off or not fully configured
+    (check webull.notifications.enabled=true, channel=TELEGRAM, bot token + chat id).
+  - sent=true → a send was attempted; check your phone. If it didn't arrive, check
+    the app logs for a [TelegramNotifier] warning (e.g. wrong token/chat id).
+  
+  ## Setup reminder
+  - notifications.enabled: true
+  - env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (exported before starting the app)
+}

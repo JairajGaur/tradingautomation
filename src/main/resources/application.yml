@@ -213,6 +213,18 @@ webull:
     threshold: 25
     rising: 3
 
+  # ── Notifications (push trade alerts to your phone) ───────────────────────
+  # Telegram: create a bot via @BotFather for the token, and get your chat id
+  # (e.g. message @userinfobot). Failures never affect trading.
+  notifications:
+    enabled: true                    # turn on when token + chat id are set
+    channel: "TELEGRAM"
+    telegram-bot-token: "${TELEGRAM_BOT_TOKEN:}"
+    telegram-chat-id: "${TELEGRAM_CHAT_ID:}"
+    notify-entries: true
+    notify-exits: true
+    notify-failures: true
+
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
   #   1. Supertrend is UP on `supertrend-timespan` (uses webull.supertrend params)

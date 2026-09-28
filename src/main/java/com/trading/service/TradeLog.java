@@ -27,6 +27,14 @@ public class TradeLog {
     /** Maximum retained trade entries (newest kept, oldest evicted). */
     private static final int MAX_ENTRIES = 500;
 
+    private final com.trading.config.WebullProperties props;
+    private final NotificationService notifier;
+
+    public TradeLog(com.trading.config.WebullProperties props, NotificationService notifier) {
+        this.props = props;
+        this.notifier = notifier;
+    }
+
     /**
      * A single recorded trade event.
      *
@@ -74,6 +82,44 @@ public class TradeLog {
                 entry.price() != null ? entry.price().toPlainString() : "n/a",
                 entry.orderType(), entry.mode(), entry.success(),
                 entry.orderId(), entry.success() ? "" : "reason=" + entry.message());
+
+        maybeNotify(entry);
+    }
+
+    /**
+     * Pushes a notification for this trade when enabled and the event type is opted-in.
+     * Fully fail-safe — the notifier itself swallows errors, and this is a no-op when
+     * notifications are disabled/unconfigured.
+     */
+    private void maybeNotify(TradeEntry entry) {
+        try {
+            if (notifier == null || !notifier.isEnabled()) return;
+            var n = props.notifications();
+
+            boolean isSell = entry.action() != null && entry.action().toUpperCase().contains("SELL");
+            boolean isBuy  = "BUY".equalsIgnoreCase(entry.action());
+
+            boolean wanted =
+                    (!entry.success() && n.notifyFailures())
+                 || (entry.success() && isBuy  && n.notifyEntries())
+                 || (entry.success() && isSell && n.notifyExits());
+            if (!wanted) return;
+
+            String price = entry.price() != null ? entry.price().toPlainString() : "n/a";
+            String title = (entry.success() ? "" : "⚠ FAILED ")
+                    + entry.action() + " " + entry.ticker() + " x" + entry.quantity();
+            StringBuilder body = new StringBuilder();
+            body.append("strategy: ").append(entry.strategy())
+                .append("\nprice: ").append(price)
+                .append("\ntype: ").append(entry.orderType())
+                .append("\nmode: ").append(entry.mode());
+            if (!entry.success()) body.append("\nreason: ").append(entry.message());
+            if (entry.orderId() != null) body.append("\norderId: ").append(entry.orderId());
+
+            notifier.notify(title, body.toString());
+        } catch (Exception e) {
+            log.warn("[TradeLog] notification hook failed (ignored): {}", e.getMessage());
+        }
     }
 
     /**
