@@ -31,6 +31,15 @@ public interface Alert {
     /** How often (minutes) this alert should run — its own cadence (min 1). */
     int scanIntervalMinutes();
 
+    /**
+     * When true, a fired hit is LATCHED — the engine won't re-alert the same
+     * {@code alertId|ticker|state} even if the condition stops and later recurs. Suits
+     * once-per-day events (e.g. ORB breakouts). When false (default), the engine clears
+     * dedupe when a ticker stops matching, so a fresh recurrence re-alerts (suits
+     * continuous state alerts like ST+ADX).
+     */
+    default boolean latched() { return false; }
+
     /** Timeframes this alert reads, so the engine can batch-prefetch them once. */
     List<String> timeframesNeeded();
 

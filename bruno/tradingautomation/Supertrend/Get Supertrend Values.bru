@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/supertrend/AAPL?timespan=M1
+  url: {{baseUrl}}/api/supertrend/tqqq?timespan=M5
   body: none
   auth: none
 }
 
 params:query {
-  timespan: M1
+  timespan: M5
   ~length: 7
   ~factor: 3
   ~sessions: RTH

@@ -235,22 +235,30 @@ webull:
     # and ADX recommends BUY; BEARISH when Supertrend is DOWN and ADX recommends SELL.
     st-adx:
       enabled: true
-      timeframe: "M5"
+      # Supertrend must agree on ALL these timeframes (comma-separated). The FIRST is the
+      # primary — ADX + price come from it. "M5" = single tf; "M5,M15" also requires M15 ST.
+      supertrend-timeframes: "M5,M15"
       scan-minutes: 5
       message-prefix: "5MIN TREND - "
-    # Opening-Range Breakout: opening range = high/low of the first orb-range-minutes
-    # ONE-MINUTE bars from 09:30 ET (range final at 09:30 + N; any N: 5/10/15/20/30...).
-    # Computed once/day per ticker and cached. The break is a 1-MINUTE candle CLOSE beyond
-    # the range → scan every 1 min (per-alert scan-minutes below) so it isn't missed.
-    orb-range-minutes: 15
-    orb-up:
-      enabled: true
-      scan-minutes: 1
-      message-prefix: "ORB UP - "
-    orb-down:
-      enabled: true
-      scan-minutes: 1
-      message-prefix: "ORB DOWN - "
+    # Opening-Range Breakout — all under alerts.orb. Opening range = high/low of today's
+    # 09:30 ET candle on the range-minutes timeframe (15 -> M15 = 9:30–9:45, 30 -> M30 =
+    # 9:30–10:00). Fetched once/day, cached (works on late start). The break is a CLOSE on
+    # each direction's scan-minutes timeframe beyond the range, plus an EMA-slope
+    # confirmation (EMA rising for UP, falling for DOWN). Fires once per direction per day.
+    # NOTE: range-minutes and scan-minutes MUST be Webull timeframes: 1/5/15/30/60.
+    orb:
+      range-minutes: 15
+      ema-period: 600
+      ema-slope-lookback: 3
+      ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation
+      up:
+        enabled: true
+        scan-minutes: 5        # break + EMA on M5 (poll every 5 min)
+        message-prefix: "ORB UP - "
+      down:
+        enabled: true
+        scan-minutes: 5
+        message-prefix: "ORB DOWN - "
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
@@ -284,7 +292,7 @@ webull:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "07:00"
+    pre-market-open: "08:00"
     after-hours-close: "16:00"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────

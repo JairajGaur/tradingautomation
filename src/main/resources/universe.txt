@@ -5,8 +5,6 @@
 # Format: one symbol per line. Lines starting with '#' and blank lines are ignored.
 # Symbols are upper-cased and de-duplicated automatically.
 
-TQQQ
-SQQQ
 AAPL
 MSFT
 META
@@ -16,6 +14,16 @@ SPY
 QQQ
 IWM
 UVXY
-SPY
 BA
+PLTR
+CRM
+NVDA
+AMD
+COIN
+HOOD
+JPM
+GS
+SLV
+GLD
+ORCL
 

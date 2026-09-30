@@ -132,10 +132,14 @@ public class AlertEngine {
                     notifier.notify(prefix + hit.state() + " " + hit.ticker(), hit.message());
                     log.info("[AlertEngine] alert={} {} -> {}", hit.alertId(), hit.ticker(), hit.state());
                 }
-                // Clear dedupe for this alert's tickers that no longer match, so a future
-                // match re-alerts. Only touch keys belonging to THIS alert.
-                String alertPrefix = a.id() + "|";
-                lastState.keySet().removeIf(k -> k.startsWith(alertPrefix) && !matchedKeys.contains(k));
+                // For NON-latched alerts, clear dedupe for tickers that no longer match, so
+                // a fresh recurrence re-alerts. LATCHED alerts (e.g. ORB) keep their state so
+                // they fire once per day — their state key already embeds the date, so they
+                // naturally re-arm the next day.
+                if (!a.latched()) {
+                    String alertPrefix = a.id() + "|";
+                    lastState.keySet().removeIf(k -> k.startsWith(alertPrefix) && !matchedKeys.contains(k));
+                }
             } catch (Exception e) {
                 log.warn("[AlertEngine] alert '{}' failed (ignored): {}", a.id(), e.getMessage());
             }

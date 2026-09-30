@@ -57,16 +57,31 @@ public record WebullProperties(
     public record Alerts(
             @DefaultValue("false") boolean enabled,
             @DefaultValue StAdxAlertCfg stAdx,
-            /**
-             * Opening-range length in MINUTES for the ORB alerts. The range = the high/low
-             * of the first N one-minute bars from 09:30 ET (so the range is final at
-             * 09:30 + N). Any value works (5, 10, 15, 20, 30, ...) since it's built from M1
-             * bars, not a fixed Webull timeframe. Shared by orbUp and orbDown. Default 5.
-             */
-            @DefaultValue("5")     int orbRangeMinutes,
-            @DefaultValue OrbAlertCfg orbUp,
-            @DefaultValue OrbAlertCfg orbDown
+            @DefaultValue Orb orb
     ) {
+        /**
+         * All Opening-Range-Breakout config under one parent ({@code alerts.orb}).
+         *
+         * @param rangeMinutes     opening-range length in minutes → the Webull timeframe
+         *                         whose 09:30 ET candle IS the range (15 → M15 = 09:30–09:45,
+         *                         30 → M30 = 09:30–10:00). Webull timeframe: 5/15/30/60.
+         *                         Fetched once/day and cached (late-start safe).
+         * @param emaPeriod        EMA period for the slope confirmation (default 600).
+         * @param emaSlopeLookback candles back to measure the EMA slope; UP needs
+         *                         EMA(now) ≥ EMA(lookback ago), DOWN ≤ (default 3).
+         * @param up / down        per-direction enable, scan-minutes timeframe, prefix.
+         */
+        public record Orb(
+                @DefaultValue("15")   int rangeMinutes,
+                @DefaultValue("600")  int emaPeriod,
+                @DefaultValue("3")    int emaSlopeLookback,
+                /** When true (default), require the EMA slope to confirm the break
+                 *  (rising for UP, falling for DOWN). false = pure break, no EMA gate. */
+                @DefaultValue("true") boolean emaSlopeEnabled,
+                @DefaultValue OrbAlertCfg up,
+                @DefaultValue OrbAlertCfg down
+        ) {}
+
         /**
          * "Supertrend + ADX agree" alert: on {@code timeframe} (default M5), flag a ticker
          * BULLISH when Supertrend is UP and the ADX recommendation is BUY, or BEARISH when
@@ -75,22 +90,30 @@ public record WebullProperties(
          */
         public record StAdxAlertCfg(
                 @DefaultValue("true") boolean enabled,
-                @DefaultValue("M5")   String timeframe,
+                /**
+                 * Comma-separated Supertrend timeframes that must ALL agree in the alert
+                 * direction (e.g. "M5" or "M5,M15"). The FIRST timeframe is the primary —
+                 * the ADX recommendation and the message price are taken from it. BULLISH =
+                 * Supertrend UP on every listed timeframe AND ADX BUY on the primary;
+                 * BEARISH = Supertrend DOWN on every listed timeframe AND ADX SELL.
+                 */
+                @DefaultValue("M5")   String supertrendTimeframes,
                 @DefaultValue("5")    int scanMinutes,
                 @DefaultValue("")     String messagePrefix
         ) {}
 
         /**
-         * Opening-Range-Breakout alert config (used independently for the UP and DOWN
-         * directions). The opening range is the first {@code orbRangeMinutes} one-minute
-         * bars from 09:30 ET; a break is a 1-minute candle CLOSE beyond the range high (up)
-         * / low (down). Because the break is a 1-minute event, {@code scanMinutes} defaults
-         * to 1. Once per ticker per day. Each direction has its own enable flag, cadence,
-         * and prefix.
+         * Opening-Range-Breakout alert config (independent for UP and DOWN). The break is
+         * a CLOSE on the {@code scanMinutes} timeframe beyond the opening range (from
+         * {@code orbRangeMinutes}), and the alert also polls on that timeframe. So
+         * {@code scanMinutes} both selects the breakout candle timeframe AND the poll
+         * cadence — it MUST be a Webull-supported timeframe (1/5/15/30/60). An EMA slope
+         * confirmation on the same timeframe is also required. Once per ticker per day.
+         * Each direction has its own enable flag, timeframe, and prefix.
          */
         public record OrbAlertCfg(
                 @DefaultValue("false") boolean enabled,
-                @DefaultValue("1")     int scanMinutes,
+                @DefaultValue("5")     int scanMinutes,
                 @DefaultValue("")      String messagePrefix
         ) {}
     }

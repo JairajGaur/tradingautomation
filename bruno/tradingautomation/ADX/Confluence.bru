@@ -5,14 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/adx/confluence?tickers=TQQQ,SQQQ&timeframes=M1,M5
+  url: {{baseUrl}}/api/adx/confluence?tickers=TQQQ,SQQQ,MSFT,AAPL,META,TSLA,SPY,IWM,QQQ,AMZN,NVDA,AMD&timeframes=M5,D
   body: none
   auth: none
 }
 
 params:query {
-  tickers: TQQQ,SQQQ
-  timeframes: M1,M5
+  tickers: TQQQ,SQQQ,MSFT,AAPL,META,TSLA,SPY,IWM,QQQ,AMZN,NVDA,AMD
+  timeframes: M5,D
   ~ticker: TQQQ
   ~period: 14
   ~threshold: 25

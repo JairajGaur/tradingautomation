@@ -12,9 +12,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Opening-Range-Breakout — DOWN. Alerts when a completed 1-minute candle CLOSES below the
- * low of the day's 09:30–09:35 ET 5-minute opening-range candle. Once per ticker per day.
- * Reads M5 (opening range) and M1 (break) from the shared {@link BarDataManager}.
+ * Opening-Range-Breakout — DOWN. Fires when, on the {@code scan-minutes} timeframe, a
+ * completed candle CLOSES below the opening range LOW (the 09:30 candle on the
+ * {@code orb-range-minutes} timeframe) AND the EMA is falling (EMA(now) ≤ EMA(lookback ago))
+ * on the scan-minutes timeframe. Once per ticker per day. Reads both timeframes from the
+ * shared {@link BarDataManager}.
  */
 @Component
 public class OrbDownAlert implements Alert {
@@ -30,53 +32,74 @@ public class OrbDownAlert implements Alert {
     }
 
     @Override
-    public String id() { return "orb-5m-down"; }
+    public String id() { return "orb-down"; }
 
     @Override
     public boolean isEnabled() {
-        return props.alerts() != null && props.alerts().orbDown() != null
-                && props.alerts().orbDown().enabled();
+        return props.alerts() != null && props.alerts().orb() != null
+                && props.alerts().orb().down() != null && props.alerts().orb().down().enabled();
     }
 
     @Override
     public String messagePrefix() {
-        String p = props.alerts().orbDown().messagePrefix();
+        String p = props.alerts().orb().down().messagePrefix();
         return p == null ? "" : p;
     }
 
     @Override
     public int scanIntervalMinutes() {
-        return Math.max(1, props.alerts().orbDown().scanMinutes());
+        return Math.max(1, props.alerts().orb().down().scanMinutes());
     }
+
+    // Transitional (not latched): when price returns INSIDE the range the engine clears
+    // dedupe, so a fresh break re-alerts. Re-alerts on re-break are intended.
+
+    private String rangeTf() { return OrbSupport.timeframeForMinutes(props.alerts().orb().rangeMinutes()); }
+    private String scanTf()  { return OrbSupport.timeframeForMinutes(props.alerts().orb().down().scanMinutes()); }
 
     @Override
     public List<String> timeframesNeeded() {
-        return List.of("M1");   // opening range + break are both derived from M1
+        try { return List.of(rangeTf(), scanTf()); }
+        catch (Exception e) { return List.of(); }
     }
 
     @Override
     public List<AlertHit> evaluate(List<String> universe) {
+        final String rangeTf, scanTf;
+        try { rangeTf = rangeTf(); scanTf = scanTf(); }
+        catch (IllegalArgumentException e) {
+            log.warn("[OrbDownAlert] invalid timeframe config: {}", e.getMessage());
+            return List.of();
+        }
         int warmup = props.trading().warmupBars();
-        int rangeMin = props.alerts().orbRangeMinutes();
+        int emaPeriod = props.alerts().orb().emaPeriod();
+        int lookback = Math.max(1, props.alerts().orb().emaSlopeLookback());
         String day = OrbSupport.todayKey();
         List<AlertHit> hits = new ArrayList<>();
 
         for (String symbol : universe) {
             try {
-                List<Candle> m1Bars = barData.getBars(symbol, "M1", warmup);
-                OrbSupport.Range range = OrbSupport.openingRange(symbol, m1Bars, rangeMin);
-                if (range == null) continue;   // opening range not complete yet today
+                OrbSupport.Range range = OrbSupport.openingRange(symbol, barData.getBars(symbol, rangeTf, warmup));
+                if (range == null) continue;
 
-                Candle m1 = OrbSupport.latestCompletedM1(m1Bars);
-                if (m1 == null) continue;
+                List<Candle> scanBars = barData.getBars(symbol, scanTf, warmup);
+                Candle bar = OrbSupport.latestCompleted(scanBars);
+                if (bar == null) continue;
 
-                if (OrbSupport.closesBelow(m1, range.low())) {
-                    String state = "BREAKOUT_DOWN_" + day;   // per-day → re-arms each session
-                    hits.add(new AlertHit(id(), symbol, state,
-                            "⬇️ ORB DOWN " + symbol + " @ " + m1.close().toPlainString()
-                                    + "\n1m close broke below the " + rangeMin
-                                    + "-min opening range low " + range.low().toPlainString()));
+                if (!OrbSupport.closesBelow(bar, range.low())) continue;   // no downside break
+
+                // EMA slope confirmation (optional): must be falling (<= over the lookback) for DOWN.
+                if (props.alerts().orb().emaSlopeEnabled()) {
+                    BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
+                    if (slope == null || slope.signum() > 0) continue;     // rising/insufficient → skip
                 }
+
+                String state = "BREAKOUT_DOWN_" + day;
+                hits.add(new AlertHit(id(), symbol, state,
+                        "⬇️ ORB DOWN " + symbol + " @ " + bar.close().toPlainString()
+                                + "\n" + scanTf + " close broke below the " + rangeTf
+                                + " opening-range low " + range.low().toPlainString()
+                                + "\nema" + emaPeriod + " falling on " + scanTf));
             } catch (Exception e) {
                 log.warn("[OrbDownAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }
