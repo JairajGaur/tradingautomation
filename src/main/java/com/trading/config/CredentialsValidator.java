@@ -1,8 +1,10 @@
 package com.trading.config;
 
+import com.trading.webull.WebullApiProperties;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,13 +20,14 @@ import org.springframework.stereotype.Component;
  * {@code WEBULL_APP_SECRET} environment variables via {@code application.yml}.</p>
  */
 @Component
+@ConditionalOnProperty(name = "broker.provider", havingValue = "webull", matchIfMissing = true)
 public class CredentialsValidator {
 
     private static final Logger log = LoggerFactory.getLogger(CredentialsValidator.class);
 
-    private final WebullProperties props;
+    private final WebullApiProperties props;
 
-    public CredentialsValidator(WebullProperties props) {
+    public CredentialsValidator(WebullApiProperties props) {
         this.props = props;
     }
 

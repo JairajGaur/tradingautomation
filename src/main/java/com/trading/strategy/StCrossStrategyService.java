@@ -196,7 +196,7 @@ public class StCrossStrategyService implements TradingStrategy {
 
         // Size the order via the QuantityManager (SHARES or PERCENT-of-buying-power).
         // Use the marketable ask as the price basis; fall back to the last completed close.
-        OrderService.Quote quote = orderService.fetchQuote(ticker);
+        com.trading.broker.model.Quote quote = orderService.fetchQuote(ticker);
         BigDecimal sizingPrice = quote.ask() != null ? quote.ask() : price;
         BigDecimal buyingPower = accountService.getBuyingPowerLive();
         int qty = quantityManager.quantityFor(ticker, sizingPrice, buyingPower);

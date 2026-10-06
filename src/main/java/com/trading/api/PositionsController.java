@@ -1,9 +1,8 @@
 package com.trading.api;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.trading.broker.BrokerClient;
 import com.trading.config.WebullProperties;
 import com.trading.state.PositionTracker;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -19,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * REST API — Positions endpoints (Webull v3 via {@link WebullV3Client}).
+ * REST API — Positions endpoints (broker API via {@link BrokerClient}).
  */
 @RestController
 @RequestMapping("/api/positions")
@@ -28,11 +27,11 @@ public class PositionsController {
     private static final Logger log = LoggerFactory.getLogger(PositionsController.class);
 
     private final WebullProperties props;
-    private final WebullV3Client client;
+    private final BrokerClient client;
     private final PositionTracker positionTracker;
 
     public PositionsController(WebullProperties props,
-                                WebullV3Client client,
+                                BrokerClient client,
                                 PositionTracker positionTracker) {
         this.props = props;
         this.client = client;
@@ -40,8 +39,12 @@ public class PositionsController {
     }
 
     /**
-     * Live holdings from Webull ({@code /trading/assets/positions/list}).
-     * Returns the raw v3 JSON so all fields are available to the caller.
+     * Live holdings from the broker, mapped to neutral per-holding fields
+     * ({@code symbol}, {@code quantity}, {@code unitCost}).
+     *
+     * <p>Note: the {@code pageSize}/{@code lastId} params are retained for backward
+     * compatibility but the neutral holdings fetch returns the current holdings set
+     * (up to the adapter's page size) in one call.</p>
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getPositions(
@@ -57,21 +60,29 @@ public class PositionsController {
                         "message", "Could not resolve account ID from /trading/accounts/list"));
             }
 
-            WebullV3Client.V3Response resp = client.positions(accountId, pageSize, lastId);
-            if (!resp.success()) {
-                return badGateway(WebullErrors.fromResponse(resp));
+            com.trading.broker.model.HoldingsResult res = client.fetchHoldings(accountId);
+            if (!res.valid()) {
+                return badGateway(Map.of("kind", "HTTP_ERROR",
+                        "message", "Positions request failed"));
             }
 
-            JsonNode holdings = resp.body() != null && resp.body().has("holdings")
-                    ? resp.body().get("holdings")
-                    : resp.body();
+            List<Map<String, String>> holdings = res.list().stream()
+                    .map(h -> Map.of(
+                            "symbol",   h.symbol(),
+                            "quantity", String.valueOf(h.quantity()),
+                            "unitCost", h.unitCost().toPlainString()
+                    ))
+                    .toList();
 
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("holdings",  holdings);
-            body.put("count",     holdings != null && holdings.isArray() ? holdings.size() : 0);
+            body.put("count",     holdings.size());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.ok(body);
 
+        } catch (com.trading.broker.BrokerException e) {
+            log.error("[PositionsController] Error fetching positions", e);
+            return badGateway(WebullErrors.fromBroker(e));
         } catch (Exception e) {
             log.error("[PositionsController] Error fetching positions", e);
             return badGateway(WebullErrors.fromThrowable(e));

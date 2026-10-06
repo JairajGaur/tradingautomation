@@ -210,7 +210,7 @@ public class StagedTrailExitManager implements PositionExitManager {
 
     /** Current bid/ask spread ($) for the breakeven buffer; 0 when unavailable. */
     private BigDecimal currentSpread(String ticker) {
-        OrderService.Quote q = orderService.fetchQuote(ticker);
+        com.trading.broker.model.Quote q = orderService.fetchQuote(ticker);
         BigDecimal s = q.spread();
         return s != null ? s : BigDecimal.ZERO;
     }

@@ -1,8 +1,7 @@
 package com.trading.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.trading.broker.BrokerClient;
 import com.trading.config.WebullProperties;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -12,8 +11,8 @@ import java.math.MathContext;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Fetches and caches the latest account snapshot from the Webull <b>v3</b> API
- * via {@link WebullV3Client}.
+ * Fetches and caches the latest account snapshot from the broker API
+ * via the {@link BrokerClient} abstraction (Webull today).
  *
  * <h2>v3 endpoints used</h2>
  * <ul>
@@ -34,7 +33,7 @@ public class AccountService {
     static final BigDecimal PAPER_BUYING_POWER = new BigDecimal("999999999");
 
     private final WebullProperties props;
-    private final WebullV3Client client;
+    private final BrokerClient client;
 
     private final AtomicReference<AccountSnapshot> snapshot =
             new AtomicReference<>(AccountSnapshot.EMPTY);
@@ -48,7 +47,7 @@ public class AccountService {
     private volatile long cachedHoldingsAt = 0L;
     private final Object holdingsLock = new Object();
 
-    public AccountService(WebullProperties props, WebullV3Client client) {
+    public AccountService(WebullProperties props, BrokerClient client) {
         this.props = props;
         this.client = client;
     }
@@ -109,29 +108,11 @@ public class AccountService {
         }
 
         try {
-            BigDecimal netLiq  = BigDecimal.ZERO;
-            BigDecimal cashPow = BigDecimal.ZERO;
-
             // ── Balance ───────────────────────────────────────────────────
-            WebullV3Client.V3Response bal = client.accountBalance(accountId);
-            if (bal.success() && bal.body() != null) {
-                JsonNode b = bal.body();
-                netLiq  = num(b, "net_liquidation_value", "total_asset", "netLiquidationValue");
-                cashPow = num(b, "cash_power", "buying_power", "total_cash_balance", "cashPower");
-
-                // Some responses nest per-currency assets under "account_currency_assets"
-                JsonNode assets = firstNonNull(b.get("account_currency_assets"),
-                                               b.get("accountCurrencyAssets"));
-                if ((netLiq.signum() == 0 || cashPow.signum() == 0)
-                        && assets != null && assets.isArray() && assets.size() > 0) {
-                    JsonNode a = assets.get(0);
-                    if (netLiq.signum() == 0)  netLiq  = num(a, "net_liquidation_value", "netLiquidationValue");
-                    if (cashPow.signum() == 0) cashPow = num(a, "cash_power", "cashPower", "cash_balance");
-                }
-            } else {
-                log.warn("[AccountService] balance call failed: status={} body={}",
-                        bal.statusCode(), bal.rawBody());
-            }
+            // Parsing lives in the broker adapter; we consume neutral figures.
+            com.trading.broker.model.AccountBalance balance = client.fetchBalance(accountId);
+            BigDecimal netLiq  = balance.netLiquidationValue();
+            BigDecimal cashPow = balance.buyingPower();
 
             // ── Positions ─────────────────────────────────────────────────
             // Reuse the SHARED, short-cached holdings instead of a second direct
@@ -162,7 +143,10 @@ public class AccountService {
         }
     }
 
-    /** A single live holding from the account. */
+    /**
+     * A single live holding from the account (app-facing alias of the neutral
+     * {@link com.trading.broker.model.Holding}).
+     */
     public record Holding(String symbol, int quantity, java.math.BigDecimal unitCost) {}
 
     /**
@@ -195,29 +179,15 @@ public class AccountService {
                 return new Holdings(cachedHoldings, cachedHoldingsValid);
             }
             java.util.List<Holding> out = new java.util.ArrayList<>();
-            boolean valid = false;
             String accountId = client.resolveAccountId();
-            if (accountId != null) {
-                try {
-                    WebullV3Client.V3Response pos = client.positions(accountId, 100, null);
-                    if (pos.success() && pos.body() != null) {
-                        JsonNode arr = firstNonNull(pos.body().get("holdings"), pos.body());
-                        if (arr != null && arr.isArray()) {
-                            for (JsonNode h : arr) {
-                                String sym = text(h, "symbol", "ticker", "instrument_symbol");
-                                int qty = num(h, "quantity", "qty").max(BigDecimal.ZERO).intValue();
-                                if (sym != null && qty > 0) {
-                                    out.add(new Holding(sym.trim().toUpperCase(), qty, num(h, "unit_cost", "unitCost")));
-                                }
-                            }
-                            valid = true;
-                        }
-                    } else {
-                        log.warn("[AccountService] holdings fetch failed: status={}", pos.statusCode());
-                    }
-                } catch (Exception e) {
-                    log.warn("[AccountService] holdings fetch failed: {}", e.getMessage());
-                }
+            // Fetch + parse lives in the broker adapter; we map neutral holdings
+            // to the app-facing Holding and preserve the valid/invalid distinction.
+            com.trading.broker.model.HoldingsResult res = accountId == null
+                    ? com.trading.broker.model.HoldingsResult.INVALID
+                    : client.fetchHoldings(accountId);
+            boolean valid = res.valid();
+            for (com.trading.broker.model.Holding h : res.list()) {
+                out.add(new Holding(h.symbol(), h.quantity(), h.unitCost()));
             }
             cachedHoldings = out;
             cachedHoldingsValid = valid;
@@ -255,37 +225,5 @@ public class AccountService {
             }
         }
         return 0;                              // confirmed not held
-    }
-
-    // -----------------------------------------------------------------------
-    // JSON helpers — tolerant of snake_case / camelCase field names
-    // -----------------------------------------------------------------------
-
-    private static String text(JsonNode node, String... keys) {
-        if (node == null) return null;
-        for (String k : keys) {
-            JsonNode v = node.get(k);
-            if (v != null && !v.isNull()) return v.asText();
-        }
-        return null;
-    }
-
-    private static BigDecimal num(JsonNode node, String... keys) {
-        if (node == null) return BigDecimal.ZERO;
-        for (String k : keys) {
-            JsonNode v = node.get(k);
-            if (v != null && !v.isNull()) {
-                try {
-                    return new BigDecimal(v.asText().trim());
-                } catch (NumberFormatException ignored) {
-                    // try next key
-                }
-            }
-        }
-        return BigDecimal.ZERO;
-    }
-
-    private static JsonNode firstNonNull(JsonNode a, JsonNode b) {
-        return a != null ? a : b;
     }
 }

@@ -153,7 +153,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
 
         // Common sizing via QuantityManager (SHARES or PERCENT-of-buying-power).
         // Price basis = marketable ask; fall back to the latest completed close.
-        OrderService.Quote quote = orderService.fetchQuote(ticker);
+        com.trading.broker.model.Quote quote = orderService.fetchQuote(ticker);
         BigDecimal sizingPrice = quote.ask() != null
                 ? quote.ask() : completed.get(completed.size() - 1).close();
         int qty = quantityManager.quantityFor(ticker, sizingPrice, accountService.getBuyingPowerLive());

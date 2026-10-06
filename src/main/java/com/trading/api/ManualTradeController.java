@@ -48,12 +48,12 @@ public class ManualTradeController {
     private final WebullProperties props;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
-    private final com.trading.webull.WebullV3Client client;
+    private final com.trading.broker.BrokerClient client;
 
     public ManualTradeController(WebullProperties props,
                                   OrderService orderService,
                                   PositionTracker positionTracker,
-                                  com.trading.webull.WebullV3Client client) {
+                                  com.trading.broker.BrokerClient client) {
         this.props = props;
         this.orderService = orderService;
         this.positionTracker = positionTracker;

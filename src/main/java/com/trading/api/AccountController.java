@@ -1,12 +1,11 @@
 package com.trading.api;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.trading.config.WebullProperties;
 import com.trading.service.AccountService;
 import com.trading.service.MarketHoursGuard;
+import com.trading.broker.BrokerClient;
 import com.trading.service.RiskManager;
 import com.trading.state.PositionTracker;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -20,7 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * REST API — Account information endpoints (Webull v3 via {@link WebullV3Client}).
+ * REST API — Account information endpoints (broker API via {@link BrokerClient}).
  */
 @RestController
 @RequestMapping("/api/account")
@@ -29,14 +28,14 @@ public class AccountController {
     private static final Logger log = LoggerFactory.getLogger(AccountController.class);
 
     private final WebullProperties props;
-    private final WebullV3Client client;
+    private final BrokerClient client;
     private final AccountService accountService;
     private final RiskManager riskManager;
     private final MarketHoursGuard marketHoursGuard;
     private final PositionTracker positionTracker;
 
     public AccountController(WebullProperties props,
-                              WebullV3Client client,
+                              BrokerClient client,
                               AccountService accountService,
                               RiskManager riskManager,
                               MarketHoursGuard marketHoursGuard,
@@ -59,7 +58,7 @@ public class AccountController {
 
         AccountService.AccountSnapshot snap = accountService.refresh();
         Map<String, Object> webullError = null;
-        JsonNode balance = null;
+        com.trading.broker.model.AccountBalance balance = null;
 
         try {
             String accountId = client.resolveAccountId();
@@ -67,13 +66,15 @@ public class AccountController {
                 webullError = Map.of("kind", "NO_ACCOUNT",
                         "message", "Could not resolve account ID from /trading/accounts/list");
             } else {
-                WebullV3Client.V3Response bal = client.accountBalance(accountId);
-                if (bal.success()) {
-                    balance = bal.body();
-                } else {
-                    webullError = WebullErrors.fromResponse(bal);
+                balance = client.fetchBalance(accountId);
+                if (!balance.valid()) {
+                    webullError = Map.of("kind", "HTTP_ERROR",
+                            "message", "Balance request failed");
                 }
             }
+        } catch (com.trading.broker.BrokerException e) {
+            webullError = WebullErrors.fromBroker(e);
+            log.error("[AccountController] summary error", e);
         } catch (Exception e) {
             webullError = WebullErrors.fromThrowable(e);
             log.error("[AccountController] summary error", e);
@@ -82,7 +83,7 @@ public class AccountController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("netLiquidationValue", snap.netLiquidationValue().toPlainString());
         body.put("buyingPower",         snap.buyingPower().toPlainString());
-        body.put("balance",             balance);
+        body.put("balanceValid",        balance != null && balance.valid());
         body.put("tradingHalted",       riskManager.isTradingHalted());
         body.put("marketSession",       marketHoursGuard.currentSessionDescription());
         body.put("tradingAllowed",      marketHoursGuard.isTradingAllowed());
@@ -107,7 +108,7 @@ public class AccountController {
 
         AccountService.AccountSnapshot snap = accountService.refresh();
         Map<String, Object> webullError = null;
-        JsonNode balance = null;
+        com.trading.broker.model.AccountBalance balance = null;
 
         try {
             String accountId = client.resolveAccountId();
@@ -115,13 +116,15 @@ public class AccountController {
                 webullError = Map.of("kind", "NO_ACCOUNT",
                         "message", "Could not resolve account ID from /trading/accounts/list");
             } else {
-                WebullV3Client.V3Response bal = client.accountBalance(accountId);
-                if (bal.success()) {
-                    balance = bal.body();
-                } else {
-                    webullError = WebullErrors.fromResponse(bal);
+                balance = client.fetchBalance(accountId);
+                if (!balance.valid()) {
+                    webullError = Map.of("kind", "HTTP_ERROR",
+                            "message", "Balance request failed");
                 }
             }
+        } catch (com.trading.broker.BrokerException e) {
+            webullError = WebullErrors.fromBroker(e);
+            log.error("[AccountController] balance error", e);
         } catch (Exception e) {
             webullError = WebullErrors.fromThrowable(e);
             log.error("[AccountController] balance error", e);
@@ -130,7 +133,7 @@ public class AccountController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("netLiquidationValue", snap.netLiquidationValue().toPlainString());
         body.put("buyingPower",         snap.buyingPower().toPlainString());
-        body.put("rawBalance",          balance);
+        body.put("balanceValid",        balance != null && balance.valid());
         body.put("mode",                props.trading().mode().name());
         body.put("endpoint",            props.resolvedApiHost());
         if (webullError != null) body.put("webullError", webullError);

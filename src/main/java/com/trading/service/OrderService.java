@@ -1,9 +1,11 @@
 package com.trading.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.trading.broker.BrokerClient;
+import com.trading.broker.model.OrderAck;
+import com.trading.broker.model.OrderRequest;
+import com.trading.broker.model.Quote;
 import com.trading.config.WebullProperties;
 import com.trading.state.PositionTracker;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -16,8 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Central service for all order execution against the Webull <b>v3</b> API via
- * {@link WebullV3Client}.
+ * Central service for all order execution against the broker API via the
+ * {@link BrokerClient} abstraction (Webull today).
  *
  * <h2>Guardrails</h2>
  * <ol>
@@ -37,21 +39,15 @@ public class OrderService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
-    // ── Webull-supported standalone order types ──────────────────────────────
-    //   LIMIT | MARKET | STOP | STOP_LIMIT | TRAILING_STOP_LOSS
-    // (STOP_LOSS / STOP_PROFIT are also combo-leg types when used inside a MASTER.)
+    // ── Canonical order-type LABELS used for trade-log attribution/reporting ──
+    // (Broker wire vocabulary lives in the broker adapter, keyed off OrderRequest.Type.)
     public static final String TYPE_MARKET             = "MARKET";
     public static final String TYPE_LIMIT              = "LIMIT";
     public static final String TYPE_STOP               = "STOP";
-    public static final String TYPE_STOP_LIMIT         = "STOP_LIMIT";
     public static final String TYPE_TRAILING_STOP_LOSS = "TRAILING_STOP_LOSS";
 
-    // Trailing-stop trail measure: PERCENTAGE (e.g. 0.01 = 1%) or AMOUNT (dollars).
-    public static final String TRAIL_PERCENTAGE = "PERCENTAGE";
-    public static final String TRAIL_AMOUNT     = "AMOUNT";
-
     private final WebullProperties props;
-    private final WebullV3Client client;
+    private final BrokerClient client;
     private final AccountService accountService;
     private final RiskManager riskManager;
     private final PositionTracker positionTracker;
@@ -60,7 +56,7 @@ public class OrderService {
     private final MarketHoursGuard marketHoursGuard;
 
     public OrderService(WebullProperties props,
-                        WebullV3Client client,
+                        BrokerClient client,
                         @Lazy AccountService accountService,
                         @Lazy RiskManager riskManager,
                         PositionTracker positionTracker,
@@ -211,16 +207,18 @@ public class OrderService {
 
         // Session-aware order routing: REGULAR → MARKET; PRE_MARKET → LIMIT at bid.
         MarketHoursGuard.Session session = marketHoursGuard.currentSession();
-        Map<String, Object> body;
+        OrderRequest request;
         String orderType;
         if (session == MarketHoursGuard.Session.PRE_MARKET) {
             orderType = TYPE_LIMIT;
-            body = baseOrder(clientOrderId, ticker, qty, "BUY", TYPE_LIMIT);
-            body.put("limit_price", quote.ask().toPlainString());   // marketable: lift the offer
-            body.put("support_trading_session", "ALL");   // allow the order to work pre-market
+            request = new OrderRequest(clientOrderId, ticker, OrderRequest.Side.BUY,
+                    OrderRequest.Type.LIMIT, qty,
+                    quote.ask(),   // marketable: lift the offer
+                    null, null, OrderRequest.TimeInForce.DAY,
+                    true);         // allow the order to work pre-market
         } else {
             orderType = TYPE_MARKET;
-            body = baseOrder(clientOrderId, ticker, qty, "BUY", TYPE_MARKET);
+            request = OrderRequest.market(clientOrderId, ticker, OrderRequest.Side.BUY, qty);
         }
 
         if (!props.shouldSubmitOrders()) {
@@ -229,10 +227,10 @@ public class OrderService {
             recordSuccess(strategy, "BUY", ticker, qty, null, orderType, clientOrderId, null);
             if (!bypassEntryGuard) entryGuard.clearArmed(ticker);   // consume the armed state on strategy entry
             postOrderRefresh();
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
-        OrderResult result = submit(strategy, "BUY", ticker, qty, price, orderType, clientOrderId, body);
+        OrderResult result = submit(strategy, "BUY", ticker, qty, price, orderType, clientOrderId, request);
         if (result.success() && !bypassEntryGuard) {
             entryGuard.clearArmed(ticker);   // consume the armed state once a strategy buy is accepted
         }
@@ -253,19 +251,19 @@ public class OrderService {
         OrderResult shortBlock = guardNoShort(strategy, "STOP-SELL", ticker, qty, stopPrice, TYPE_STOP, clientOrderId);
         if (shortBlock != null) return shortBlock;
 
-        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_STOP);
-        body.put("stop_price", stopPrice.toPlainString());
-        body.put("time_in_force", "GTC");
+        OrderRequest request = new OrderRequest(clientOrderId, ticker, OrderRequest.Side.SELL,
+                OrderRequest.Type.STOP, qty, null, stopPrice, null,
+                OrderRequest.TimeInForce.GTC, false);
 
         if (!props.shouldSubmitOrders()) {
             log.info("[OrderService] SIMULATED STOP-SELL | ticker={} qty={} stopPrice={} id={}",
                     ticker, qty, stopPrice.toPlainString(), clientOrderId);
             recordSuccess(strategy, "STOP-SELL", ticker, qty, stopPrice, TYPE_STOP, clientOrderId, null);
             postOrderRefresh();
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
-        return submit(strategy, "STOP-SELL", ticker, qty, stopPrice, TYPE_STOP, clientOrderId, body);
+        return submit(strategy, "STOP-SELL", ticker, qty, stopPrice, TYPE_STOP, clientOrderId, request);
     }
 
     public OrderResult placeLimitSell(String ticker, int qty, BigDecimal limitPrice) {
@@ -278,19 +276,19 @@ public class OrderService {
         OrderResult shortBlock = guardNoShort(strategy, "LIMIT-SELL", ticker, qty, limitPrice, TYPE_LIMIT, clientOrderId);
         if (shortBlock != null) return shortBlock;
 
-        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_LIMIT);
-        body.put("limit_price", limitPrice.toPlainString());
-        body.put("time_in_force", "GTC");
+        OrderRequest request = new OrderRequest(clientOrderId, ticker, OrderRequest.Side.SELL,
+                OrderRequest.Type.LIMIT, qty, limitPrice, null, null,
+                OrderRequest.TimeInForce.GTC, false);
 
         if (!props.shouldSubmitOrders()) {
             log.info("[OrderService] SIMULATED LIMIT-SELL | ticker={} qty={} limitPrice={} id={}",
                     ticker, qty, limitPrice.toPlainString(), clientOrderId);
             recordSuccess(strategy, "LIMIT-SELL", ticker, qty, limitPrice, TYPE_LIMIT, clientOrderId, null);
             postOrderRefresh();
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
-        return submit(strategy, "LIMIT-SELL", ticker, qty, limitPrice, TYPE_LIMIT, clientOrderId, body);
+        return submit(strategy, "LIMIT-SELL", ticker, qty, limitPrice, TYPE_LIMIT, clientOrderId, request);
     }
 
     public OrderResult placeTrailingStopSell(String ticker, int qty, BigDecimal trailPct) {
@@ -315,10 +313,10 @@ public class OrderService {
                 TYPE_TRAILING_STOP_LOSS, clientOrderId);
         if (shortBlock != null) return shortBlock;
 
-        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_TRAILING_STOP_LOSS);
-        body.put("trailing_type", TRAIL_PERCENTAGE);
-        body.put("trailing_stop_step", trailPct.toPlainString());
-        // Trailing stops only support DAY (baseOrder already sets DAY) — do not override to GTC.
+        // Trailing stops only support DAY — do not override to GTC.
+        OrderRequest request = new OrderRequest(clientOrderId, ticker, OrderRequest.Side.SELL,
+                OrderRequest.Type.TRAILING_STOP, qty, null, null, trailPct,
+                OrderRequest.TimeInForce.DAY, false);
 
         if (!props.shouldSubmitOrders()) {
             log.info("[OrderService] SIMULATED TRAIL-STOP-SELL | ticker={} qty={} trail={}% id={}",
@@ -326,11 +324,11 @@ public class OrderService {
             recordSuccess(strategy, "TRAIL-STOP-SELL", ticker, qty, trailPct,
                     TYPE_TRAILING_STOP_LOSS, clientOrderId, null);
             postOrderRefresh();
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
         return submit(strategy, "TRAIL-STOP-SELL", ticker, qty, trailPct,
-                TYPE_TRAILING_STOP_LOSS, clientOrderId, body);
+                TYPE_TRAILING_STOP_LOSS, clientOrderId, request);
     }
 
     /** Backward-compatible emergency market SELL. */
@@ -349,15 +347,15 @@ public class OrderService {
         OrderResult shortBlock = guardNoShort(strategy, "MARKET-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId);
         if (shortBlock != null) return shortBlock;
 
-        Map<String, Object> body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_MARKET);
+        OrderRequest request = OrderRequest.market(clientOrderId, ticker, OrderRequest.Side.SELL, qty);
 
         if (!props.shouldSubmitOrders()) {
             log.info("[OrderService] SIMULATED MARKET-SELL | ticker={} qty={} id={}", ticker, qty, clientOrderId);
             recordSuccess(strategy, "MARKET-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, null);
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
-        return submit(strategy, "MARKET-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, body);
+        return submit(strategy, "MARKET-SELL", ticker, qty, null, TYPE_MARKET, clientOrderId, request);
     }
 
     /**
@@ -377,7 +375,7 @@ public class OrderService {
         // NOTE: the spread guard is intentionally NOT applied to exits — see Javadoc.
 
         MarketHoursGuard.Session session = marketHoursGuard.currentSession();
-        Map<String, Object> body;
+        OrderRequest request;
         String orderType;
         BigDecimal price;
         if (session == MarketHoursGuard.Session.PRE_MARKET) {
@@ -390,23 +388,23 @@ public class OrderService {
                 recordFailure(strategy, "EXIT-SELL", ticker, qty, null, TYPE_LIMIT, clientOrderId, "NO_PRICE_FOR_EXIT");
                 return OrderResult.failure(clientOrderId, "NO_PRICE_FOR_EXIT");
             }
-            body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_LIMIT);
-            body.put("limit_price", price.toPlainString());
-            body.put("support_trading_session", "ALL");
+            request = new OrderRequest(clientOrderId, ticker, OrderRequest.Side.SELL,
+                    OrderRequest.Type.LIMIT, qty, price, null, null,
+                    OrderRequest.TimeInForce.DAY, true);
         } else {
             orderType = TYPE_MARKET;
             price = quote.last();
-            body = baseOrder(clientOrderId, ticker, qty, "SELL", TYPE_MARKET);
+            request = OrderRequest.market(clientOrderId, ticker, OrderRequest.Side.SELL, qty);
         }
 
         if (!props.shouldSubmitOrders()) {
             log.info("[OrderService] SIMULATED EXIT-SELL | ticker={} qty={} type={} session={} id={}",
                     ticker, qty, orderType, session, clientOrderId);
             recordSuccess(strategy, "EXIT-SELL", ticker, qty, price, orderType, clientOrderId, null);
-            return OrderResult.paper(clientOrderId, body);
+            return OrderResult.paper(clientOrderId, requestSnapshot(request));
         }
 
-        return submit(strategy, "EXIT-SELL", ticker, qty, price, orderType, clientOrderId, body);
+        return submit(strategy, "EXIT-SELL", ticker, qty, price, orderType, clientOrderId, request);
     }
 
     // -----------------------------------------------------------------------
@@ -452,71 +450,56 @@ public class OrderService {
 
     private OrderResult submit(String strategy, String label, String ticker, int qty,
                                BigDecimal price, String orderType,
-                               String clientOrderId, Map<String, Object> body) {
+                               String clientOrderId, OrderRequest request) {
         String accountId = client.resolveAccountId();
         if (accountId == null) {
             recordFailure(strategy, label, ticker, qty, price, orderType, clientOrderId, "NO_ACCOUNT");
             return new OrderResult(false, clientOrderId, null,
-                    "Could not resolve account ID", -1, null, body);
+                    "Could not resolve account ID", -1, null, request == null ? null : requestSnapshot(request));
         }
         try {
             log.info("[OrderService] SUBMIT {} | ticker={} id={}", label, ticker, clientOrderId);
-            WebullV3Client.V3Response resp = client.placeOrder(accountId, body);
+            OrderAck ack = client.submitOrder(accountId, request);
 
-            if (resp.success()) {
-                String orderId = extractOrderId(resp.body());
-                log.info("[OrderService] {} accepted | ticker={} orderId={} webullResponse={}",
-                        label, ticker, orderId, resp.rawBody());
-                recordSuccess(strategy, label, ticker, qty, price, orderType, clientOrderId, orderId);
+            if (ack.success()) {
+                log.info("[OrderService] {} accepted | ticker={} orderId={} brokerResponse={}",
+                        label, ticker, ack.orderId(), ack.rawResponse());
+                recordSuccess(strategy, label, ticker, qty, price, orderType, clientOrderId, ack.orderId());
                 postOrderRefresh();
-                return new OrderResult(true, clientOrderId, orderId,
-                        "Accepted by Webull", resp.statusCode(), resp.rawBody(), body);
+                return new OrderResult(true, clientOrderId, ack.orderId(),
+                        "Accepted by Webull", ack.httpStatus(), ack.rawResponse(), ack.requestSent());
             }
 
-            String msg = "Rejected by Webull (status=" + resp.statusCode() + ")";
-            log.error("[OrderService] {} rejected | ticker={} status={} body={}",
-                    label, ticker, resp.statusCode(), resp.rawBody());
-            recordFailure(strategy, label, ticker, qty, price, orderType, clientOrderId,
-                    msg + " body=" + resp.rawBody());
-            return new OrderResult(false, clientOrderId, null, msg, resp.statusCode(), resp.rawBody(), body);
+            log.error("[OrderService] {} rejected | ticker={} status={} message={}",
+                    label, ticker, ack.httpStatus(), ack.message());
+            recordFailure(strategy, label, ticker, qty, price, orderType, clientOrderId, ack.message());
+            return new OrderResult(false, clientOrderId, null,
+                    "Rejected by Webull (status=" + ack.httpStatus() + ")",
+                    ack.httpStatus(), ack.rawResponse(), ack.requestSent());
 
         } catch (Exception e) {
             log.error("[OrderService] {} exception | ticker={}", label, ticker, e);
             recordFailure(strategy, label, ticker, qty, price, orderType, clientOrderId, String.valueOf(e.getMessage()));
             return new OrderResult(false, clientOrderId, null,
-                    "Exception: " + e.getMessage(), -1, null, body);
+                    "Exception: " + e.getMessage(), -1, null, requestSnapshot(request));
         }
     }
 
-    private Map<String, Object> baseOrder(String clientOrderId, String ticker,
-                                          int qty, String side, String orderType) {
-        // NOTE: no option_strategy for equities — including it triggers
-        // "Instrument type invalid." Fields mirror the official Equity example.
+    /** A neutral map view of the request, for paper-mode results and error payloads. */
+    private static Map<String, Object> requestSnapshot(OrderRequest r) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("client_order_id", clientOrderId);
-        m.put("combo_type", "NORMAL");
-        m.put("instrument_type", "EQUITY");
-        m.put("market", "US");
-        m.put("symbol", ticker);
-        m.put("side", side);
-        m.put("order_type", orderType);
-        m.put("quantity", String.valueOf(qty));
-        m.put("time_in_force", "DAY");
-        m.put("entrust_type", "QTY");
-        m.put("support_trading_session", "CORE");
+        if (r == null) return m;
+        m.put("client_order_id", r.clientOrderId());
+        m.put("symbol", r.symbol());
+        m.put("side", r.side().name());
+        m.put("order_type", r.type().name());
+        m.put("quantity", String.valueOf(r.quantity()));
+        m.put("time_in_force", r.timeInForce().name());
+        m.put("extended_hours", r.extendedHours());
+        if (r.limitPrice() != null) m.put("limit_price", r.limitPrice().toPlainString());
+        if (r.stopPrice() != null)  m.put("stop_price", r.stopPrice().toPlainString());
+        if (r.trailPct() != null)   m.put("trailing_stop_step", r.trailPct().toPlainString());
         return m;
-    }
-
-    private String extractOrderId(JsonNode body) {
-        if (body == null) return null;
-        JsonNode id = body.get("order_id");
-        if (id == null) id = body.get("orderId");
-        if (id == null && body.has("data")) {
-            JsonNode data = body.get("data");
-            id = data.get("order_id");
-            if (id == null) id = data.get("orderId");
-        }
-        return id == null ? null : id.asText();
     }
 
     private void postOrderRefresh() {
@@ -552,142 +535,33 @@ public class OrderService {
     }
 
     // -----------------------------------------------------------------------
-    // Fill price
+    // Fill price / quotes — delegated to the broker adapter (neutral records)
     // -----------------------------------------------------------------------
-
-    private static final String CATEGORY_US_STOCK = "US_STOCK";
 
     /**
      * Resolves the price to anchor a bracket (stop-loss / take-profit) on, after a
      * MARKET buy. A market order has no limit price, so we approximate the fill with
-     * the current market snapshot price (a market buy fills at ~the current price).
+     * the current market price (a market buy fills at ~the current price).
      *
-     * <p>If the snapshot is unavailable (Webull error, no data, PAPER quirks), the
-     * supplied {@code fallback} — normally the signal candle's open — is returned so
-     * the strategy can still place its bracket.</p>
+     * <p>Delegates to the broker adapter, which returns the live quote mid (bid/ask)
+     * when available, else the last-trade price. If unavailable, the supplied
+     * {@code fallback} — normally the signal candle's open — is returned so the
+     * strategy can still place its bracket.</p>
      *
      * @param ticker   the symbol
-     * @param fallback price returned when the snapshot can't be fetched; may be
+     * @param fallback price returned when the price can't be fetched; may be
      *                 {@code null} when the caller wants to detect an unresolved price
-     * @return the snapshot price, or {@code fallback} when it can't be resolved
+     * @return the resolved price, or {@code fallback} when it can't be resolved
      */
     public BigDecimal fetchFillPrice(String ticker, BigDecimal fallback) {
-        try {
-            WebullV3Client.V3Response resp = client.snapshot(ticker, CATEGORY_US_STOCK);
-            if (resp.success() && resp.body() != null) {
-                JsonNode snap = firstSnapshot(resp.body());
-
-                // Prefer the LIVE quote mid (bid/ask). The snapshot's `price`/`close`
-                // is the last TRADE, which in pre/after-hours can be hours stale while
-                // the quote is current — so bid/ask is the real market price.
-                BigDecimal bid = firstNum(snap, "bid_price", "bidPrice", "bid");
-                BigDecimal ask = firstNum(snap, "ask_price", "askPrice", "ask");
-                if (bid == null) bid = nestedPrice(snap, "bid_list", "bidList");
-                if (ask == null) ask = nestedPrice(snap, "ask_list", "askList");
-                if (bid != null && ask != null
-                        && bid.compareTo(BigDecimal.ZERO) > 0 && ask.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal mid = bid.add(ask).divide(BigDecimal.valueOf(2));
-                    log.debug("[OrderService] Fill price for {} = quote mid {} (bid={} ask={})",
-                            ticker, mid, bid, ask);
-                    return mid;
-                }
-
-                // No usable quote → fall back to last-trade price (regular hours this is fine).
-                BigDecimal price = num(snap, "price", "last_price", "close");
-                if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
-                    log.debug("[OrderService] Fill price for {} = last-trade {} (no live quote)", ticker, price);
-                    return price;
-                }
-            }
-            log.warn("[OrderService] Snapshot fill price unavailable for {} (status={}) — using fallback {}",
-                    ticker, resp.statusCode(), fallback);
-        } catch (Exception e) {
-            log.warn("[OrderService] Snapshot fill price lookup failed for {} — using fallback {}: {}",
-                    ticker, fallback, e.getMessage());
-        }
-        return fallback;
-    }
-
-    /** Live quote: bid, ask, last. Any field may be null when unavailable. */
-    public record Quote(BigDecimal bid, BigDecimal ask, BigDecimal last) {
-        public boolean hasBidAsk() {
-            return bid != null && ask != null
-                    && bid.compareTo(BigDecimal.ZERO) > 0 && ask.compareTo(BigDecimal.ZERO) > 0;
-        }
-        public BigDecimal spread() {
-            return hasBidAsk() ? ask.subtract(bid) : null;
-        }
-        /** Spread as a fraction of the mid price: (ask − bid) / ((ask + bid) / 2). Null when no quote. */
-        public BigDecimal spreadPct() {
-            if (!hasBidAsk()) return null;
-            BigDecimal mid = ask.add(bid).divide(BigDecimal.valueOf(2), java.math.MathContext.DECIMAL128);
-            if (mid.signum() <= 0) return null;
-            return ask.subtract(bid).divide(mid, 8, java.math.RoundingMode.HALF_UP);
-        }
+        return client.fetchFillPrice(ticker, fallback);
     }
 
     /**
-     * Fetches the current bid/ask/last from the Webull snapshot. Reads both flat
-     * ({@code bid_price}/{@code ask_price}) and nested ({@code bid_list[0].price})
-     * shapes. Returns a {@link Quote} with null fields when unavailable.
+     * Fetches the current bid/ask/last for {@code ticker} from the broker adapter.
+     * Returns a {@link Quote} with null fields when unavailable (never null).
      */
     public Quote fetchQuote(String ticker) {
-        try {
-            WebullV3Client.V3Response resp = client.snapshot(ticker, CATEGORY_US_STOCK);
-            if (resp.success() && resp.body() != null) {
-                JsonNode snap = firstSnapshot(resp.body());
-                BigDecimal bid  = firstNum(snap, "bid_price", "bidPrice", "bid");
-                BigDecimal ask  = firstNum(snap, "ask_price", "askPrice", "ask");
-                if (bid == null) bid = nestedPrice(snap, "bid_list", "bidList");
-                if (ask == null) ask = nestedPrice(snap, "ask_list", "askList");
-                BigDecimal last = firstNum(snap, "price", "last_price", "close");
-                return new Quote(bid, ask, last);
-            }
-        } catch (Exception e) {
-            log.warn("[OrderService] Quote lookup failed for {}: {}", ticker, e.getMessage());
-        }
-        return new Quote(null, null, null);
-    }
-
-    private static BigDecimal firstNum(JsonNode node, String... fields) {
-        return num(node, fields);
-    }
-
-    /** Reads {@code price} from the first element of a bid_list/ask_list array field. */
-    private static BigDecimal nestedPrice(JsonNode node, String... arrayFields) {
-        if (node == null) return null;
-        for (String f : arrayFields) {
-            JsonNode arr = node.get(f);
-            if (arr != null && arr.isArray() && arr.size() > 0) {
-                BigDecimal p = num(arr.get(0), "price", "value");
-                if (p != null) return p;
-            }
-        }
-        return null;
-    }
-
-    /** Digs into {array} / {data:[]} / {result:[]} / single-object snapshot shapes. */
-    private static JsonNode firstSnapshot(JsonNode root) {
-        if (root == null) return null;
-        if (root.isArray()) return root.size() > 0 ? root.get(0) : null;
-        if (root.has("data")) return firstSnapshot(root.get("data"));
-        if (root.has("result")) return firstSnapshot(root.get("result"));
-        return (root.has("price") || root.has("last_price") || root.has("close")) ? root : null;
-    }
-
-    /** Reads the first present numeric field from {@code fields}, or null. */
-    private static BigDecimal num(JsonNode node, String... fields) {
-        if (node == null) return null;
-        for (String f : fields) {
-            JsonNode v = node.get(f);
-            if (v != null && !v.isNull()) {
-                try {
-                    return new BigDecimal(v.asText());
-                } catch (NumberFormatException ignore) {
-                    // try next field name
-                }
-            }
-        }
-        return null;
+        return client.fetchQuote(ticker);
     }
 }

@@ -168,7 +168,7 @@ public class EmaStrategyService implements TradingStrategy {
 
         // Common sizing via QuantityManager (SHARES or PERCENT-of-buying-power).
         // Price basis = marketable ask; fall back to the signal bar's close.
-        OrderService.Quote quote = orderService.fetchQuote(ticker);
+        com.trading.broker.model.Quote quote = orderService.fetchQuote(ticker);
         BigDecimal sizingPrice = quote.ask() != null ? quote.ask() : close;
         int qty = quantityManager.quantityFor(ticker, sizingPrice, accountService.getBuyingPowerLive());
         if (qty < 1) {

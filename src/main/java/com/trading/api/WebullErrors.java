@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.webull.WebullV3Client;
+import com.trading.broker.BrokerException;
+import com.trading.broker.BrokerResponse;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -11,7 +12,7 @@ import java.util.Map;
  *
  * <p>Two forms:
  * <ul>
- *   <li>{@link #fromResponse(WebullV3Client.V3Response)} — for a failed v3 HTTP call
+ *   <li>{@link #fromResponse(BrokerResponse)} — for a failed broker HTTP call
  *       (carries http status + raw body).</li>
  *   <li>{@link #fromThrowable(Throwable)} — for an exception during a call.</li>
  * </ul>
@@ -20,13 +21,26 @@ public final class WebullErrors {
 
     private WebullErrors() { }
 
-    /** Detail map for a failed {@link WebullV3Client.V3Response}. */
-    public static Map<String, Object> fromResponse(WebullV3Client.V3Response resp) {
+    /** Detail map for a failed {@link BrokerResponse}. */
+    public static Map<String, Object> fromResponse(BrokerResponse resp) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("kind", "HTTP_ERROR");
         m.put("httpStatus", resp.statusCode());
         if (resp.rawBody() != null && !resp.rawBody().isBlank()) {
             m.put("rawResponse", resp.rawBody());
+        }
+        return m;
+    }
+
+    /** Detail map for a failed broker call surfaced as a {@link BrokerException}. */
+    public static Map<String, Object> fromBroker(BrokerException e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("kind", "HTTP_ERROR");
+        if (e.statusCode() != -1) {
+            m.put("httpStatus", e.statusCode());
+        }
+        if (e.getMessage() != null) {
+            m.put("message", e.getMessage());
         }
         return m;
     }

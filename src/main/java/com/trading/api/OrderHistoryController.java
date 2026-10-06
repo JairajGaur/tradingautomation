@@ -1,8 +1,8 @@
 package com.trading.api;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.trading.broker.BrokerClient;
+import com.trading.broker.model.OrderSummary;
 import com.trading.config.WebullProperties;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,7 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * REST API — Order history (Webull v3 via {@link WebullV3Client}).
+ * REST API — Order history (broker API via {@link BrokerClient}).
  *
  * <p>The v3 order-history endpoint ({@code /trading/orders/history}) returns
  * orders within a date range (default last 7 days). Both {@code /today} and
@@ -31,9 +31,9 @@ public class OrderHistoryController {
     private static final Logger log = LoggerFactory.getLogger(OrderHistoryController.class);
 
     private final WebullProperties props;
-    private final WebullV3Client client;
+    private final BrokerClient client;
 
-    public OrderHistoryController(WebullProperties props, WebullV3Client client) {
+    public OrderHistoryController(WebullProperties props, BrokerClient client) {
         this.props = props;
         this.client = client;
     }
@@ -62,27 +62,43 @@ public class OrderHistoryController {
                         "message", "Could not resolve account ID from /trading/accounts/list"));
             }
 
-            WebullV3Client.V3Response resp = "open".equals(which)
-                    ? client.openOrders(accountId, pageSize, lastId)
-                    : client.orderHistory(accountId, pageSize, lastId);
-            if (!resp.success()) {
-                return badGateway(WebullErrors.fromResponse(resp));
-            }
+            java.util.List<OrderSummary> orders = "open".equals(which)
+                    ? client.fetchOpenOrders(accountId, pageSize, lastId)
+                    : client.fetchOrderHistory(accountId, pageSize, lastId);
 
-            JsonNode orders = resp.body() != null && resp.body().has("orders")
-                    ? resp.body().get("orders")
-                    : resp.body();
+            java.util.List<Map<String, String>> mapped = orders.stream()
+                    .map(OrderHistoryController::toMap)
+                    .toList();
 
             Map<String, Object> body = new LinkedHashMap<>();
-            body.put("orders",    orders);
-            body.put("count",     orders != null && orders.isArray() ? orders.size() : 0);
+            body.put("orders",    mapped);
+            body.put("count",     mapped.size());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.ok(body);
 
+        } catch (com.trading.broker.BrokerException e) {
+            log.error("[OrderHistoryController] Error fetching orders", e);
+            return badGateway(WebullErrors.fromBroker(e));
         } catch (Exception e) {
             log.error("[OrderHistoryController] Error fetching orders", e);
             return badGateway(WebullErrors.fromThrowable(e));
         }
+    }
+
+    /** Maps a neutral {@link OrderSummary} to a JSON map, omitting null fields. */
+    private static Map<String, String> toMap(OrderSummary o) {
+        Map<String, String> m = new LinkedHashMap<>();
+        if (o.orderId() != null)        m.put("orderId", o.orderId());
+        if (o.clientOrderId() != null)  m.put("clientOrderId", o.clientOrderId());
+        if (o.symbol() != null)         m.put("symbol", o.symbol());
+        if (o.side() != null)           m.put("side", o.side());
+        if (o.orderType() != null)      m.put("orderType", o.orderType());
+        if (o.status() != null)         m.put("status", o.status());
+        if (o.quantity() != null)       m.put("quantity", o.quantity());
+        if (o.filledQuantity() != null) m.put("filledQuantity", o.filledQuantity());
+        if (o.limitPrice() != null)     m.put("limitPrice", o.limitPrice());
+        if (o.stopPrice() != null)      m.put("stopPrice", o.stopPrice());
+        return m;
     }
 
     private ResponseEntity<Map<String, Object>> badGateway(Map<String, Object> webullError) {

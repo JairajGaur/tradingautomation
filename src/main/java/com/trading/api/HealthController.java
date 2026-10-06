@@ -1,7 +1,8 @@
 package com.trading.api;
 
+import com.trading.broker.BrokerClient;
+import com.trading.broker.model.ConnectivityStatus;
 import com.trading.config.WebullProperties;
-import com.trading.webull.WebullV3Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -21,7 +22,7 @@ import java.util.Map;
  *   <tr><th>Method</th><th>Path</th><th>Description</th></tr>
  *   <tr><td>GET</td><td>/api/health</td><td>Liveness (no external calls)</td></tr>
  *   <tr><td>GET</td><td>/api/health/webull</td>
- *       <td>Connectivity — probes the Webull v3 API via {@link WebullV3Client}</td></tr>
+ *       <td>Connectivity — probes the broker API via {@link BrokerClient}</td></tr>
  * </table>
  */
 @RestController
@@ -31,9 +32,9 @@ public class HealthController {
     private static final Logger log = LoggerFactory.getLogger(HealthController.class);
 
     private final WebullProperties props;
-    private final WebullV3Client v3Client;
+    private final BrokerClient v3Client;
 
-    public HealthController(WebullProperties props, WebullV3Client v3Client) {
+    public HealthController(WebullProperties props, BrokerClient v3Client) {
         this.props = props;
         this.v3Client = v3Client;
     }
@@ -64,7 +65,7 @@ public class HealthController {
         log.info("[HealthController] GET /api/health/webull — probing v3 /trading/accounts/list");
 
         long start = System.currentTimeMillis();
-        WebullV3Client.V3Response resp = v3Client.accountList();
+        ConnectivityStatus status = v3Client.checkConnectivity();
         long latency = System.currentTimeMillis() - start;
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -72,24 +73,22 @@ public class HealthController {
         body.put("endpoint", props.resolvedApiHost());
         body.put("path", props.endpoints().accountList());
         body.put("apiVersion", "v3");
-        body.put("httpStatus", resp.statusCode());
+        body.put("httpStatus", status.httpStatus());
         body.put("latencyMs", latency);
 
-        if (resp.success()) {
-            int accounts = (resp.body() != null && resp.body().isArray()) ? resp.body().size() : 0;
+        if (status.authenticated()) {
             body.put("status", "UP");
             body.put("webullReachable", true);
             body.put("authenticated", true);
-            body.put("accountsFound", accounts);
-            body.put("response", resp.body());
+            body.put("accountsFound", status.accountsFound());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.ok(body);
         }
 
         body.put("status", "DOWN");
-        body.put("webullReachable", resp.statusCode() > 0);
+        body.put("webullReachable", status.reachable());
         body.put("authenticated", false);
-        body.put("rawResponse", resp.rawBody());
+        body.put("rawResponse", status.detail());
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
