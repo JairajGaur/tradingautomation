@@ -297,8 +297,8 @@ webull:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "08:00"
-    after-hours-close: "16:00"
+    pre-market-open: "09:00"
+    after-hours-close: "15:30"
 
   # ── Webull v3 endpoint paths ─────────────────────────────────────────────
   # Override any path here if Webull changes a route — no recompile needed.
