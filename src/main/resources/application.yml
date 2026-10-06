@@ -240,6 +240,11 @@ webull:
       supertrend-timeframes: "M5,M15"
       scan-minutes: 5
       message-prefix: "5MIN TREND - "
+      # Optional price-vs-EMA gate: BULLISH also needs price ABOVE ema-period on
+      # ema-timeframe, BEARISH below. Independent of the ST timeframes (e.g. 600-EMA/M1).
+      ema-enabled: true
+      ema-period: 600
+      ema-timeframe: "M1"
     # Opening-Range Breakout — all under alerts.orb. Opening range = high/low of today's
     # 09:30 ET candle on the range-minutes timeframe (15 -> M15 = 9:30–9:45, 30 -> M30 =
     # 9:30–10:00). Fetched once/day, cached (works on late start). The break is a CLOSE on

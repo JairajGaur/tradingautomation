@@ -99,7 +99,16 @@ public record WebullProperties(
                  */
                 @DefaultValue("M5")   String supertrendTimeframes,
                 @DefaultValue("5")    int scanMinutes,
-                @DefaultValue("")     String messagePrefix
+                @DefaultValue("")     String messagePrefix,
+                /**
+                 * Optional price-vs-EMA gate. When {@code emaEnabled}, a BULLISH alert also
+                 * requires the latest close on {@code emaTimeframe} to be ABOVE EMA(emaPeriod),
+                 * and BEARISH requires it BELOW. Independent of the Supertrend timeframes
+                 * (e.g. ST on M5,M15 but this gate on 600-EMA / M1). Default off.
+                 */
+                @DefaultValue("false") boolean emaEnabled,
+                @DefaultValue("600")   int emaPeriod,
+                @DefaultValue("M1")    String emaTimeframe
         ) {}
 
         /**

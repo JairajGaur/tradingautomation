@@ -84,7 +84,38 @@ public class StAdxAlert implements Alert {
 
     @Override
     public List<String> timeframesNeeded() {
-        return timeframes();   // engine batch-prefetches all of them
+        List<String> tfs = new ArrayList<>(timeframes());
+        // Also prefetch the price-vs-EMA gate's timeframe when enabled.
+        var cfg = props.alerts().stAdx();
+        if (cfg.emaEnabled()) {
+            try {
+                String emaTf = com.trading.service.MarketDataService.normaliseTimespan(cfg.emaTimeframe());
+                if (!tfs.contains(emaTf)) tfs.add(emaTf);
+            } catch (Exception ignored) { }
+        }
+        return tfs;   // engine batch-prefetches all of them
+    }
+
+    /**
+     * Price-vs-EMA gate. Returns +1 if the latest close on {@code emaTimeframe} is above
+     * EMA(emaPeriod) (bullish-ok), -1 if below (bearish-ok), 0 if unavailable/insufficient.
+     */
+    private int priceVsEma(String symbol, int warmup) {
+        var cfg = props.alerts().stAdx();
+        try {
+            String emaTf = com.trading.service.MarketDataService.normaliseTimespan(cfg.emaTimeframe());
+            List<Candle> bars = barData.getBars(symbol, emaTf, warmup);
+            if (bars == null || bars.size() < cfg.emaPeriod() + 2) return 0;
+            List<Candle> completed = bars.subList(0, bars.size() - 1);
+            List<BigDecimal> closes = new ArrayList<>(completed.size());
+            for (Candle c : completed) closes.add(c.close());
+            if (closes.size() < cfg.emaPeriod()) return 0;
+            BigDecimal ema = com.trading.indicator.EmaCalculator.calculate(closes, cfg.emaPeriod());
+            BigDecimal close = closes.get(closes.size() - 1);
+            return close.compareTo(ema) > 0 ? 1 : (close.compareTo(ema) < 0 ? -1 : 0);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     @Override
@@ -124,6 +155,13 @@ public class StAdxAlert implements Alert {
 
                 boolean bullish = agreed == Direction.UP && advice.action() == Recommendation.BUY;
                 boolean bearish = agreed == Direction.DOWN && advice.action() == Recommendation.SELL;
+
+                // Optional price-vs-EMA gate: BULLISH needs price ABOVE the EMA, BEARISH below.
+                if (props.alerts().stAdx().emaEnabled()) {
+                    int side = priceVsEma(symbol, warmup);
+                    if (bullish && side <= 0) bullish = false;   // not above EMA → drop
+                    if (bearish && side >= 0) bearish = false;   // not below EMA → drop
+                }
 
                 if (bullish) {
                     hits.add(new AlertHit(id(), symbol, "BULLISH",
