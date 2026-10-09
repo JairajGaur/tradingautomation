@@ -165,14 +165,12 @@ public class StAdxAlert implements Alert {
 
                 if (bullish) {
                     hits.add(new AlertHit(id(), symbol, "BULLISH",
-                            "🟢 BULLISH " + symbol + " @ " + close
-                                    + "\nSupertrend UP on " + tfs + " + ADX BUY (" + primaryTf + ")"
-                                    + "\n" + advice.reason()));
+                            AlertMessageFormat.line(messagePrefix(), symbol,
+                                    AlertMessageFormat.Dir.UP, close, primaryTf)));
                 } else if (bearish) {
                     hits.add(new AlertHit(id(), symbol, "BEARISH",
-                            "🔴 BEARISH " + symbol + " @ " + close
-                                    + "\nSupertrend DOWN on " + tfs + " + ADX SELL (" + primaryTf + ")"
-                                    + "\n" + advice.reason()));
+                            AlertMessageFormat.line(messagePrefix(), symbol,
+                                    AlertMessageFormat.Dir.DOWN, close, primaryTf)));
                 }
             } catch (Exception e) {
                 log.warn("[StAdxAlert] {} failed (ignored): {}", symbol, e.getMessage());

@@ -96,10 +96,8 @@ public class OrbUpAlert implements Alert {
 
                 String state = "BREAKOUT_UP_" + day;   // per-day (latched by the engine)
                 hits.add(new AlertHit(id(), symbol, state,
-                        "⬆️ ORB UP " + symbol + " @ " + bar.close().toPlainString()
-                                + "\n" + scanTf + " close broke above the " + rangeTf
-                                + " opening-range high " + range.high().toPlainString()
-                                + "\nema" + emaPeriod + " rising on " + scanTf));
+                        AlertMessageFormat.line(messagePrefix(), symbol,
+                                AlertMessageFormat.Dir.UP, bar.close().toPlainString(), scanTf)));
             } catch (Exception e) {
                 log.warn("[OrbUpAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }

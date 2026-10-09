@@ -1,6 +1,8 @@
 # Gradle
 .gradle/
 build/
+# Machine-specific JDK toolchain paths
+gradle.properties
 
 # IDE
 .idea/

@@ -57,7 +57,8 @@ public record WebullProperties(
     public record Alerts(
             @DefaultValue("false") boolean enabled,
             @DefaultValue StAdxAlertCfg stAdx,
-            @DefaultValue Orb orb
+            @DefaultValue Orb orb,
+            @DefaultValue SwiftScanCfg swiftScan
     ) {
         /**
          * All Opening-Range-Breakout config under one parent ({@code alerts.orb}).
@@ -124,6 +125,61 @@ public record WebullProperties(
                 @DefaultValue("false") boolean enabled,
                 @DefaultValue("5")     int scanMinutes,
                 @DefaultValue("")      String messagePrefix
+        ) {}
+
+        /**
+         * "Swift Trend Scanner" — scans the universe for a <b>fresh Supertrend direction
+         * flip backed by strong, ATR-normalised momentum</b> (pure Supertrend + momentum,
+         * no EMA). A swift UP = a recent flip to UP that immediately runs; swift DOWN is
+         * the mirror. Slow grinds that hug the line, choppy whipsaws, and exhausted/
+         * extended moves are all filtered out. Fires once per flip per symbol (then a
+         * {@code cooldownMinutes} cooldown) and posts each signal as its OWN message to a
+         * SEPARATELY-configurable Telegram channel ({@code telegramChatId}), reusing the
+         * shared bot token. Runs via the shared {@code AlertEngine} tick (so it inherits
+         * market-hours gating), on its own {@code scanMinutes} cadence.
+         *
+         * <p>All momentum thresholds are ATR-relative so one set of numbers works across
+         * differently-priced symbols. See {@code SwiftTrendDetector.Thresholds}.</p>
+         *
+         * @param enabled           enable the scanner (default false)
+         * @param timeframe         Webull timeframe for the Supertrend/candles (default M5)
+         * @param scanMinutes       how often the scan runs, in minutes (default 1)
+         * @param messagePrefix     text prepended to the message title (default "SWIFT TREND - ")
+         * @param cooldownMinutes   per-symbol+direction suppression after a signal (default 30)
+         * @param telegramChatId    the SEPARATE Telegram channel/chat id for swift alerts.
+         *                          @name (public channel), -100... (private), or a user id.
+         *                          Blank → falls back to the main notifications chat id.
+         * @param flipWithinBars    how recent the flip must be, in completed bars (default 5)
+         * @param minTravelAtr      min price travel since the flip, in ATR units (default 2.5)
+         * @param minSeparationAtr  min current |close−supertrend|/ATR, must widen (default 1.5)
+         * @param strongCandleWindow window of recent candles inspected for strength (default 5)
+         * @param minStrongCandles  how many of that window must be strong bodies (default 3)
+         * @param bodyMinAtr        min candle body as a fraction of ATR to count strong (default 0.5)
+         * @param flipWindowBars    window used by the whipsaw guard (default 5)
+         * @param maxFlipsInWindow  reject when flips within the window reach this count (default 2)
+         * @param stSlopeLookback   bars back over which the Supertrend LINE's own movement is
+         *                          measured (default 3)
+         * @param minStSlopeAtr     min Supertrend-line advance in the trend direction over
+         *                          {@code stSlopeLookback} bars, in ATR units (default 0.1).
+         *                          Rejects a flat/shelved or wrong-way line.
+         */
+        public record SwiftScanCfg(
+                @DefaultValue("false")  boolean enabled,
+                @DefaultValue("M5")     String timeframe,
+                @DefaultValue("1")      int scanMinutes,
+                @DefaultValue("SWIFT TREND - ") String messagePrefix,
+                @DefaultValue("30")     int cooldownMinutes,
+                @DefaultValue("")       String telegramChatId,
+                @DefaultValue("5")      int flipWithinBars,
+                @DefaultValue("2.5")    java.math.BigDecimal minTravelAtr,
+                @DefaultValue("1.5")    java.math.BigDecimal minSeparationAtr,
+                @DefaultValue("5")      int strongCandleWindow,
+                @DefaultValue("3")      int minStrongCandles,
+                @DefaultValue("0.5")    java.math.BigDecimal bodyMinAtr,
+                @DefaultValue("5")      int flipWindowBars,
+                @DefaultValue("2")      int maxFlipsInWindow,
+                @DefaultValue("3")      int stSlopeLookback,
+                @DefaultValue("0.1")    java.math.BigDecimal minStSlopeAtr
         ) {}
     }
 

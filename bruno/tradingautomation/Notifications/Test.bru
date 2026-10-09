@@ -12,6 +12,7 @@ get {
 
 params:query {
   message: Hi Subscriber
+  ~chatId: @mychannel
 }
 
 headers {
@@ -20,21 +21,34 @@ headers {
 
 docs {
   # Notifications — Test
-  
-  Sends a TEST notification on demand through the configured notifier (Telegram),
-  so you can verify token / chat id / connectivity without waiting for a real trade.
-  
+
+  Sends a TEST notification on demand so you can verify token / chat id /
+  connectivity without waiting for a real trade.
+
   ## Query
-  - `message` — optional custom text (default "Test alert from the trading bot").
-  
+  - `message` — optional custom text (default "Test alert from the trading bot ✅").
+  - `chatId`  — optional. When set, the message is sent to THIS chat/channel id
+    using the shared bot token — handy to verify a GROUP or a separate channel
+    (e.g. the swift-scan channel) before going live. Accepts:
+      - `@channelname` — a public channel/group
+      - `-100...`      — a private channel/supergroup id
+      - a numeric user id
+    When omitted, the configured main notifier is used.
+
   ## Response (200)
-  { notifierEnabled, sent, note/hint, timestamp }
-  - notifierEnabled=false → notifications are off or not fully configured
-    (check webull.notifications.enabled=true, channel=TELEGRAM, bot token + chat id).
-  - sent=true → a send was attempted; check your phone. If it didn't arrive, check
-    the app logs for a [TelegramNotifier] warning (e.g. wrong token/chat id).
-  
+  { target, notifierEnabled?, sent, note/hint, timestamp }
+  - With `chatId`: target = "chatId <id>", sent=true means a send was attempted
+    via the bot token. If it didn't arrive, check app logs for a
+    [TelegramChannelSender] warning — the usual cause for a group/channel is the
+    bot not being a MEMBER/ADMIN of it.
+  - Without `chatId`: notifierEnabled=false means notifications are off or not
+    fully configured (webull.notifications.enabled=true, channel=TELEGRAM, bot
+    token + chat id). sent=true → check the main chat; failures log a
+    [TelegramNotifier] warning.
+
   ## Setup reminder
   - notifications.enabled: true
-  - env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (exported before starting the app)
+  - env: TELEGRAM_BOT_TOKEN (shared), TELEGRAM_CHAT_ID (main chat)
+  - For a group/channel: add the bot to it and make it an admin, then test with
+    ?chatId=@yourchannel (or the -100... id).
 }

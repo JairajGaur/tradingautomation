@@ -234,7 +234,7 @@ webull:
     # ST+ADX changes at most per M5 bar → scan every 5 min. BULLISH when Supertrend is UP
     # and ADX recommends BUY; BEARISH when Supertrend is DOWN and ADX recommends SELL.
     st-adx:
-      enabled: true
+      enabled: false
       # Supertrend must agree on ALL these timeframes (comma-separated). The FIRST is the
       # primary — ADX + price come from it. "M5" = single tf; "M5,M15" also requires M15 ST.
       supertrend-timeframes: "M5,M15"
@@ -264,6 +264,43 @@ webull:
         enabled: true
         scan-minutes: 5
         message-prefix: "ORB DOWN - "
+
+    # Swift Trend Scanner — a FRESH Supertrend direction flip backed by strong,
+    # ATR-normalised momentum (pure Supertrend + momentum, no EMA). Swift UP = a recent
+    # flip to UP that immediately runs away from the Supertrend line; swift DOWN mirrors.
+    # Slow grinds that hug the line, choppy whipsaws, and exhausted/extended moves are all
+    # filtered out. Fires ONCE per flip per symbol, then a cooldown. Each signal is posted
+    # as its OWN message to a SEPARATE Telegram channel (telegram-chat-id below), reusing
+    # the shared bot token (webull.notifications.telegram-bot-token). Runs on the shared
+    # AlertEngine tick, so it only fires within configured market hours.
+    # Message: "<prefix><DIR-emoji> <SYMBOL> <DIRECTION> @ <price>".
+    # All *-atr thresholds are in ATR units (price-agnostic). timeframe is configurable.
+    swift-scan:
+      enabled: true
+      timeframe: "M5"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60)
+      scan-minutes: 1                # poll cadence (every minute by default)
+      message-prefix: "SWIFT TREND - "
+      cooldown-minutes: 30           # per symbol+direction, suppress repeats for 30 min
+      # SEPARATE channel for swift alerts. @channelname (public) or -100... (private, bot
+      # must be admin). Blank → falls back to webull.notifications.telegram-chat-id.
+      telegram-chat-id: "${TELEGRAM_SWIFT_CHAT_ID:}"
+      # ── Momentum thresholds (ATR-normalised) ──
+      flip-within-bars: 5            # the flip must be within the last N completed bars
+      min-travel-atr: 2.5            # price must travel >= 2.5x ATR since the flip
+      min-separation-atr: 1.5        # |close-supertrend|/ATR now (must also be widening)
+      strong-candle-window: 5        # inspect the last 5 candles for strength
+      min-strong-candles: 1          # >=N of them must be strong directional bodies. Kept
+                                     # low: travel + separation already prove the move; real
+                                     # intraday cascades are stair-steps of modest candles,
+                                     # not 3+ monster bodies. Raise to tighten.
+      body-min-atr: 0.5              # a "strong" candle body is >= 0.5x ATR
+      flip-window-bars: 5            # whipsaw guard window
+      max-flips-in-window: 2         # >=2 flips in that window => choppy, reject
+      # Supertrend LINE slope: the line itself must be advancing in the trend direction
+      # (rising in an UP leg / falling in a DOWN leg), not shelved flat. Measured over
+      # st-slope-lookback bars; min-st-slope-atr is the required advance in ATR units.
+      st-slope-lookback: 3           # bars back to measure the ST line's own movement
+      min-st-slope-atr: 0.1          # ST must advance >= 0.1x ATR over the lookback (0 = only reject wrong-way)
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

@@ -120,7 +120,6 @@ public class AlertEngine {
 
         for (Alert a : due) {
             try {
-                String prefix = a.messagePrefix() == null ? "" : a.messagePrefix();   // per-alert prefix
                 List<AlertHit> hits = a.evaluate(universe);
                 Set<String> matchedKeys = new LinkedHashSet<>();
                 for (AlertHit hit : hits) {
@@ -129,7 +128,9 @@ public class AlertEngine {
                     String prev = lastState.get(key);
                     if (hit.state().equals(prev)) continue;   // unchanged → skip (dedupe)
                     lastState.put(key, hit.state());
-                    notifier.notify(prefix + hit.state() + " " + hit.ticker(), hit.message());
+                    // hit.message() is the fully-formatted uniform single line
+                    // (AlertMessageFormat) — send it as-is, no extra title/body composition.
+                    notifier.notify(hit.message(), "");
                     log.info("[AlertEngine] alert={} {} -> {}", hit.alertId(), hit.ticker(), hit.state());
                 }
                 // For NON-latched alerts, clear dedupe for tickers that no longer match, so

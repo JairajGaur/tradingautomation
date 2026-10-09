@@ -131,6 +131,19 @@ public class MarketHoursGuard {
     }
 
     /**
+     * Whether {@code instant} falls in the REGULAR (core) session — core-open..core-close
+     * ET on a weekday — using the configured {@code webull.market-hours} window. Pre-market
+     * and after-hours return false. Used to gate alerts to RTH-only even when the underlying
+     * indicator is computed over extended-hours data.
+     *
+     * @param instant a bar/event time (any zone; converted to New York internally)
+     */
+    public boolean isRegularHours(java.time.Instant instant) {
+        if (instant == null) return false;
+        return currentSession(instant.atZone(NEW_YORK)) == Session.REGULAR;
+    }
+
+    /**
      * Returns {@code true} when today is a trading weekday (Mon–Fri) in New York,
      * regardless of the time of day. Used to gate EXIT monitoring, which should run
      * outside the entry trading window but not on weekends (equities don't trade).

@@ -1,0 +1,104 @@
+meta {
+  name: Backtest
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/swift-scan/backtest/tqqq?date=2026-10-06
+  body: none
+  auth: none
+}
+
+params:query {
+  date: 2026-10-06
+  ~timeframe: M5
+  ~sessions: RTH
+  ~count: 2000
+  ~debug: true
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Swift Trend Scanner — Backtest
+
+  Replays a historical day for ONE ticker and reports exactly WHEN the Swift
+  Trend Scanner would have fired a swift UP or DOWN signal. Uses the SAME config
+  as the live scanner (webull.alerts.swift-scan + webull.supertrend), so the
+  output matches what you'd see live. Detection/analysis only — no orders, no
+  notifications.
+
+  Pure Supertrend flip + momentum (no EMA): a swift signal = a fresh Supertrend
+  flip within `flip-within-bars`, backed by >= `min-travel-atr` ATR of travel
+  since the flip, a widening separation >= `min-separation-atr` ATR, enough
+  strong directional candles, and NOT in a whipsaw (`max-flips-in-window`).
+
+  ## Path
+  - `/{ticker}` — any US stock symbol (need NOT be in the universe).
+
+  ## Query
+  - `date`      — ET calendar date to analyse, YYYY-MM-DD (default: today ET).
+  - `timeframe` — Webull timeframe (default: configured swift-scan.timeframe).
+                  Supported: M1, M5, M15, M30, M60, M120, M240, D, W, M, Y.
+  - `sessions`  — RTH, PRE, ATH, OVN (comma-separated; default: configured).
+  - `count`     — bars to fetch back from NOW. Auto-sized by default to reach
+                  the date with Supertrend warm-up. The broker returns the most
+                  recent N bars (no date range), so OLDER dates need a larger
+                  `count`. The response's `coverage` shows the range reached and
+                  whether the date was in range.
+  - `debug`     — true to include `debugTrace`: a per-bar row for the whole date
+                  with the detector's metrics + reason, so you can see WHY each bar
+                  did or didn't fire (and tune thresholds). Same detection code;
+                  nothing filtered.
+
+  ## Response (200) — simple audit
+  {
+    ticker, date, timeframe,
+    currentSupertrend: { supertrend, direction (UP|DOWN), close, atr, barTimeEt },
+    signalCount, swiftUpCount, swiftDownCount,
+    signals: [ "09:35 ET  🔴 DOWN  @ 229.80  ST 231.40 (DOWN)",
+               "13:05 ET  🟢 UP  @ 236.10  ST 234.00 (UP)", ... ],
+    warmup: { warmupBarsUsed, barsOnTargetDate, totalBarsFetched,
+              supertrendLength, warmupSufficient }
+  }
+
+  `currentSupertrend` is the latest COMPLETED Supertrend on the configured timeframe,
+  computed from the fetched series (which runs up to now) — i.e. the live value and
+  direction right now, with the bar's ET time.
+
+  `warmup` reports the seeding used going into the day:
+  - `warmupBarsUsed`    — candles BEFORE the target date, used to seed Supertrend/ATR.
+  - `barsOnTargetDate`  — candles ON the date that were actually replayed.
+  - `supertrendLength`  — min bars Supertrend needs to produce a value.
+  - `warmupSufficient`  — true when warmupBarsUsed >= supertrendLength. If false, a
+                          `warmupNote` is included and early-day signals may be
+                          unreliable — increase `count`.
+
+  `signals` is a flat, chronological list of the signals the scanner would have
+  caught — each line is the ET time of the COMPLETED bar it fired on (the same
+  moment the live scanner would alert), the direction + emoji, and the price. The
+  per-direction cooldown is applied during the replay, so you see "fire once per
+  flip" rather than every qualifying bar. An empty list means no swift move that
+  day.
+
+  ## Debug trace (when `debug=true`)
+  `debugTrace: [ { timeEt, close, direction, flipBarsAgo, travelAtr,
+                   separationAtr, strongCandles, flipsInWindow, swift,
+                   wouldFire, reason } ]`
+  One row per bar on the date. `reason` says exactly which check rejected a bar
+  (e.g. "travel 1.6667×ATR < 2.5", "separation ... < 1.5", "whipsaw: ...",
+  "latest flip not in current direction"). Compare the rows over the move you
+  expect to catch to see what to loosen.
+
+  ## Notes
+  - A `note` field appears when the date is out of the fetched range (increase
+    `count`) or when there were no bars on the date (weekend/holiday/no trades).
+
+  ## Errors
+  - `400` — invalid date/timeframe/session.
+  - `502` — Webull market-data error.
+  - `503` — no bars returned for the ticker.
+}
