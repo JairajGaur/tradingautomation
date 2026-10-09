@@ -67,6 +67,9 @@ public final class SwiftTrendDetector {
      *                          {@code stSlopeLookback} bars, in ATR units (e.g. 0.1). The line
      *                          must have risen (UP) / fallen (DOWN) by at least this; a flat or
      *                          wrong-way line is rejected. 0 = only require "not moving against".
+     * @param maxCandleAtr      max allowed range (high−low) of the evaluated bar, in ATR units
+     *                          (e.g. 3.0). Rejects climax/blow-off SPIKE bars that are too
+     *                          extended to enter on. {@code <= 0} disables the cap.
      */
     public record Thresholds(
             int flipWithinBars,
@@ -78,7 +81,8 @@ public final class SwiftTrendDetector {
             int flipWindowBars,
             int maxFlipsInWindow,
             int stSlopeLookback,
-            BigDecimal minStSlopeAtr
+            BigDecimal minStSlopeAtr,
+            BigDecimal maxCandleAtr
     ) {
         /** Sensible defaults matching the strategy discussed (ATR-normalised). */
         public static Thresholds defaults() {
@@ -92,7 +96,8 @@ public final class SwiftTrendDetector {
                     5,
                     2,
                     3,
-                    BigDecimal.valueOf(0.1));
+                    BigDecimal.valueOf(0.1),
+                    BigDecimal.valueOf(3.0));
         }
     }
 
@@ -183,6 +188,20 @@ public final class SwiftTrendDetector {
         BigDecimal close = curPt.candle().close();
         BigDecimal st = curPt.supertrend();
         java.time.Instant barTime = curPt.candle().timestamp();
+
+        // 0. Climax/spike cap: reject when the evaluated bar's RANGE (high−low) is abnormally
+        //    large (> maxCandleAtr × ATR) — a blow-off bar that has likely already made the
+        //    move and is too extended to enter on. (<= 0 disables the cap.)
+        if (t.maxCandleAtr() != null && t.maxCandleAtr().signum() > 0) {
+            Candle c0 = curPt.candle();
+            BigDecimal range = c0.high().subtract(c0.low(), MC);
+            BigDecimal rangeAtr = range.divide(atr, MC).setScale(METRIC_SCALE, RoundingMode.HALF_UP);
+            if (rangeAtr.compareTo(t.maxCandleAtr()) > 0) {
+                Direction d0 = curPt.direction();
+                return new Result(false, d0, -1, null, barTime, null, null, 0, 0,
+                        close, st, "climax bar: range " + rangeAtr + "×ATR > " + t.maxCandleAtr());
+            }
+        }
 
         // 1. Current trend's flip: the most recent flip bar at/before `cur`. The flip may be
         //    ANY age — a swift move can develop gradually over many bars (a multi-hour grind

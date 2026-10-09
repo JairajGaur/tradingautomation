@@ -162,6 +162,9 @@ public record WebullProperties(
          * @param minStSlopeAtr     min Supertrend-line advance in the trend direction over
          *                          {@code stSlopeLookback} bars, in ATR units (default 0.1).
          *                          Rejects a flat/shelved or wrong-way line.
+         * @param maxCandleAtr      max allowed range (high−low) of the signal bar, in ATR
+         *                          units (default 3.0). Rejects climax/blow-off spike bars.
+         *                          0 or less disables the cap.
          */
         public record SwiftScanCfg(
                 @DefaultValue("false")  boolean enabled,
@@ -179,7 +182,8 @@ public record WebullProperties(
                 @DefaultValue("5")      int flipWindowBars,
                 @DefaultValue("2")      int maxFlipsInWindow,
                 @DefaultValue("3")      int stSlopeLookback,
-                @DefaultValue("0.1")    java.math.BigDecimal minStSlopeAtr
+                @DefaultValue("0.1")    java.math.BigDecimal minStSlopeAtr,
+                @DefaultValue("3.0")    java.math.BigDecimal maxCandleAtr
         ) {}
     }
 

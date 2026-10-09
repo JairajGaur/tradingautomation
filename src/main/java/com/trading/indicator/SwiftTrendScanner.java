@@ -88,7 +88,8 @@ public class SwiftTrendScanner {
                 Math.max(1, c.flipWindowBars()),
                 Math.max(1, c.maxFlipsInWindow()),
                 Math.max(1, c.stSlopeLookback()),
-                c.minStSlopeAtr());
+                c.minStSlopeAtr(),
+                c.maxCandleAtr());
     }
 
     /**

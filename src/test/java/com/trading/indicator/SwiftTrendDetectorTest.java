@@ -147,7 +147,7 @@ class SwiftTrendDetectorTest {
                 T.flipWithinBars(), T.minTravelAtr(), T.minSeparationAtr(),
                 T.strongCandleWindow(), T.minStrongCandles(), T.bodyMinAtr(),
                 T.flipWindowBars(), T.maxFlipsInWindow(),
-                T.stSlopeLookback(), BigDecimal.valueOf(100));
+                T.stSlopeLookback(), BigDecimal.valueOf(100), T.maxCandleAtr());
 
         List<Candle> series = sustainedRiseSeries();
         int fires = 0;

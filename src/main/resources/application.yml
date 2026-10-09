@@ -301,6 +301,10 @@ webull:
       # st-slope-lookback bars; min-st-slope-atr is the required advance in ATR units.
       st-slope-lookback: 3           # bars back to measure the ST line's own movement
       min-st-slope-atr: 0.1          # ST must advance >= 0.1x ATR over the lookback (0 = only reject wrong-way)
+      # Climax/spike cap: reject the signal when the signal bar's range (high-low) is
+      # abnormally large (a blow-off bar that already made the move). Lower = stricter
+      # (filters more big candles). 0 or less disables the cap.
+      max-candle-atr: 2.5            # reject if signal bar range > 2.5x ATR
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
