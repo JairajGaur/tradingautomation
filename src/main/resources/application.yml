@@ -277,8 +277,11 @@ webull:
     # All *-atr thresholds are in ATR units (price-agnostic). timeframe is configurable.
     swift-scan:
       enabled: true
-      timeframe: "M5"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60)
-      scan-minutes: 1                # poll cadence (every minute by default)
+      timeframe: "M5"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60).
+                                     # The scan cadence is DERIVED from this (M5 -> every 5
+                                     # min), so there's one source of truth — no separate
+                                     # poll setting to keep in sync.
+      scan-minutes: 5                # DEPRECATED/unused — cadence now derived from timeframe
       message-prefix: "SWIFT TREND - "
       cooldown-minutes: 30           # per symbol+direction, suppress repeats for 30 min
       # SEPARATE channel for swift alerts. @channelname (public) or -100... (private, bot

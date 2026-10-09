@@ -59,9 +59,29 @@ public class SwiftTrendAlert implements Alert {
         return p == null ? "" : p;
     }
 
+    /**
+     * Scan cadence is DERIVED from the configured timeframe so the two can never drift: a
+     * new completed bar only appears once per timeframe interval, so scanning more often is
+     * wasted work and scanning less often misses bars. M1 → every 1 min, M5 → every 5 min,
+     * M15 → 15, etc. (Day/Week/etc. fall back to 1.)
+     */
     @Override
     public int scanIntervalMinutes() {
-        return Math.max(1, cfg().scanMinutes());
+        return Math.max(1, timeframeMinutes(timeframe()));
+    }
+
+    /** Minutes per bar for a Webull minute-timeframe; 1 for non-minute timeframes. */
+    private static int timeframeMinutes(String tf) {
+        return switch (tf) {
+            case "M1"   -> 1;
+            case "M5"   -> 5;
+            case "M15"  -> 15;
+            case "M30"  -> 30;
+            case "M60"  -> 60;
+            case "M120" -> 120;
+            case "M240" -> 240;
+            default      -> 1;   // D/W/M/Y — just tick each minute (gated by market hours)
+        };
     }
 
     private WebullProperties.Alerts.SwiftScanCfg cfg() {
