@@ -149,7 +149,6 @@ public record WebullProperties(
          * @param telegramChatId    the SEPARATE Telegram channel/chat id for swift alerts.
          *                          @name (public channel), -100... (private), or a user id.
          *                          Blank → falls back to the main notifications chat id.
-         * @param flipWithinBars    how recent the flip must be, in completed bars (default 5)
          * @param minTravelAtr      min price travel since the flip, in ATR units (default 2.5)
          * @param minSeparationAtr  min current |close−supertrend|/ATR, must widen (default 1.5)
          * @param strongCandleWindow window of recent candles inspected for strength (default 5)
@@ -173,7 +172,6 @@ public record WebullProperties(
                 @DefaultValue("SWIFT TREND - ") String messagePrefix,
                 @DefaultValue("30")     int cooldownMinutes,
                 @DefaultValue("")       String telegramChatId,
-                @DefaultValue("5")      int flipWithinBars,
                 @DefaultValue("2.5")    java.math.BigDecimal minTravelAtr,
                 @DefaultValue("1.5")    java.math.BigDecimal minSeparationAtr,
                 @DefaultValue("5")      int strongCandleWindow,

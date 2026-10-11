@@ -79,7 +79,6 @@ public class SwiftTrendScanner {
     /** Builds the detection thresholds from the given swift-scan config. */
     public Thresholds thresholds(WebullProperties.Alerts.SwiftScanCfg c) {
         return new Thresholds(
-                Math.max(1, c.flipWithinBars()),
                 c.minTravelAtr(),
                 c.minSeparationAtr(),
                 Math.max(1, c.strongCandleWindow()),

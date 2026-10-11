@@ -18,14 +18,15 @@ import java.util.List;
  * <h2>What makes a move "swift"</h2>
  * Evaluated on the latest <em>completed</em> Supertrend {@link Point} of a series:
  * <ol>
- *   <li><b>Fresh flip</b> — the direction flipped within the last {@code flipWithinBars}
- *       completed bars (a brand-new signal, not a stale trend).</li>
+ *   <li><b>Current-leg flip</b> — there is a Supertrend flip at/before the current bar and
+ *       the latest flip is in the current direction (we are inside one trend leg). The flip
+ *       may be ANY age — a swift move can develop gradually over many bars.</li>
  *   <li><b>Travel since the flip</b> — price has moved at least {@code minTravelAtr}×ATR
  *       in the trend direction, measured from the close at the flip bar to the current
  *       close. This is the "near-vertical" expansion right off the flip.</li>
  *   <li><b>Separation from the line</b> — {@code |close − supertrend| / ATR} is at least
- *       {@code minSeparationAtr} <em>and</em> wider than it was at the flip (price is
- *       pulling away from its own trailing band, not hugging it).</li>
+ *       {@code minSeparationAtr} right now (a floor only; it need NOT widen every bar, since
+ *       a stair-step Supertrend steps toward price while the trend continues).</li>
  *   <li><b>Candle strength</b> — at least {@code minStrongCandles} of the last
  *       {@code strongCandleWindow} candles are strong directional bodies
  *       (body ≥ {@code bodyMinAtr}×ATR, closing in the trend direction).</li>
@@ -49,9 +50,6 @@ public final class SwiftTrendDetector {
      * Tunable thresholds for swift-trend detection. All ATR-relative so the same numbers
      * work across differently-priced symbols.
      *
-     * @param flipWithinBars    RESERVED — the flip is no longer required to be "fresh" (a
-     *                          swift move may develop gradually over many bars). Kept for
-     *                          config compatibility; not currently used as a gate.
      * @param minTravelAtr      min price travel since the flip, in ATR units (e.g. 2.5)
      * @param minSeparationAtr  min current |close−supertrend|/ATR (floor only; NOT required
      *                          to widen every bar — stair-step trends dip and recover) (e.g. 1.5)
@@ -72,7 +70,6 @@ public final class SwiftTrendDetector {
      *                          extended to enter on. {@code <= 0} disables the cap.
      */
     public record Thresholds(
-            int flipWithinBars,
             BigDecimal minTravelAtr,
             BigDecimal minSeparationAtr,
             int strongCandleWindow,
@@ -87,7 +84,6 @@ public final class SwiftTrendDetector {
         /** Sensible defaults matching the strategy discussed (ATR-normalised). */
         public static Thresholds defaults() {
             return new Thresholds(
-                    5,
                     BigDecimal.valueOf(2.5),
                     BigDecimal.valueOf(1.5),
                     5,

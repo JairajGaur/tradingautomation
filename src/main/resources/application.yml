@@ -200,7 +200,7 @@ webull:
   # ── Supertrend indicator params (used app-wide via SupertrendService) ─────
   supertrend:
     length: 7
-    factor: 3
+    factor: 2
 
   # ── ADX / Directional-Movement params (used app-wide via AdxService) ──────
   # +DI / −DI give direction; ADX gives trend strength. `threshold` separates a
@@ -277,22 +277,19 @@ webull:
     # All *-atr thresholds are in ATR units (price-agnostic). timeframe is configurable.
     swift-scan:
       enabled: true
-      timeframe: "M5"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60).
-                                     # The scan cadence is DERIVED from this (M5 -> every 5
-                                     # min), so there's one source of truth — no separate
-                                     # poll setting to keep in sync.
-      scan-minutes: 5                # DEPRECATED/unused — cadence now derived from timeframe
+      timeframe: "M3"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60)
+      scan-minutes: 1                # poll cadence (every minute by default)
       message-prefix: "SWIFT TREND - "
       cooldown-minutes: 30           # per symbol+direction, suppress repeats for 30 min
       # SEPARATE channel for swift alerts. @channelname (public) or -100... (private, bot
-      # must be admin). Blank → falls back to webull.notifications.telegram-chat-id.
-      telegram-chat-id: "${TELEGRAM_SWIFT_CHAT_ID:}"
+      # must be admin). Defaults to the swift channel; override via TELEGRAM_SWIFT_CHAT_ID.
+      telegram-chat-id: "${TELEGRAM_SWIFT_CHAT_ID}"
       # ── Momentum thresholds (ATR-normalised) ──
-      flip-within-bars: 5            # the flip must be within the last N completed bars
-      min-travel-atr: 2.5            # price must travel >= 2.5x ATR since the flip
-      min-separation-atr: 1.5        # |close-supertrend|/ATR now (must also be widening)
+      min-travel-atr: 1.5            # price must travel >= 1.5x ATR since the flip
+      min-separation-atr: 1          # |close-supertrend|/ATR now — a FLOOR only (NOT required
+                                     # to widen every bar; stair-step trends dip and recover)
       strong-candle-window: 5        # inspect the last 5 candles for strength
-      min-strong-candles: 1          # >=N of them must be strong directional bodies. Kept
+      min-strong-candles: 2          # >=N of them must be strong directional bodies. Kept
                                      # low: travel + separation already prove the move; real
                                      # intraday cascades are stair-steps of modest candles,
                                      # not 3+ monster bodies. Raise to tighten.
@@ -302,12 +299,12 @@ webull:
       # Supertrend LINE slope: the line itself must be advancing in the trend direction
       # (rising in an UP leg / falling in a DOWN leg), not shelved flat. Measured over
       # st-slope-lookback bars; min-st-slope-atr is the required advance in ATR units.
-      st-slope-lookback: 3           # bars back to measure the ST line's own movement
+      st-slope-lookback: 2           # bars back to measure the ST line's own movement
       min-st-slope-atr: 0.1          # ST must advance >= 0.1x ATR over the lookback (0 = only reject wrong-way)
       # Climax/spike cap: reject the signal when the signal bar's range (high-low) is
       # abnormally large (a blow-off bar that already made the move). Lower = stricter
       # (filters more big candles). 0 or less disables the cap.
-      max-candle-atr: 2.5            # reject if signal bar range > 2.5x ATR
+      max-candle-atr: 3.0            # reject if signal bar range > 3x ATR
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

@@ -35,7 +35,12 @@ public class MarketDataService {
     /** Canonical timespan code for 1-minute bars (default used by the trading loop). */
     private static final String TIMESPAN_1M = "M1";
 
-    /** Canonical timespans the application supports (adapters translate as needed). */
+    /**
+     * Canonical NATIVE timespans the broker serves directly (adapters translate as needed).
+     * In addition, synthetic minute multiples (e.g. M2, M3) are accepted by
+     * {@link #normaliseTimespan} and served by resampling native M1 bars via
+     * {@link BarResampler} — see {@link TimeframeSupport}.
+     */
     public static final java.util.Set<String> SUPPORTED_TIMESPANS = java.util.Set.of(
             "M1", "M5", "M15", "M30", "M60", "M120", "M240", "D", "W", "M", "Y");
 
@@ -77,11 +82,17 @@ public class MarketDataService {
     public static String normaliseTimespan(String timespan) {
         if (timespan == null || timespan.isBlank()) return TIMESPAN_1M;
         String t = timespan.trim().toUpperCase();
-        if (!SUPPORTED_TIMESPANS.contains(t)) {
-            throw new IllegalArgumentException(
-                    "Unsupported timespan '" + timespan + "'. Supported: " + SUPPORTED_TIMESPANS);
+        if (SUPPORTED_TIMESPANS.contains(t)) {
+            return t;
         }
-        return t;
+        // Synthetic minute timeframes (e.g. M2, M3) are not served natively by the broker but
+        // are supported by resampling native M1 bars — accept any valid M<n> minute form.
+        if (TimeframeSupport.isSynthetic(t)) {
+            return t;
+        }
+        throw new IllegalArgumentException(
+                "Unsupported timespan '" + timespan + "'. Native: " + SUPPORTED_TIMESPANS
+                + "; or any synthetic M<n> minute form (e.g. M2, M3) resampled from M1.");
     }
 
     private final WebullProperties props;
@@ -124,6 +135,16 @@ public class MarketDataService {
      */
     public List<Candle> fetchHistoricalBars(String ticker, int count, String timespan, String sessions) {
         String ts = normaliseTimespan(timespan);
+
+        // Synthetic minute timeframe (M2/M3/…): fetch native M1 and aggregate. Each output bar
+        // consumes `minutes` M1 bars, so request count*minutes M1 (clamped to the broker cap).
+        if (TimeframeSupport.isSynthetic(ts)) {
+            int minutes = TimeframeSupport.minutesOf(ts);
+            int m1Count = Math.min(TimeframeSupport.BROKER_MAX_BARS, count * minutes + minutes * 4);
+            List<Candle> m1 = fetchHistoricalBars(ticker, m1Count, TIMESPAN_1M, sessions);
+            return Collections.unmodifiableList(BarResampler.resample(m1, minutes));
+        }
+
         // Per-request sessions override the configured default; both are validated.
         String requested = (sessions != null && !sessions.isBlank())
                 ? sessions
@@ -179,6 +200,23 @@ public class MarketDataService {
         if (symbols == null || symbols.isEmpty()) return out;
 
         String ts = normaliseTimespan(timespan);
+
+        // Synthetic minute timeframe (M2/M3/…): batch-fetch native M1, resample each symbol.
+        if (TimeframeSupport.isSynthetic(ts)) {
+            int minutes = TimeframeSupport.minutesOf(ts);
+            int m1Count = Math.min(TimeframeSupport.BROKER_MAX_BARS, count * minutes + minutes * 4);
+            Map<String, List<Candle>> m1BySymbol = fetchHistoricalBarsBatch(symbols, m1Count, TIMESPAN_1M, sessions);
+            for (Map.Entry<String, List<Candle>> e : m1BySymbol.entrySet()) {
+                List<Candle> resampled = BarResampler.resample(e.getValue(), minutes);
+                if (!resampled.isEmpty()) {
+                    out.put(e.getKey(), Collections.unmodifiableList(resampled));
+                }
+            }
+            log.info("[MarketDataService] Batch resampled {} of {} symbols to {} (from M1)",
+                    out.size(), symbols.size(), ts);
+            return out;
+        }
+
         String requested = (sessions != null && !sessions.isBlank()) ? sessions : props.trading().tradingSessions();
         String sess = normaliseSessions(requested);
 

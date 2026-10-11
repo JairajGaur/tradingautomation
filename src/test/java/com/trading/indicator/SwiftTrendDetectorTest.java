@@ -144,7 +144,7 @@ class SwiftTrendDetectorTest {
         // large Supertrend-line advance (100x ATR over the lookback). The ST-slope gate must
         // now reject every bar — proving the gate is wired and active.
         Thresholds strict = new Thresholds(
-                T.flipWithinBars(), T.minTravelAtr(), T.minSeparationAtr(),
+                T.minTravelAtr(), T.minSeparationAtr(),
                 T.strongCandleWindow(), T.minStrongCandles(), T.bodyMinAtr(),
                 T.flipWindowBars(), T.maxFlipsInWindow(),
                 T.stSlopeLookback(), BigDecimal.valueOf(100), T.maxCandleAtr());

@@ -13,14 +13,17 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Loads the candidate-ticker <b>universe</b> from {@code webull.trading.universe-path}
- * (default {@code classpath:universe.txt}). This pool is screened by the Supertrend
- * filter endpoint ({@code GET /api/filter/supertrend}); it is NOT the trading
- * watchlist. Same file format as the watchlist: one symbol per line, {@code #}
- * comments and blank lines ignored, symbols upper-cased and de-duplicated.
+ * Loads the shared candidate-ticker <b>universe</b> from {@code webull.trading.universe-path}
+ * (default {@code classpath:universe.txt}). This pool is consumed across the app: the market
+ * {@code AlertEngine} scans it every tick (ORB + Swift Trend alerts), the Supertrend filter
+ * endpoint ({@code GET /api/filter/supertrend}) screens it when no {@code ?tickers=} list is
+ * passed, and the ADX recommendation / confluence endpoints default to it. It is NOT the live
+ * trading watchlist (positions/orders are driven separately). Same file format as the
+ * watchlist: one symbol per line, {@code #} comments and blank lines ignored, symbols
+ * upper-cased and de-duplicated.
  *
  * <p>Unlike {@link WatchlistLoader}, an empty/missing universe returns an empty list
- * (there is no single-ticker fallback — the filter simply has nothing to screen).</p>
+ * (there is no single-ticker fallback — callers simply have nothing to screen).</p>
  */
 @Component
 public class UniverseLoader {

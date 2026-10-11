@@ -134,9 +134,11 @@ public class AlertEngine {
                     log.info("[AlertEngine] alert={} {} -> {}", hit.alertId(), hit.ticker(), hit.state());
                 }
                 // For NON-latched alerts, clear dedupe for tickers that no longer match, so
-                // a fresh recurrence re-alerts. LATCHED alerts (e.g. ORB) keep their state so
-                // they fire once per day — their state key already embeds the date, so they
-                // naturally re-arm the next day.
+                // a fresh recurrence re-alerts. (The ORB alerts are non-latched: a close back
+                // inside the range clears the key, so each re-break re-alerts.) A LATCHED alert
+                // instead keeps its state until it changes; if its state key embeds the date it
+                // fires once per day and re-arms the next day. No alert currently sets
+                // latched()=true, so this cleanup runs for all of them.
                 if (!a.latched()) {
                     String alertPrefix = a.id() + "|";
                     lastState.keySet().removeIf(k -> k.startsWith(alertPrefix) && !matchedKeys.contains(k));

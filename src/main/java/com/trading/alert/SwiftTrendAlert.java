@@ -7,6 +7,7 @@ import com.trading.model.Candle;
 import com.trading.service.BarDataManager;
 import com.trading.service.MarketDataService;
 import com.trading.service.TelegramChannelSender;
+import com.trading.service.TimeframeSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -70,18 +71,14 @@ public class SwiftTrendAlert implements Alert {
         return Math.max(1, timeframeMinutes(timeframe()));
     }
 
-    /** Minutes per bar for a Webull minute-timeframe; 1 for non-minute timeframes. */
+    /**
+     * Minutes per bar for a minute-timeframe; 1 for non-minute timeframes. Parses any
+     * {@code M<n>} form generically via {@link TimeframeSupport} (single source of truth), so
+     * synthetic timeframes (M2/M3/…) derive the correct cadence — e.g. M3 scans every 3 min,
+     * matching when a new M3 bar completes — instead of defaulting to every minute.
+     */
     private static int timeframeMinutes(String tf) {
-        return switch (tf) {
-            case "M1"   -> 1;
-            case "M5"   -> 5;
-            case "M15"  -> 15;
-            case "M30"  -> 30;
-            case "M60"  -> 60;
-            case "M120" -> 120;
-            case "M240" -> 240;
-            default      -> 1;   // D/W/M/Y — just tick each minute (gated by market hours)
-        };
+        return Math.max(1, TimeframeSupport.minutesOf(tf));   // M3 → 3; D/W/M/Y (-1) → 1
     }
 
     private WebullProperties.Alerts.SwiftScanCfg cfg() {

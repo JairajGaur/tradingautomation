@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# EXPERIMENTAL strategy sandbox config.
+#
+# Loaded by ExperimentalPropertySourceConfig via @PropertySource (NOT a Spring
+# profile), so it is layered ADDITIVELY alongside application.yml and never
+# overrides the shared webull.* properties. Everything the experimental strategy
+# does not list here (sessions, market-hours, broker API, warm-up) is reused from
+# application.yml as-is.
+#
+# Each knob defaults (in ExperimentalSwiftProperties) to the current PRODUCTION
+# value, so only the knobs being tested need to appear below.
+#
+# What we are testing (the "faster Swift" hypothesis for PLTR-type slow grinds):
+#   - a faster Supertrend (factor 2 instead of 3) so the trend flips sooner
+#   - a lower travel gate (1.5x ATR instead of 2x) so the signal confirms earlier
+# Timeframe stays M5 here; the backtest endpoint can also request M1 per-call.
+# ─────────────────────────────────────────────────────────────────────────────
+experimental:
+  swift:
+    enabled: true
+    timeframe: "M5"            # same timeframe as prod; backtest can override per request
+    supertrend-length: 7       # keep length; vary only the factor for this experiment
+    supertrend-factor: 2       # FASTER: 2 vs production 3 → earlier flips
+    min-travel-atr: 1.5        # EARLIER: 1.5x vs production 2x ATR travel to confirm
+    # All other thresholds inherit production defaults from ExperimentalSwiftProperties:
+    #   min-separation-atr 1.5, strong-candle-window 5, min-strong-candles 1,
+    #   body-min-atr 0.5, flip-window-bars 5, max-flips-in-window 2,
+    #   st-slope-lookback 3, min-st-slope-atr 0.1, max-candle-atr 3.0,
+    #   cooldown-minutes 30
+    message-prefix: "EXP SWIFT - "

@@ -1,0 +1,79 @@
+meta {
+  name: Swift Backtest Compare
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/experimental/swift/backtest/PLTR?date=2026-10-09&timeframe=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  date: 2026-10-09
+  timeframe: M5
+  ~sessions: RTH
+  ~count: 2000
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Experimental — Swift Trend Backtest (Production vs Experimental)
+
+  Side-by-side backtest for ONE ticker on ONE day. Replays the SAME historical
+  candle series through BOTH scanners and returns their signals together:
+
+  - **production**   — the live `SwiftTrendScanner` (webull.supertrend 7/3,
+                       webull.alerts.swift-scan thresholds).
+  - **experimental** — the `ExperimentalSwiftTrendScanner` (experimental.swift
+                       in application-experimental.yml): a FASTER Supertrend and
+                       tuned thresholds, used to see whether a config change
+                       catches a move earlier and how many extra (possibly false)
+                       signals it adds.
+
+  Reuses the production backtester + market-data layer verbatim — nothing in
+  production code is changed. Detection/analysis only: no orders, no Telegram.
+
+  ## Path
+  - `/{ticker}` — any US stock symbol (need NOT be in the universe).
+
+  ## Query
+  - `date`      — ET date YYYY-MM-DD (default: today ET).
+  - `timeframe` — bar size (default: experimental.swift.timeframe).
+                  Native: M1, M5, M15, M30, M60, M120, M240.
+                  SYNTHETIC: M2, M3 (and any M<n>) are built on the fly by
+                  resampling M1 — the broker does not serve them natively.
+  - `sessions`  — RTH, PRE, ATH, OVN (comma-separated; default: configured).
+  - `count`     — bars to fetch back from NOW (auto-sized by default; older dates
+                  need a larger count since the broker returns the most recent N).
+
+  ## Response (200)
+  {
+    ticker, date, timeframe, sessions, barsFetched,
+    production:   { config:{ supertrendLength, supertrendFactor, minTravelAtr,
+                             minSeparationAtr, cooldownMinutes },
+                    signalCount, swiftUpCount, swiftDownCount,
+                    firstSignalEt, signals:[ "11:58 ET  🟢 UP  @ 205.36  ST ...  travel 2.20×ATR", ... ] },
+    experimental: { ...same shape... },
+    comparison:   { productionFirstSignalEt, experimentalFirstSignalEt,
+                    experimentalEarlierByMinutes, extraSignalsFromExperimental, note }
+  }
+
+  Positive `experimentalEarlierByMinutes` = the experimental config fired sooner.
+  Positive `extraSignalsFromExperimental` = it produced more signals (earlier
+  entry traded for more potential false positives).
+
+  ## Try these
+  - PLTR 2026-10-09 M5  — production fired UP at 11:58 (late on the grind up).
+  - PLTR 2026-10-09 M3  — synthetic 3-min; a faster Supertrend should flip sooner.
+  - Change the ticker to backtest ANY stock on ANY day.
+
+  ## Errors
+  - `400` — invalid date/timeframe/session.
+  - `502` — Webull market-data error (e.g. missing/invalid credentials).
+  - `503` — no bars returned for the ticker.
+}

@@ -89,6 +89,14 @@ public class BarDataManager {
      */
     public List<Candle> getBars(String ticker, String timeframe, int minCount) {
         String tf = MarketDataService.normaliseTimespan(timeframe);
+
+        // Synthetic minute timeframe (M2/M3/…): build it from CACHED M1 so the underlying M1 is
+        // fetched once and shared with M1 consumers and every other synthetic timeframe — no
+        // duplicate broker call. The resampled Mn series is itself cached under ticker|tf.
+        if (TimeframeSupport.isSynthetic(tf)) {
+            return getSyntheticBars(ticker, tf, minCount);
+        }
+
         String key = ticker + "|" + tf;
         long boundary = currentBoundary(tf);
 
@@ -122,6 +130,44 @@ public class BarDataManager {
         }
     }
 
+    /**
+     * Serves a synthetic minute timeframe (M2/M3/…) by reading the underlying native M1 series
+     * THROUGH THIS CACHE (so M1 is fetched at most once per boundary and reused across M1 and
+     * all synthetic consumers), resampling it, and caching the result under {@code ticker|tf}.
+     *
+     * <p>The resampled series is cached against the M3 boundary so repeated reads within the
+     * same M3 bar are cache hits; it re-resamples when the M3 bar boundary advances. Each Mn bar
+     * needs {@code minutes} M1 bars, so we ask the M1 cache for {@code minCount * minutes}.</p>
+     */
+    private List<Candle> getSyntheticBars(String ticker, String tf, int minCount) {
+        int minutes = TimeframeSupport.minutesOf(tf);
+        String key = ticker + "|" + tf;
+        long boundary = currentBoundary(tf);
+
+        // Fast path: resampled series already current for this Mn boundary.
+        Cached existing = cache.get(key);
+        if (existing != null && existing.boundary() == boundary && existing.count() >= minCount) {
+            return tail(existing.bars(), minCount);
+        }
+
+        synchronized (key.intern()) {
+            existing = cache.get(key);
+            if (existing != null && existing.boundary() == boundary && existing.count() >= minCount) {
+                return tail(existing.bars(), minCount);
+            }
+            // Read the underlying M1 through the cache (shared, deduplicated fetch), then resample.
+            int m1Needed = Math.min(TimeframeSupport.BROKER_MAX_BARS, Math.max(minCount * minutes, minutes));
+            List<Candle> m1 = getBars(ticker, "M1", m1Needed);
+            List<Candle> resampled = BarResampler.resample(m1, minutes);
+            if (!resampled.isEmpty()) {
+                cache.put(key, new Cached(resampled, resampled.size(), boundary));
+            }
+            log.debug("[BarDataManager] Resampled {} {} bars for {} from {} cached M1 (boundary={})",
+                    resampled.size(), tf, ticker, m1.size(), boundary);
+            return tail(resampled, minCount);
+        }
+    }
+
     /** The standard bar count fetched/cached per series (covers the largest consumer, the 600-EMA). */
     private int standardBarCount() {
         return Math.max(props.trading().warmupBars(), 700);
@@ -148,6 +194,15 @@ public class BarDataManager {
     public void getBarsBatch(List<String> tickers, String timeframe, int minCount) {
         if (tickers == null || tickers.isEmpty()) return;
         String tf = MarketDataService.normaliseTimespan(timeframe);
+
+        // Synthetic minute timeframe (M2/M3/…): batch-refresh the underlying native M1 ONCE
+        // (shared cache, one multi-symbol call), then resample+cache each symbol's Mn series.
+        // This reuses the M1 fetch for M1 consumers and every synthetic timeframe.
+        if (TimeframeSupport.isSynthetic(tf)) {
+            getSyntheticBarsBatch(tickers, tf, minCount);
+            return;
+        }
+
         long boundary = currentBoundary(tf);
         // Normalise to the standard series size so batch-cached entries satisfy every
         // consumer (count=2/200/700) from one fetch.
@@ -188,6 +243,40 @@ public class BarDataManager {
         }
     }
 
+    /**
+     * Batch variant of {@link #getSyntheticBars}: refreshes the underlying native M1 for all
+     * tickers through {@link #getBarsBatch} (one shared, deduplicated multi-symbol fetch), then
+     * resamples each ticker's M1 to {@code tf} and caches the result under {@code ticker|tf}.
+     */
+    private void getSyntheticBarsBatch(List<String> tickers, String tf, int minCount) {
+        int minutes = TimeframeSupport.minutesOf(tf);
+        long boundary = currentBoundary(tf);
+
+        // Only resample tickers whose Mn cache is stale for this boundary.
+        List<String> stale = new java.util.ArrayList<>();
+        for (String ticker : tickers) {
+            Cached existing = cache.get(ticker + "|" + tf);
+            boolean fresh = existing != null && existing.boundary() == boundary && existing.count() >= minCount;
+            if (!fresh) stale.add(ticker);
+        }
+        if (stale.isEmpty()) return;
+
+        // Refresh the shared M1 cache for the stale tickers in one batched call.
+        int m1Needed = Math.min(TimeframeSupport.BROKER_MAX_BARS, Math.max(minCount * minutes, minutes));
+        getBarsBatch(stale, "M1", m1Needed);
+
+        // Resample each ticker from its (now cached) M1 and cache the Mn series.
+        for (String ticker : stale) {
+            List<Candle> m1 = getBars(ticker, "M1", m1Needed);
+            List<Candle> resampled = BarResampler.resample(m1, minutes);
+            if (!resampled.isEmpty()) {
+                cache.put(ticker + "|" + tf, new Cached(resampled, resampled.size(), boundary));
+            }
+        }
+        log.debug("[BarDataManager] Batch-resampled {} tickers to {} from cached M1 (boundary={})",
+                stale.size(), tf, boundary);
+    }
+
     /** Warms the cache for a ticker/timeframe on startup (initial load). */
     public void preload(String ticker, String timeframe, int count) {
         getBars(ticker, timeframe, count);
@@ -214,17 +303,13 @@ public class BarDataManager {
         return (nowSec / 86400L) * 86400L;
     }
 
-    /** Minutes per bar for minute-based timeframes; 0 for D/W/M/Y. */
+    /**
+     * Minutes per bar for minute-based timeframes; 0 for D/W/M/Y. Parses any {@code M<n>}
+     * minute form generically (so synthetic M2/M3 get the correct, finer cache boundary and
+     * refresh on their own bar cadence rather than falling back to the coarse daily boundary).
+     */
     private static int timeframeMinutes(String tf) {
-        return switch (tf) {
-            case "M1"   -> 1;
-            case "M5"   -> 5;
-            case "M15"  -> 15;
-            case "M30"  -> 30;
-            case "M60"  -> 60;
-            case "M120" -> 120;
-            case "M240" -> 240;
-            default     -> 0;   // D, W, M, Y
-        };
+        int minutes = TimeframeSupport.minutesOf(tf);
+        return Math.max(minutes, 0);   // -1 (D/W/M/Y) → 0
     }
 }
