@@ -19,3 +19,6 @@ logs/
 # Local env / secrets
 .env
 *.local
+
+# Runtime (start.sh PID file)
+.run/
