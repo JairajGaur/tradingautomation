@@ -256,6 +256,16 @@ webull:
       ema-period: 600
       ema-slope-lookback: 3
       ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation
+      # Supertrend-line-slope confluence (optional). When enabled, an UP break fires only if the
+      # Supertrend LINE has been advancing UP on ANY of the last st-slope-bars bars (DOWN mirrors)
+      # — so a currently-flat line still passes if it moved in-direction recently. Uses the shared
+      # webull.supertrend length/factor (control those there). The timeframe is INDEPENDENT of the
+      # ORB range/scan timeframes (any M1/M5/M15/... or synthetic M2/M3).
+      st-slope-confirm-enabled: false
+      st-slope-timeframe: "M5"      # Supertrend timeframe for this gate (independent of ORB)
+      st-slope-lookback: 3          # bars spanned by ONE slope measurement (same as swift)
+      st-slope-min-atr: 0.1         # required line advance over the lookback, in ATR units
+      st-slope-bars: 3              # pass if ANY of the last N bars meets the slope threshold
       up:
         enabled: true
         scan-minutes: 5        # break + EMA on M5 (poll every 5 min)

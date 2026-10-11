@@ -70,6 +70,23 @@ public record WebullProperties(
          * @param emaPeriod        EMA period for the slope confirmation (default 600).
          * @param emaSlopeLookback candles back to measure the EMA slope; UP needs
          *                         EMA(now) ≥ EMA(lookback ago), DOWN ≤ (default 3).
+         * @param stSlopeConfirmEnabled when true, add a Supertrend-line-slope confluence gate:
+         *                         an UP break fires only if the Supertrend LINE has been
+         *                         advancing UP (DOWN mirrors). Uses the shared
+         *                         {@code webull.supertrend} length/factor. Default false (no gate).
+         * @param stSlopeTimeframe  timeframe for the Supertrend used by this gate — INDEPENDENT of
+         *                         the ORB range/scan timeframes (any M1/M5/… or synthetic M2/M3).
+         *                         Default M5.
+         * @param stSlopeLookback  span, in bars, over which ONE slope measurement is taken — the
+         *                         Supertrend line's advance in the trend direction (same meaning
+         *                         as the Swift scanner's st-slope-lookback). Default 3.
+         * @param stSlopeMinAtr    minimum line advance over {@code stSlopeLookback} bars, in ATR
+         *                         units, for a bar to count as "advancing in-direction" (same as
+         *                         the Swift scanner's min-st-slope-atr). Default 0.1.
+         * @param stSlopeBars      the "N": the gate passes if ANY of the last N completed bars has
+         *                         a slope meeting {@code stSlopeMinAtr} in the break direction (so
+         *                         a currently-flat line still passes if it moved in-direction on
+         *                         any recent bar). Default 3.
          * @param up / down        per-direction enable, scan-minutes timeframe, prefix.
          */
         public record Orb(
@@ -79,6 +96,11 @@ public record WebullProperties(
                 /** When true (default), require the EMA slope to confirm the break
                  *  (rising for UP, falling for DOWN). false = pure break, no EMA gate. */
                 @DefaultValue("true") boolean emaSlopeEnabled,
+                @DefaultValue("false") boolean stSlopeConfirmEnabled,
+                @DefaultValue("M5")   String stSlopeTimeframe,
+                @DefaultValue("3")    int stSlopeLookback,
+                @DefaultValue("0.1")  java.math.BigDecimal stSlopeMinAtr,
+                @DefaultValue("3")    int stSlopeBars,
                 @DefaultValue OrbAlertCfg up,
                 @DefaultValue OrbAlertCfg down
         ) {}
