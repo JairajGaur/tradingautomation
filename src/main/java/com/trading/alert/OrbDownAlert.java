@@ -141,7 +141,7 @@ public class OrbDownAlert implements Alert {
                 hits.add(new AlertHit(id(), symbol, state,
                         AlertMessageFormat.line(messagePrefix(), symbol,
                                 AlertMessageFormat.Dir.DOWN, bar.close().toPlainString(), scanTf),
-                        AlertMessageFormat.Dir.DOWN, bar.close()));
+                        AlertMessageFormat.Dir.DOWN, bar.close(), scanTf));
             } catch (Exception e) {
                 log.warn("[OrbDownAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }

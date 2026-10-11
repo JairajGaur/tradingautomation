@@ -243,6 +243,11 @@ app:
     channel: "TELEGRAM"
     telegram-bot-token: "${TELEGRAM_BOT_TOKEN:}"
     telegram-chat-id: "${TELEGRAM_CHAT_ID:}"
+    # Native macOS desktop banner on EVERY fired alert (in ADDITION to Telegram). Master
+    # toggle for the feature — flip to false to switch it off. No-op on non-mac/headless.
+    desktop-enabled: true
+    desktop-sound: "Ping"            # macOS sound name (Ping/Glass/Hero/...); blank = silent
+    # Multiple alerts in one tick coalesce into ONE banner, each alert on its own line.
 
   # ── Market alerts (pluggable; posted to the notification channel) ─────────
   # One scheduler ticks every minute; each ENABLED alert runs on its OWN scan-minutes

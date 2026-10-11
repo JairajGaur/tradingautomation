@@ -1,5 +1,6 @@
 package com.trading.api;
 
+import com.trading.service.DesktopNotifier;
 import com.trading.service.NotificationService;
 import com.trading.service.TelegramChannelSender;
 import org.slf4j.Logger;
@@ -40,11 +41,108 @@ public class NotificationTestController {
 
     private final NotificationService notifier;
     private final TelegramChannelSender channelSender;
+    private final DesktopNotifier desktop;
 
     public NotificationTestController(NotificationService notifier,
-                                      TelegramChannelSender channelSender) {
+                                      TelegramChannelSender channelSender,
+                                      DesktopNotifier desktop) {
         this.notifier = notifier;
         this.channelSender = channelSender;
+        this.desktop = desktop;
+    }
+
+    /**
+     * Fires a TEST native macOS desktop banner, so you can verify desktop notifications
+     * without waiting for a live alert. No-op (reported) when the feature is disabled or not
+     * on macOS. Banner body: {@code <alertType> <TICKER> <emoji> <Buy|Sell>}.
+     *
+     * <p>Query params (all optional, with sensible defaults):</p>
+     * <ul>
+     *   <li>{@code alertType} — e.g. "ORB UP", "Swift" (default "TEST")</li>
+     *   <li>{@code ticker}    — symbol (default "AAPL")</li>
+     *   <li>{@code direction} — UP or DOWN (default "UP" → 🟢 Buy)</li>
+     * </ul>
+     */
+    @GetMapping("/test-desktop")
+    public ResponseEntity<Map<String, Object>> testDesktop(
+            @RequestParam(defaultValue = "orb-up") String alertType,
+            @RequestParam(defaultValue = "AAPL") String ticker,
+            @RequestParam(defaultValue = "UP") String direction,
+            @RequestParam(defaultValue = "M5") String timeframe) {
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        boolean enabled = desktop.isEnabled();
+        body.put("desktopEnabled", enabled);
+        if (!enabled) {
+            body.put("sent", false);
+            body.put("hint", "Desktop notifications are off or not on macOS. Set "
+                    + "app.notifications.desktop-enabled=true and run on the Mac GUI session.");
+            body.put("timestamp", TimeFormat.nowEt());
+            return ResponseEntity.ok(body);
+        }
+
+        log.info("[NotificationTest] Firing test desktop banner: {} {} {} {}",
+                timeframe, ticker, direction, alertType);
+        desktop.notify(alertType, ticker, direction, timeframe);
+        // Preview mirrors the actual banner line (type normalised: orb-up→ORB, swift-trend→Swift…).
+        String typeLabel = alertType.toLowerCase().startsWith("orb") ? "ORB"
+                : alertType.toLowerCase().startsWith("swift") ? "Swift"
+                : (alertType.toLowerCase().startsWith("st-adx") || alertType.toLowerCase().startsWith("stadx")) ? "ST+ADX"
+                : alertType;
+        body.put("sent", true);
+        body.put("preview", timeframe + " " + ticker + " "
+                + ("UP".equalsIgnoreCase(direction) ? "🟢 BUY"
+                   : "DOWN".equalsIgnoreCase(direction) ? "🔴 SELL" : direction)
+                + " -- " + typeLabel);
+        body.put("note", "Banner fired on the local Mac GUI session. Fail-safe — if nothing "
+                + "appeared, check macOS notification permissions for your terminal/JVM.");
+        body.put("timestamp", TimeFormat.nowEt());
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Fires a TEST <b>burst</b> of desktop alerts to verify COALESCING: {@code count} simulated
+     * alerts across a few sample tickers are sent as ONE batch, so you see the single summary
+     * banner ("N alerts — AAPL 🟢Buy, NVDA 🔴Sell, ...") instead of N separate banners.
+     *
+     * @param count how many simulated alerts to include (default 3)
+     */
+    @GetMapping("/test-desktop-batch")
+    public ResponseEntity<Map<String, Object>> testDesktopBatch(
+            @RequestParam(defaultValue = "3") int count) {
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        boolean enabled = desktop.isEnabled();
+        body.put("desktopEnabled", enabled);
+        if (!enabled) {
+            body.put("sent", false);
+            body.put("hint", "Desktop notifications are off or not on macOS. Set "
+                    + "app.notifications.desktop-enabled=true and run on the Mac GUI session.");
+            body.put("timestamp", TimeFormat.nowEt());
+            return ResponseEntity.ok(body);
+        }
+
+        // Build a representative burst (alternating Buy/Sell across sample symbols/timeframes).
+        String[] syms = {"AAPL", "NVDA", "PLTR", "TSLA", "AMD", "MSFT", "META", "AMZN"};
+        String[] types = {"orb-up", "swift-trend", "orb-down", "st-adx"};
+        String[] tfs = {"M5", "M3", "M15", "M1"};
+        int n = Math.max(1, Math.min(count, 20));
+        java.util.List<DesktopNotifier.Fired> burst = new java.util.ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            String dir = (i % 2 == 0) ? "UP" : "DOWN";
+            burst.add(new DesktopNotifier.Fired(types[i % types.length], syms[i % syms.length], dir, tfs[i % tfs.length]));
+        }
+
+        log.info("[NotificationTest] Firing test desktop BURST of {} alerts", n);
+        desktop.notifyBatch(burst);
+        body.put("sent", true);
+        body.put("count", n);
+        body.put("note", n == 1
+                ? "Single alert → one normal banner."
+                : "Burst of " + n + " → coalesced into ONE summary banner "
+                    + "(\"Trading Alerts (" + n + ")\"). Individual alerts still go to Telegram/logs.");
+        body.put("timestamp", TimeFormat.nowEt());
+        return ResponseEntity.ok(body);
     }
 
     @GetMapping("/test")

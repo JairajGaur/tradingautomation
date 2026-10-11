@@ -13,16 +13,20 @@ import java.math.BigDecimal;
  * @param direction the uniform signal direction (UP/BULLISH, DOWN/BEARISH), or {@code null} when
  *                  the alert has no directional meaning. Used for the structured ALERT_FIRED log.
  * @param price     the price at the alert (breakout/close), or {@code null} when unavailable.
- *                  Used for the structured ALERT_FIRED log.
+ * @param timeframe the alert's timeframe (e.g. "M5"), or {@code null} when not applicable.
+ *                  Used in the structured ALERT_FIRED log and the desktop notification.
  */
 public record AlertHit(String alertId, String ticker, String state, String message,
-                       AlertMessageFormat.Dir direction, BigDecimal price) {
+                       AlertMessageFormat.Dir direction, BigDecimal price, String timeframe) {
 
-    /**
-     * Backward-compatible constructor for alerts that don't supply a direction/price.
-     * Prefer the full constructor so the structured ALERT_FIRED log carries direction + price.
-     */
+    /** Backward-compatible constructor for alerts that supply no direction/price/timeframe. */
     public AlertHit(String alertId, String ticker, String state, String message) {
-        this(alertId, ticker, state, message, null, null);
+        this(alertId, ticker, state, message, null, null, null);
+    }
+
+    /** Constructor without a timeframe (direction + price only). */
+    public AlertHit(String alertId, String ticker, String state, String message,
+                    AlertMessageFormat.Dir direction, BigDecimal price) {
+        this(alertId, ticker, state, message, direction, price, null);
     }
 }

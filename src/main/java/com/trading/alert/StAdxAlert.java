@@ -174,12 +174,12 @@ public class StAdxAlert implements Alert {
                     hits.add(new AlertHit(id(), symbol, "BULLISH",
                             AlertMessageFormat.line(messagePrefix(), symbol,
                                     AlertMessageFormat.Dir.UP, close, primaryTf),
-                            AlertMessageFormat.Dir.UP, new BigDecimal(close)));
+                            AlertMessageFormat.Dir.UP, new BigDecimal(close), primaryTf));
                 } else if (bearish) {
                     hits.add(new AlertHit(id(), symbol, "BEARISH",
                             AlertMessageFormat.line(messagePrefix(), symbol,
                                     AlertMessageFormat.Dir.DOWN, close, primaryTf),
-                            AlertMessageFormat.Dir.DOWN, new BigDecimal(close)));
+                            AlertMessageFormat.Dir.DOWN, new BigDecimal(close), primaryTf));
                 }
             } catch (Exception e) {
                 log.warn("[StAdxAlert] {} failed (ignored): {}", symbol, e.getMessage());

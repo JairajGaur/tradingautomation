@@ -35,15 +35,18 @@ public class SwiftTrendAlert implements Alert {
     private final BarDataManager barData;
     private final SwiftTrendScanner scanner;
     private final TelegramChannelSender telegram;
+    private final com.trading.service.DesktopNotifier desktop;
 
     public SwiftTrendAlert(AppProperties props,
                            BarDataManager barData,
                            SwiftTrendScanner scanner,
-                           TelegramChannelSender telegram) {
+                           TelegramChannelSender telegram,
+                           com.trading.service.DesktopNotifier desktop) {
         this.props = props;
         this.barData = barData;
         this.scanner = scanner;
         this.telegram = telegram;
+        this.desktop = desktop;
     }
 
     @Override
@@ -129,6 +132,8 @@ public class SwiftTrendAlert implements Alert {
 
         int warmup = props.engine().warmupBars();
         long now = System.currentTimeMillis();
+        // Collect this tick's fired swift signals for ONE coalesced desktop banner at the end.
+        List<com.trading.service.DesktopNotifier.Fired> desktopBurst = new java.util.ArrayList<>();
 
         for (String symbol : universe) {
             try {
@@ -146,10 +151,14 @@ public class SwiftTrendAlert implements Alert {
                 AlertLog.fired(id(), symbol, dir, d.result().close(), tf,
                         "flip@" + (d.result().flipTime() == null ? "?" : d.result().flipTime()),
                         d.reason());
+                // Buffer for a single coalesced desktop banner at the end of the scan.
+                desktopBurst.add(new com.trading.service.DesktopNotifier.Fired(id(), symbol, dir.name(), tf));
             } catch (Exception e) {
                 log.warn("[SwiftTrendAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }
         }
+        // One coalesced desktop banner for the whole swift scan (fail-safe; no-op when disabled).
+        desktop.notifyBatch(desktopBurst);
         // Self-delivered — nothing for the engine to dispatch.
         return List.of();
     }

@@ -1,0 +1,53 @@
+meta {
+  name: Test Desktop
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/notifications/test-desktop?alertType=orb-up&ticker=AAPL&direction=UP&timeframe=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  alertType: orb-up
+  ticker: AAPL
+  direction: UP
+  timeframe: M5
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Notifications — Test Desktop (macOS banner)
+
+  Fires a TEST native macOS desktop banner on demand so you can verify the
+  desktop-notification feature without waiting for a live alert.
+
+  Banner body is the format used for real alerts:
+  `<timeframe> <TICKER> <emoji> <BUY|SELL> -- <type>` — UP → 🟢 BUY, DOWN → 🔴 SELL.
+  e.g. `M5 AAPL 🟢 BUY -- ORB`
+  The alert id is normalised to a short label: orb-up/orb-down → ORB,
+  swift-trend → Swift, st-adx → ST+ADX.
+
+  ## Query (all optional)
+  - `alertType` — raw alert id (default "orb-up"), e.g. "orb-up", "swift-trend", "st-adx".
+  - `ticker`    — symbol (default "AAPL").
+  - `direction` — UP or DOWN (default "UP").
+  - `timeframe` — e.g. M5, M3 (default "M5").
+
+  ## Response (200)
+  { desktopEnabled, sent, preview?, note/hint, timestamp }
+  - `desktopEnabled=false` → the feature is off or you're not on macOS. Set
+    `app.notifications.desktop-enabled: true` and run on the Mac GUI session.
+  - `sent=true` → a banner was fired on the local Mac. If nothing appeared, check
+    macOS System Settings → Notifications permissions for your terminal/JVM.
+
+  ## Notes
+  - Desktop banners only work when the app runs on the Mac you're sitting at
+    (local GUI session) — not headless/server. Telegram is unaffected either way.
+  - Fail-safe: a notification error never disrupts scanning/trading.
+}

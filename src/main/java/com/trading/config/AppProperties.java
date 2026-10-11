@@ -42,7 +42,12 @@ public record AppProperties(
             @DefaultValue("false") boolean enabled,
             @DefaultValue("TELEGRAM") String channel,
             @DefaultValue("") String telegramBotToken,
-            @DefaultValue("") String telegramChatId
+            @DefaultValue("") String telegramChatId,
+            /** Master toggle for native macOS desktop (banner) notifications on EVERY fired
+             *  alert, in ADDITION to Telegram. Default false. No-op on non-mac. */
+            @DefaultValue("false") boolean desktopEnabled,
+            /** macOS notification sound name (e.g. Ping, Glass, Hero). Blank = silent. */
+            @DefaultValue("Ping") String desktopSound
     ) {}
 
     /**

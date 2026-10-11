@@ -43,6 +43,7 @@ public class AlertEngine {
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final TelegramChannelSender telegram;
+    private final com.trading.service.DesktopNotifier desktop;
     private final com.trading.service.MarketHoursGuard marketHoursGuard;
     private final List<Alert> alerts;
 
@@ -56,12 +57,14 @@ public class AlertEngine {
                        UniverseLoader universeLoader,
                        BarDataManager barData,
                        TelegramChannelSender telegram,
+                       com.trading.service.DesktopNotifier desktop,
                        com.trading.service.MarketHoursGuard marketHoursGuard,
                        List<Alert> alerts) {
         this.props = props;
         this.universeLoader = universeLoader;
         this.barData = barData;
         this.telegram = telegram;
+        this.desktop = desktop;
         this.marketHoursGuard = marketHoursGuard;
         this.alerts = alerts;
     }
@@ -120,6 +123,10 @@ public class AlertEngine {
             }
         }
 
+        // Collect desktop notifications across ALL alerts in this tick, then flush ONCE so a
+        // burst (many alerts in one minute) coalesces into a single banner instead of spam.
+        List<com.trading.service.DesktopNotifier.Fired> desktopBurst = new java.util.ArrayList<>();
+
         for (Alert a : due) {
             try {
                 List<AlertHit> hits = a.evaluate(universe);
@@ -145,6 +152,11 @@ public class AlertEngine {
                     // Uniform, machine-parseable fired-alert line (same shape for every alert).
                     AlertLog.fired(hit.alertId(), hit.ticker(), hit.direction(), hit.price(),
                             null, hit.state(), "channel=" + channel);
+                    // Buffer for a single coalesced desktop banner at the end of the tick.
+                    desktopBurst.add(new com.trading.service.DesktopNotifier.Fired(
+                            hit.alertId(), hit.ticker(),
+                            hit.direction() == null ? null : hit.direction().name(),
+                            hit.timeframe()));
                 }
                 // For NON-latched alerts, clear dedupe for tickers that no longer match, so
                 // a fresh recurrence re-alerts. (The ORB alerts are non-latched: a close back
@@ -160,5 +172,9 @@ public class AlertEngine {
                 log.warn("[AlertEngine] alert '{}' failed (ignored): {}", a.id(), e.getMessage());
             }
         }
+
+        // One coalesced desktop banner for the whole tick (1 line if a single alert, else a
+        // "N alerts — ..." summary). Fail-safe; no-op when desktop notifications are disabled.
+        desktop.notifyBatch(desktopBurst);
     }
 }

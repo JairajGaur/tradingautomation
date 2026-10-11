@@ -1,0 +1,41 @@
+meta {
+  name: Test Desktop Burst
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/notifications/test-desktop-batch?count=3
+  body: none
+  auth: none
+}
+
+params:query {
+  count: 3
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Notifications — Test Desktop Burst (coalescing)
+
+  Fires a TEST burst of `count` simulated alerts to verify that MANY alerts in one
+  scan tick coalesce into a SINGLE desktop banner instead of spamming one per alert.
+
+  - `count=1`  → one normal banner: `ORB UP AAPL 🟢 Buy`
+  - `count>=2` → one summary banner titled `Trading Alerts (N)` with body like
+    `AAPL 🟢Buy, NVDA 🔴Sell, PLTR 🟢Buy`
+
+  This mirrors how the live engine behaves: alerts fired in the same minute are
+  buffered and flushed as one coalesced banner (individual alerts still go to
+  Telegram and the logs separately).
+
+  ## Query
+  - `count` — number of simulated alerts (default 3, capped at 20).
+
+  ## Response (200)
+  { desktopEnabled, sent, count, note, timestamp }
+  - `desktopEnabled=false` → feature off or not on macOS.
+}

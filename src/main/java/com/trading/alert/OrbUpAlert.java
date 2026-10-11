@@ -141,7 +141,7 @@ public class OrbUpAlert implements Alert {
                 hits.add(new AlertHit(id(), symbol, state,
                         AlertMessageFormat.line(messagePrefix(), symbol,
                                 AlertMessageFormat.Dir.UP, bar.close().toPlainString(), scanTf),
-                        AlertMessageFormat.Dir.UP, bar.close()));
+                        AlertMessageFormat.Dir.UP, bar.close(), scanTf));
             } catch (Exception e) {
                 log.warn("[OrbUpAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }
