@@ -139,8 +139,13 @@ public class SwiftTrendAlert implements Alert {
 
                 String text = scanner.formatMessage(c, symbol, d.result());
                 telegram.send(chatId, text);
-                log.info("[SwiftTrendAlert] {} {} @ {} — {}",
-                        symbol, d.result().direction(), d.result().close().toPlainString(), d.reason());
+                // Uniform, machine-parseable fired-alert line — SAME shape as every other alert.
+                AlertMessageFormat.Dir dir =
+                        d.result().direction() == com.trading.indicator.SupertrendCalculator.Direction.UP
+                                ? AlertMessageFormat.Dir.UP : AlertMessageFormat.Dir.DOWN;
+                AlertLog.fired(id(), symbol, dir, d.result().close(), tf,
+                        "flip@" + (d.result().flipTime() == null ? "?" : d.result().flipTime()),
+                        d.reason());
             } catch (Exception e) {
                 log.warn("[SwiftTrendAlert] {} failed (ignored): {}", symbol, e.getMessage());
             }

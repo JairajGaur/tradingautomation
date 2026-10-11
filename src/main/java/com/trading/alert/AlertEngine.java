@@ -142,8 +142,9 @@ public class AlertEngine {
                     // hit.message() is the fully-formatted uniform single line
                     // (AlertMessageFormat) — send it as-is to the alert's own channel.
                     telegram.send(channel, hit.message());
-                    log.info("[AlertEngine] alert={} {} -> {} (channel {})",
-                            hit.alertId(), hit.ticker(), hit.state(), channel);
+                    // Uniform, machine-parseable fired-alert line (same shape for every alert).
+                    AlertLog.fired(hit.alertId(), hit.ticker(), hit.direction(), hit.price(),
+                            null, hit.state(), "channel=" + channel);
                 }
                 // For NON-latched alerts, clear dedupe for tickers that no longer match, so
                 // a fresh recurrence re-alerts. (The ORB alerts are non-latched: a close back
