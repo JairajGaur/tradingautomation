@@ -67,6 +67,13 @@ public class StAdxAlert implements Alert {
         return Math.max(1, props.alerts().stAdx().scanMinutes());
     }
 
+    /** This alert's own Telegram channel; null when unconfigured (engine skips delivery). */
+    @Override
+    public String channelId() {
+        String id = props.alerts().stAdx().telegramChatId();
+        return (id != null && !id.isBlank()) ? id.trim() : null;
+    }
+
     /** Parsed, validated Supertrend timeframes; first entry is the primary (ADX + price). */
     private List<String> timeframes() {
         List<String> out = new ArrayList<>();

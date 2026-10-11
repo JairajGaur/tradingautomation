@@ -32,6 +32,16 @@ public interface Alert {
     int scanIntervalMinutes();
 
     /**
+     * The Telegram chat/channel id this alert's notifications are delivered to. Each alert
+     * owns its channel (channels may be the same or different across alerts, by config) —
+     * there is NO shared/common channel. The {@link AlertEngine} routes each hit from this
+     * alert to this id. Return {@code null}/blank when unconfigured — the engine then skips
+     * delivery for this alert (logging a warning). Alerts that self-deliver (e.g. the Swift
+     * Trend scanner) may return {@code null} since the engine dispatches nothing for them.
+     */
+    default String channelId() { return null; }
+
+    /**
      * When true, a fired hit is LATCHED — the engine won't re-alert the same
      * {@code alertId|ticker|state} even if the condition stops and later recurs. Suits
      * once-per-day events (e.g. ORB breakouts). When false (default), the engine clears

@@ -101,6 +101,10 @@ public record WebullProperties(
                 @DefaultValue("3")    int stSlopeLookback,
                 @DefaultValue("0.1")  java.math.BigDecimal stSlopeMinAtr,
                 @DefaultValue("3")    int stSlopeBars,
+                /** Default Telegram channel for BOTH ORB directions; a direction's own
+                 *  {@code telegram-chat-id} overrides it. Blank → that direction has no channel
+                 *  and is skipped (no common fallback). */
+                @DefaultValue("")     String telegramChatId,
                 @DefaultValue OrbAlertCfg up,
                 @DefaultValue OrbAlertCfg down
         ) {}
@@ -131,7 +135,10 @@ public record WebullProperties(
                  */
                 @DefaultValue("false") boolean emaEnabled,
                 @DefaultValue("600")   int emaPeriod,
-                @DefaultValue("M1")    String emaTimeframe
+                @DefaultValue("M1")    String emaTimeframe,
+                /** Telegram channel for ST+ADX alerts. Blank → no channel; the alert is skipped
+                 *  by the engine (no common fallback). */
+                @DefaultValue("")      String telegramChatId
         ) {}
 
         /**
@@ -141,12 +148,15 @@ public record WebullProperties(
          * {@code scanMinutes} both selects the breakout candle timeframe AND the poll
          * cadence — it MUST be a Webull-supported timeframe (1/5/15/30/60). An EMA slope
          * confirmation on the same timeframe is also required. Once per ticker per day.
-         * Each direction has its own enable flag, timeframe, and prefix.
+         * Each direction has its own enable flag, timeframe, prefix, and optional Telegram
+         * channel. When {@code telegramChatId} is blank this direction falls back to the
+         * ORB-parent {@code orb.telegram-chat-id}; there is NO global/common channel.
          */
         public record OrbAlertCfg(
                 @DefaultValue("false") boolean enabled,
                 @DefaultValue("5")     int scanMinutes,
-                @DefaultValue("")      String messagePrefix
+                @DefaultValue("")      String messagePrefix,
+                @DefaultValue("")      String telegramChatId
         ) {}
 
         /**

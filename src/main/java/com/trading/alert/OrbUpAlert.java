@@ -61,6 +61,14 @@ public class OrbUpAlert implements Alert {
         return Math.max(1, props.alerts().orb().up().scanMinutes());
     }
 
+    /** This direction's channel, falling back to the ORB-parent channel; null if neither set. */
+    @Override
+    public String channelId() {
+        return OrbSupport.resolveChannel(
+                props.alerts().orb().up().telegramChatId(),
+                props.alerts().orb().telegramChatId());
+    }
+
     // Transitional (not latched): when price returns INSIDE the range the engine clears
     // dedupe, so a fresh break re-alerts. Re-alerts on re-break are intended.
 

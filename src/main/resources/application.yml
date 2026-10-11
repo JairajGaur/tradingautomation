@@ -245,23 +245,31 @@ webull:
       ema-enabled: true
       ema-period: 600
       ema-timeframe: "M1"
+      # This alert's OWN Telegram channel. There is no common channel — blank means this
+      # alert has nowhere to post and is skipped. @name (public) or -100... (private, bot admin).
+      telegram-chat-id: "${TELEGRAM_STADX_CHAT_ID:}"
     # Opening-Range Breakout — all under alerts.orb. Opening range = high/low of today's
     # 09:30 ET candle on the range-minutes timeframe (15 -> M15 = 9:30–9:45, 30 -> M30 =
     # 9:30–10:00). Fetched once/day, cached (works on late start). The break is a CLOSE on
-    # each direction's scan-minutes timeframe beyond the range, plus an EMA-slope
-    # confirmation (EMA rising for UP, falling for DOWN). Fires once per direction per day.
+    # each direction's scan-minutes timeframe beyond the range, with an OPTIONAL EMA-slope
+    # and Supertrend-slope confluence.
     # NOTE: range-minutes and scan-minutes MUST be Webull timeframes: 1/5/15/30/60.
     orb:
       range-minutes: 15
       ema-period: 600
       ema-slope-lookback: 3
       ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation
+      # Default Telegram channel for BOTH ORB directions. A direction's own telegram-chat-id
+      # (under up:/down:) overrides this. Blank here AND there = that direction is skipped
+      # (there is no common channel). Set the same id for both to share one channel, or
+      # different ids per direction to split them.
+      telegram-chat-id: "${TELEGRAM_ORB_CHAT_ID:}"
       # Supertrend-line-slope confluence (optional). When enabled, an UP break fires only if the
       # Supertrend LINE has been advancing UP on ANY of the last st-slope-bars bars (DOWN mirrors)
       # — so a currently-flat line still passes if it moved in-direction recently. Uses the shared
       # webull.supertrend length/factor (control those there). The timeframe is INDEPENDENT of the
       # ORB range/scan timeframes (any M1/M5/M15/... or synthetic M2/M3).
-      st-slope-confirm-enabled: false
+      st-slope-confirm-enabled: true
       st-slope-timeframe: "M5"      # Supertrend timeframe for this gate (independent of ORB)
       st-slope-lookback: 3          # bars spanned by ONE slope measurement (same as swift)
       st-slope-min-atr: 0.1         # required line advance over the lookback, in ATR units
@@ -270,10 +278,14 @@ webull:
         enabled: true
         scan-minutes: 5        # break + EMA on M5 (poll every 5 min)
         message-prefix: "ORB UP - "
+        # Optional: own channel for UP breaks. Blank → inherits orb.telegram-chat-id above.
+        telegram-chat-id: "${TELEGRAM_ORB_UP_CHAT_ID:}"
       down:
         enabled: true
         scan-minutes: 5
         message-prefix: "ORB DOWN - "
+        # Optional: own channel for DOWN breaks. Blank → inherits orb.telegram-chat-id above.
+        telegram-chat-id: "${TELEGRAM_ORB_DOWN_CHAT_ID:}"
 
     # Swift Trend Scanner — a FRESH Supertrend direction flip backed by strong,
     # ATR-normalised momentum (pure Supertrend + momentum, no EMA). Swift UP = a recent

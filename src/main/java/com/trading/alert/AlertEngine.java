@@ -4,7 +4,7 @@ import com.trading.config.UniverseLoader;
 import com.trading.config.WebullProperties;
 import com.trading.service.BarDataManager;
 import com.trading.service.MarketDataService;
-import com.trading.service.NotificationService;
+import com.trading.service.TelegramChannelSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -17,15 +17,17 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Runs all enabled {@link Alert}s on a schedule over the ticker universe and posts hits
- * to the notification channel. One scheduler for every alert. Bars are batch-prefetched
- * once per needed timeframe via the shared {@link BarDataManager} — alerts never fetch
- * data separately.
+ * Runs all enabled {@link Alert}s on a schedule over the ticker universe and posts each hit
+ * to THAT ALERT'S OWN Telegram channel ({@link Alert#channelId()}) via the shared
+ * {@link TelegramChannelSender}. There is no common/shared channel — channels may be the
+ * same or different per alert, by config. One scheduler for every alert. Bars are
+ * batch-prefetched once per needed timeframe via the shared {@link BarDataManager} — alerts
+ * never fetch data separately.
  *
  * <p>Dedupe: a hit is only posted when a ticker's state for that alert CHANGES (keyed by
  * {@code alertId|ticker} → last state), so you aren't re-notified every cycle while the
  * condition holds. When a ticker stops matching, its state is cleared so the next match
- * re-alerts. Every message is prefixed with {@code webull.alerts.message-prefix}.</p>
+ * re-alerts.</p>
  *
  * <p>Only runs within the configured market-hours window (weekdays), reusing
  * {@code MarketHoursGuard.isTradingAllowed()} — the same window the trading loop uses.</p>
@@ -40,7 +42,7 @@ public class AlertEngine {
     private final WebullProperties props;
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
-    private final NotificationService notifier;
+    private final TelegramChannelSender telegram;
     private final com.trading.service.MarketHoursGuard marketHoursGuard;
     private final List<Alert> alerts;
 
@@ -53,13 +55,13 @@ public class AlertEngine {
     public AlertEngine(WebullProperties props,
                        UniverseLoader universeLoader,
                        BarDataManager barData,
-                       NotificationService notifier,
+                       TelegramChannelSender telegram,
                        com.trading.service.MarketHoursGuard marketHoursGuard,
                        List<Alert> alerts) {
         this.props = props;
         this.universeLoader = universeLoader;
         this.barData = barData;
-        this.notifier = notifier;
+        this.telegram = telegram;
         this.marketHoursGuard = marketHoursGuard;
         this.alerts = alerts;
     }
@@ -70,7 +72,7 @@ public class AlertEngine {
         try {
             WebullProperties.Alerts cfg = props.alerts();
             if (cfg == null || !cfg.enabled()) return;
-            if (!notifier.isEnabled()) return;   // nowhere to post
+            if (!telegram.isConfigured()) return;   // no bot token — nowhere to post
 
             // Only alert within the configured market-hours window (weekdays), reusing the
             // same guard as the trading loop — one source of truth for "market hours".
@@ -121,6 +123,14 @@ public class AlertEngine {
         for (Alert a : due) {
             try {
                 List<AlertHit> hits = a.evaluate(universe);
+                // Each alert delivers to its OWN channel (no common channel). Resolve once per
+                // alert; when blank, this alert has no destination so we skip its delivery.
+                String channel = a.channelId();
+                boolean hasChannel = channel != null && !channel.isBlank();
+                if (!hits.isEmpty() && !hasChannel) {
+                    log.warn("[AlertEngine] alert '{}' produced hits but has no telegram channel "
+                            + "configured — skipping delivery", a.id());
+                }
                 Set<String> matchedKeys = new LinkedHashSet<>();
                 for (AlertHit hit : hits) {
                     String key = hit.alertId() + "|" + hit.ticker();
@@ -128,10 +138,12 @@ public class AlertEngine {
                     String prev = lastState.get(key);
                     if (hit.state().equals(prev)) continue;   // unchanged → skip (dedupe)
                     lastState.put(key, hit.state());
+                    if (!hasChannel) continue;   // nowhere to send (already warned above)
                     // hit.message() is the fully-formatted uniform single line
-                    // (AlertMessageFormat) — send it as-is, no extra title/body composition.
-                    notifier.notify(hit.message(), "");
-                    log.info("[AlertEngine] alert={} {} -> {}", hit.alertId(), hit.ticker(), hit.state());
+                    // (AlertMessageFormat) — send it as-is to the alert's own channel.
+                    telegram.send(channel, hit.message());
+                    log.info("[AlertEngine] alert={} {} -> {} (channel {})",
+                            hit.alertId(), hit.ticker(), hit.state(), channel);
                 }
                 // For NON-latched alerts, clear dedupe for tickers that no longer match, so
                 // a fresh recurrence re-alerts. (The ORB alerts are non-latched: a close back

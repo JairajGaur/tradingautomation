@@ -41,6 +41,17 @@ final class OrbSupport {
     }
 
     /**
+     * Resolves an ORB direction's Telegram channel: the direction-specific id if set, else the
+     * ORB-parent default, else null (no channel — the engine skips delivery). There is no
+     * global/common fallback.
+     */
+    static String resolveChannel(String directionChatId, String orbDefaultChatId) {
+        if (directionChatId != null && !directionChatId.isBlank()) return directionChatId.trim();
+        if (orbDefaultChatId != null && !orbDefaultChatId.isBlank()) return orbDefaultChatId.trim();
+        return null;
+    }
+
+    /**
      * Maps an interval in minutes to the matching Webull timeframe token
      * (1→M1, 5→M5, 15→M15, 30→M30, 60→M60). Any other value throws — callers should only
      * pass Webull-supported timeframes.
