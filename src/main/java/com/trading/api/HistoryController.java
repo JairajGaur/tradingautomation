@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.model.Candle;
 import com.trading.service.MarketDataException;
 import com.trading.service.MarketDataService;
@@ -38,11 +39,14 @@ public class HistoryController {
 
     private static final Logger log = LoggerFactory.getLogger(HistoryController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final MarketDataService marketDataService;
 
-    public HistoryController(WebullProperties props, MarketDataService marketDataService) {
+    public HistoryController(AppProperties props, WebullApiProperties brokerApi,
+                             MarketDataService marketDataService) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.marketDataService = marketDataService;
     }
 
@@ -79,7 +83,7 @@ public class HistoryController {
             @RequestParam(required = false) String sessions) {
 
         String symbol = ticker == null ? "" : ticker.trim().toUpperCase();
-        int barCount = count != null && count > 0 ? count : props.trading().warmupBars();
+        int barCount = count != null && count > 0 ? count : props.engine().warmupBars();
 
         log.info("[HistoryController] GET /api/history/{} count={} timespan={} sessions={}",
                 symbol, barCount, timespan, sessions);
@@ -104,8 +108,8 @@ public class HistoryController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "Market-data request failed");
             body.put("ticker", symbol);
-            body.put("mode", props.trading().mode().name());
-            body.put("endpoint", props.resolvedApiHost());
+            body.put("mode", props.engine().mode().name());
+            body.put("endpoint", brokerApi.resolvedApiHost());
             body.put("webullError", e.toDetailMap());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
@@ -127,7 +131,7 @@ public class HistoryController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ticker", symbol);
         body.put("timespan", ts);
-        body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
+        body.put("sessions", sess != null ? sess : props.engine().tradingSessions());
         body.put("count", bars.size());
         body.put("bars", bars);
         body.put("timestamp", TimeFormat.nowEt());

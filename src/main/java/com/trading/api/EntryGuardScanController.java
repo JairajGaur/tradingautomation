@@ -1,7 +1,7 @@
 package com.trading.api;
 
 import com.trading.config.WatchlistLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.service.BarDataManager;
 import com.trading.service.EntryGuard;
 import org.slf4j.Logger;
@@ -46,12 +46,12 @@ public class EntryGuardScanController {
 
     private static final Logger log = LoggerFactory.getLogger(EntryGuardScanController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final WatchlistLoader watchlistLoader;
     private final EntryGuard entryGuard;
     private final BarDataManager barData;
 
-    public EntryGuardScanController(WebullProperties props,
+    public EntryGuardScanController(AppProperties props,
                                     WatchlistLoader watchlistLoader,
                                     EntryGuard entryGuard,
                                     BarDataManager barData) {
@@ -72,7 +72,7 @@ public class EntryGuardScanController {
                     "timestamp", TimeFormat.nowEt()));
         }
 
-        WebullProperties.EntryGuard cfg = props.entryGuard();
+        AppProperties.EntryGuard cfg = props.entryGuard();
         log.info("[EntryGuardScan] Scanning {} ticker(s) — stTf={} emaTf={} requireMid={} logic={}",
                 symbols.size(), cfg.supertrendTimespan(), cfg.emaTimespan(),
                 cfg.emaRequireMid(), cfg.conditionLogic());
@@ -80,7 +80,7 @@ public class EntryGuardScanController {
         // Prime the shared bar cache for the two timeframes the guard reads, so
         // first-time (non-watchlist) symbols are evaluated on real data, not empties.
         // Batch = one multi-symbol request per timeframe (cheap; skips already-fresh).
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         try {
             barData.getBarsBatch(symbols, cfg.supertrendTimespan(), warmup);
             barData.getBarsBatch(symbols, cfg.emaTimespan(), warmup);
@@ -131,7 +131,7 @@ public class EntryGuardScanController {
         body.put("passedCount", passed.size());
         body.put("passed", passed);          // the list you asked for
         body.put("results", results);        // per-ticker pass/fail + reason
-        body.put("mode", props.trading().mode().name());
+        body.put("mode", props.engine().mode().name());
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }

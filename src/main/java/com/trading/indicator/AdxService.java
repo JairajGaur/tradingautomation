@@ -1,6 +1,6 @@
 package com.trading.indicator;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.AdxCalculator.Direction;
 import com.trading.indicator.AdxCalculator.Pattern;
 import com.trading.indicator.AdxCalculator.Point;
@@ -27,7 +27,7 @@ public class AdxService {
     private final BigDecimal threshold;
     private final int rising;
 
-    public AdxService(WebullProperties props) {
+    public AdxService(AppProperties props) {
         this.period = props.adx().period();
         this.threshold = props.adx().threshold();
         this.rising = props.adx().rising();

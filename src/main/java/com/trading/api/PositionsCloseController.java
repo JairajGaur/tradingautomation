@@ -1,6 +1,6 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.service.OrderService;
 import com.trading.state.PositionTracker;
 import org.slf4j.Logger;
@@ -35,11 +35,11 @@ public class PositionsCloseController {
 
     private static final Logger log = LoggerFactory.getLogger(PositionsCloseController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
 
-    public PositionsCloseController(WebullProperties props,
+    public PositionsCloseController(AppProperties props,
                                      OrderService orderService,
                                      PositionTracker positionTracker) {
         this.props = props;
@@ -105,7 +105,7 @@ public class PositionsCloseController {
         body.put("closed", closed);
         body.put("failed", failed);
         body.put("results", results);
-        body.put("mode", props.trading().mode().name());
+        body.put("mode", props.engine().mode().name());
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }

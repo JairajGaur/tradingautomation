@@ -1,6 +1,6 @@
 package com.trading.indicator;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.model.Candle;
@@ -24,7 +24,7 @@ public class SupertrendService {
     private final int length;
     private final BigDecimal factor;
 
-    public SupertrendService(WebullProperties props) {
+    public SupertrendService(AppProperties props) {
         this.length = props.supertrend().length();
         this.factor = props.supertrend().factor();
     }

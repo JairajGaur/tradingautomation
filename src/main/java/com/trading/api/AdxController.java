@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.indicator.AdxCalculator;
 import com.trading.indicator.AdxCalculator.Point;
 import com.trading.indicator.AdxService;
@@ -56,12 +57,15 @@ public class AdxController {
 
     private static final Logger log = LoggerFactory.getLogger(AdxController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final MarketDataService marketDataService;
     private final AdxService adx;
 
-    public AdxController(WebullProperties props, MarketDataService marketDataService, AdxService adx) {
+    public AdxController(AppProperties props, WebullApiProperties brokerApi,
+                         MarketDataService marketDataService, AdxService adx) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.marketDataService = marketDataService;
         this.adx = adx;
     }
@@ -78,7 +82,7 @@ public class AdxController {
             @RequestParam(name = "bars", defaultValue = "0") int returnBars) {
 
         String symbol = ticker == null ? "" : ticker.trim().toUpperCase();
-        int barCount = count != null && count > 0 ? count : props.trading().warmupBars();
+        int barCount = count != null && count > 0 ? count : props.engine().warmupBars();
         // Query params override the configured webull.adx.* defaults per request.
         int effPeriod = period != null ? period : adx.period();
         BigDecimal trendThreshold = threshold != null ? threshold : adx.threshold();
@@ -116,8 +120,8 @@ public class AdxController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "Market-data request failed");
             body.put("ticker", symbol);
-            body.put("mode", props.trading().mode().name());
-            body.put("endpoint", props.resolvedApiHost());
+            body.put("mode", props.engine().mode().name());
+            body.put("endpoint", brokerApi.resolvedApiHost());
             body.put("webullError", e.toDetailMap());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
@@ -181,7 +185,7 @@ public class AdxController {
         body.put("threshold", trendThreshold.toPlainString());
         body.put("risingLookback", risingLookback);
         body.put("timespan", ts);
-        body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
+        body.put("sessions", sess != null ? sess : props.engine().tradingSessions());
         body.put("barsFetched", candles.size());
         if (latest != null) {
             // ADX a few bars back, for the "gaining / losing strength" read.

@@ -2,7 +2,8 @@ package com.trading.api;
 
 import com.trading.broker.BrokerClient;
 import com.trading.broker.model.OrderSummary;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,11 +31,13 @@ public class OrderHistoryController {
 
     private static final Logger log = LoggerFactory.getLogger(OrderHistoryController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final BrokerClient client;
 
-    public OrderHistoryController(WebullProperties props, BrokerClient client) {
+    public OrderHistoryController(AppProperties props, WebullApiProperties brokerApi, BrokerClient client) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.client = client;
     }
 
@@ -104,8 +107,8 @@ public class OrderHistoryController {
     private ResponseEntity<Map<String, Object>> badGateway(Map<String, Object> webullError) {
         Map<String, Object> err = new LinkedHashMap<>();
         err.put("error", "Failed to fetch orders");
-        err.put("mode", props.trading().mode().name());
-        err.put("endpoint", props.resolvedApiHost());
+        err.put("mode", props.engine().mode().name());
+        err.put("endpoint", brokerApi.resolvedApiHost());
         err.put("webullError", webullError);
         err.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(err);

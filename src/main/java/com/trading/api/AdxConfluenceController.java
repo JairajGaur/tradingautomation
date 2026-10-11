@@ -1,7 +1,7 @@
 package com.trading.api;
 
 import com.trading.config.UniverseLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.AdxCalculator;
 import com.trading.indicator.AdxCalculator.Direction;
 import com.trading.indicator.AdxCalculator.Point;
@@ -57,13 +57,13 @@ public class AdxConfluenceController {
 
     private static final Logger log = LoggerFactory.getLogger(AdxConfluenceController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final AdxService adx;
     private final com.trading.service.ConfluenceService confluenceService;
 
-    public AdxConfluenceController(WebullProperties props,
+    public AdxConfluenceController(AppProperties props,
                                    UniverseLoader universeLoader,
                                    BarDataManager barData,
                                    AdxService adx,
@@ -120,7 +120,7 @@ public class AdxConfluenceController {
                     "timestamp", TimeFormat.nowEt()));
         }
 
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         for (String tf : tfs) {
             try {
                 barData.getBarsBatch(symbols, tf, warmup);

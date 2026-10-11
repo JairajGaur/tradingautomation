@@ -1,6 +1,6 @@
 package com.trading.strategy;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
 import com.trading.service.BarDataManager;
@@ -35,7 +35,7 @@ public class EmaStrategyService implements TradingStrategy {
 
     private static final int PRICE_SCALE = 8;
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
@@ -46,7 +46,7 @@ public class EmaStrategyService implements TradingStrategy {
     private final com.trading.service.QuantityManager quantityManager;
     private final com.trading.service.AccountService accountService;
 
-    public EmaStrategyService(WebullProperties props,
+    public EmaStrategyService(AppProperties props,
                                BarDataManager barData,
                                OrderService orderService,
                                PositionTracker positionTracker,
@@ -74,7 +74,7 @@ public class EmaStrategyService implements TradingStrategy {
     @Override
     public void onCandle(Candle candle) {
         String ticker = candle.ticker();
-        int period = props.trading().emaPeriod();
+        int period = props.engine().emaPeriod();
         String tf = props.strategies().ema600Timeframe();
 
         // Position guard — no duplicate buys.

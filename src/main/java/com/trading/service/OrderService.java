@@ -4,7 +4,7 @@ import com.trading.broker.BrokerClient;
 import com.trading.broker.model.OrderAck;
 import com.trading.broker.model.OrderRequest;
 import com.trading.broker.model.Quote;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.state.PositionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +46,7 @@ public class OrderService {
     public static final String TYPE_STOP               = "STOP";
     public static final String TYPE_TRAILING_STOP_LOSS = "TRAILING_STOP_LOSS";
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BrokerClient client;
     private final AccountService accountService;
     private final RiskManager riskManager;
@@ -55,7 +55,7 @@ public class OrderService {
     private final EntryGuard entryGuard;
     private final MarketHoursGuard marketHoursGuard;
 
-    public OrderService(WebullProperties props,
+    public OrderService(AppProperties props,
                         BrokerClient client,
                         @Lazy AccountService accountService,
                         @Lazy RiskManager riskManager,
@@ -90,7 +90,7 @@ public class OrderService {
         if (!q.hasBidAsk()) {
             return "SPREAD_GUARD: bid/ask unavailable for " + ticker;
         }
-        BigDecimal max = props.trading().maxSpreadPct();
+        BigDecimal max = props.engine().maxSpreadPct();
         if (max.signum() > 0) {
             BigDecimal pct = q.spreadPct();
             if (pct != null && pct.compareTo(max) > 0) {
@@ -520,14 +520,14 @@ public class OrderService {
                                BigDecimal price, String orderType, String clientOrderId, String orderId) {
         tradeLog.record(new TradeLog.TradeEntry(
                 Instant.now(), strategy, action, ticker, qty, price, orderType,
-                clientOrderId, orderId, props.trading().mode().name(), true, ""));
+                clientOrderId, orderId, props.engine().mode().name(), true, ""));
     }
 
     private void recordFailure(String strategy, String action, String ticker, int qty,
                                BigDecimal price, String orderType, String clientOrderId, String message) {
         tradeLog.record(new TradeLog.TradeEntry(
                 Instant.now(), strategy, action, ticker, qty, price, orderType,
-                clientOrderId, null, props.trading().mode().name(), false, message));
+                clientOrderId, null, props.engine().mode().name(), false, message));
     }
 
     private static String newClientOrderId() {

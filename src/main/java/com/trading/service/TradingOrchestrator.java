@@ -1,7 +1,7 @@
 package com.trading.service;
 
 import com.trading.config.WatchlistLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.model.Candle;
 import com.trading.strategy.EmaCrossoverStrategyService;
 import com.trading.strategy.EmaStrategyService;
@@ -61,7 +61,7 @@ public class TradingOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(TradingOrchestrator.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final WatchlistLoader watchlistLoader;
     private final MarketHoursGuard marketHoursGuard;
     private final RiskManager riskManager;
@@ -82,7 +82,7 @@ public class TradingOrchestrator {
     // Bounded pool for parallel per-ticker work within a tick (null when concurrency<=1).
     private final ExecutorService tickerPool;
 
-    public TradingOrchestrator(WebullProperties props,
+    public TradingOrchestrator(AppProperties props,
                                 WatchlistLoader watchlistLoader,
                                 MarketHoursGuard marketHoursGuard,
                                 RiskManager riskManager,
@@ -113,7 +113,7 @@ public class TradingOrchestrator {
         this.emaCrossoverStrategyService = emaCrossoverStrategyService;
         this.stCrossStrategyService = stCrossStrategyService;
 
-        int concurrency = Math.max(1, props.trading().tickerConcurrency());
+        int concurrency = Math.max(1, props.engine().tickerConcurrency());
         this.tickerPool = concurrency > 1
                 ? Executors.newFixedThreadPool(concurrency, r -> {
                     Thread t = new Thread(r, "ticker-worker");
@@ -131,7 +131,7 @@ public class TradingOrchestrator {
      * never invoked. Falls back to STAGED if the config value is unknown/missing.
      */
     private static PositionExitManager selectExitManager(List<PositionExitManager> managers,
-                                                         WebullProperties props) {
+                                                         AppProperties props) {
         PositionExitManager.Kind want;
         try {
             want = PositionExitManager.Kind.valueOf(props.exit().manager().trim().toUpperCase());
@@ -162,7 +162,7 @@ public class TradingOrchestrator {
     @PostConstruct
     public void warmUp() {
         List<String> tickers          = watchlistLoader.getTickers();
-        int warmupBars                = props.trading().warmupBars();
+        int warmupBars                = props.engine().warmupBars();
         List<TradingStrategy> enabled = enabledStrategies();
 
         log.info("[Orchestrator] === WARM-UP START === session={} tickers={} strategies={}",
@@ -219,7 +219,7 @@ public class TradingOrchestrator {
 
         // Master switch: when automated trading is disabled, the loop is a FULL STOP —
         // no entries and no automatic exits. REST endpoints and MANUAL trades still work.
-        if (!props.trading().tradingEnabled()) {
+        if (!props.engine().tradingEnabled()) {
             log.debug("[Orchestrator] Automated trading disabled (trading-enabled=false) — skipping tick");
             return;
         }
@@ -258,7 +258,7 @@ public class TradingOrchestrator {
         }
 
         List<String> tickers = watchlistLoader.getTickers();
-        int warmupBars = props.trading().warmupBars();
+        int warmupBars = props.engine().warmupBars();
 
         // ── Entry guard DISABLED ───────────────────────────────────────────
         // No arming exists, so the armed-scoping optimization would starve every

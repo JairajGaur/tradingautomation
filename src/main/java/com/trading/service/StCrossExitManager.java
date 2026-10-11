@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
 import com.trading.state.PositionTracker;
@@ -37,7 +37,7 @@ public class StCrossExitManager implements PositionExitManager {
 
     private static final Logger log = LoggerFactory.getLogger(StCrossExitManager.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final PositionTracker positionTracker;
     private final OrderService orderService;
@@ -48,7 +48,7 @@ public class StCrossExitManager implements PositionExitManager {
     private final java.util.Map<String, BigDecimal> stopLevel =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    public StCrossExitManager(WebullProperties props,
+    public StCrossExitManager(AppProperties props,
                               BarDataManager barData,
                               PositionTracker positionTracker,
                               @Lazy OrderService orderService,

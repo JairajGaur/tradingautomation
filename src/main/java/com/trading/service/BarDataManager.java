@@ -36,7 +36,7 @@ public class BarDataManager {
     private static final int MAX_BATCH_SYMBOLS = 20;
 
     private final MarketDataService marketDataService;
-    private final com.trading.config.WebullProperties props;
+    private final com.trading.config.AppProperties props;
 
     // Rate limiter state: the earliest wall-clock time (ms) the next fetch may run.
     // Spacing = 1000 / maxRequestsPerSecond ms between fetches, enforced across all threads.
@@ -44,7 +44,7 @@ public class BarDataManager {
     private long nextAllowedMs = 0L;
 
     public BarDataManager(MarketDataService marketDataService,
-                          com.trading.config.WebullProperties props) {
+                          com.trading.config.AppProperties props) {
         this.marketDataService = marketDataService;
         this.props = props;
     }
@@ -59,7 +59,7 @@ public class BarDataManager {
      * 0 (unlimited). Only gates ACTUAL fetches — cache hits never call this.
      */
     private void throttle() {
-        int rps = props.trading().maxRequestsPerSecond();
+        int rps = props.engine().maxRequestsPerSecond();
         if (rps <= 0) return;
         long spacingMs = 1000L / rps;
         long waitMs;
@@ -170,7 +170,7 @@ public class BarDataManager {
 
     /** The standard bar count fetched/cached per series (covers the largest consumer, the 600-EMA). */
     private int standardBarCount() {
-        return Math.max(props.trading().warmupBars(), 700);
+        return Math.max(props.engine().warmupBars(), 700);
     }
 
     /** Returns the last {@code n} bars of {@code bars} (or all if fewer). */

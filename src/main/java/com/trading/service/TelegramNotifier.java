@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,17 +20,17 @@ import org.springframework.stereotype.Service;
 @Service
 public class TelegramNotifier implements NotificationService {
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final TelegramChannelSender sender;
 
-    public TelegramNotifier(WebullProperties props, TelegramChannelSender sender) {
+    public TelegramNotifier(AppProperties props, TelegramChannelSender sender) {
         this.props = props;
         this.sender = sender;
     }
 
     @Override
     public boolean isEnabled() {
-        WebullProperties.Notifications n = props.notifications();
+        AppProperties.Notifications n = props.notifications();
         return n != null
                 && n.enabled()
                 && "TELEGRAM".equalsIgnoreCase(n.channel())

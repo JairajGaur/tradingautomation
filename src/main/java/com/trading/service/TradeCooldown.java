@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,10 +19,10 @@ public class TradeCooldown {
 
     private static final Logger log = LoggerFactory.getLogger(TradeCooldown.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final Map<String, Instant> lastActivity = new ConcurrentHashMap<>();
 
-    public TradeCooldown(WebullProperties props) {
+    public TradeCooldown(AppProperties props) {
         this.props = props;
     }
 

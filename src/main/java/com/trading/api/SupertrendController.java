@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.indicator.SupertrendService;
 import com.trading.model.Candle;
@@ -53,13 +54,16 @@ public class SupertrendController {
 
     private static final Logger log = LoggerFactory.getLogger(SupertrendController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final MarketDataService marketDataService;
     private final SupertrendService supertrend;
 
-    public SupertrendController(WebullProperties props, MarketDataService marketDataService,
+    public SupertrendController(AppProperties props, WebullApiProperties brokerApi,
+                                MarketDataService marketDataService,
                                 SupertrendService supertrend) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.marketDataService = marketDataService;
         this.supertrend = supertrend;
     }
@@ -73,7 +77,7 @@ public class SupertrendController {
             @RequestParam(name = "bars", defaultValue = "50") int returnBars) {
 
         String symbol = ticker == null ? "" : ticker.trim().toUpperCase();
-        int barCount = count != null && count > 0 ? count : props.trading().warmupBars();
+        int barCount = count != null && count > 0 ? count : props.engine().warmupBars();
         int length = supertrend.length();
 
         log.info("[SupertrendController] GET /api/supertrend/{} length={} factor={} timespan={} sessions={} count={}",
@@ -101,8 +105,8 @@ public class SupertrendController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "Market-data request failed");
             body.put("ticker", symbol);
-            body.put("mode", props.trading().mode().name());
-            body.put("endpoint", props.resolvedApiHost());
+            body.put("mode", props.engine().mode().name());
+            body.put("endpoint", brokerApi.resolvedApiHost());
             body.put("webullError", e.toDetailMap());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
@@ -154,7 +158,7 @@ public class SupertrendController {
         body.put("length", length);
         body.put("factor", supertrend.factor().toPlainString());
         body.put("timespan", ts);
-        body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
+        body.put("sessions", sess != null ? sess : props.engine().tradingSessions());
         body.put("barsFetched", candles.size());
         if (latest != null) {
             body.put("latestSupertrend", latest.supertrend().toPlainString());

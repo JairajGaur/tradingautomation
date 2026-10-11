@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,7 +33,7 @@ public class MarketHoursGuard {
     private static final ZoneId NEW_YORK = ZoneId.of("America/New_York");
     private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
-    private final WebullProperties props;
+    private final AppProperties props;
 
     // Parsed time boundaries — computed once from config strings
     private final LocalTime coreOpen;
@@ -41,9 +41,9 @@ public class MarketHoursGuard {
     private final LocalTime preMarketOpen;
     private final LocalTime afterHoursClose;
 
-    public MarketHoursGuard(WebullProperties props) {
+    public MarketHoursGuard(AppProperties props) {
         this.props = props;
-        WebullProperties.MarketHours mh = props.marketHours();
+        AppProperties.MarketHours mh = props.marketHours();
         this.coreOpen        = LocalTime.parse(mh.coreOpen(),       HM);
         this.coreClose       = LocalTime.parse(mh.coreClose(),      HM);
         this.preMarketOpen   = LocalTime.parse(mh.preMarketOpen(),  HM);

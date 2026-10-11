@@ -32,7 +32,7 @@ public class UniverseLoader {
 
     private final List<String> universe;
 
-    public UniverseLoader(WebullProperties props, ResourceLoader resourceLoader) {
+    public UniverseLoader(AppProperties props, ResourceLoader resourceLoader) {
         this.universe = load(props, resourceLoader);
     }
 
@@ -41,8 +41,8 @@ public class UniverseLoader {
         return universe;
     }
 
-    private List<String> load(WebullProperties props, ResourceLoader resourceLoader) {
-        String path = props.trading().universePath();
+    private List<String> load(AppProperties props, ResourceLoader resourceLoader) {
+        String path = props.engine().universePath();
         log.info("[UniverseLoader] Loading ticker universe from: {}", path);
         try {
             Resource resource = resourceLoader.getResource(path);

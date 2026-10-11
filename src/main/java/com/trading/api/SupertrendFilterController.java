@@ -1,7 +1,7 @@
 package com.trading.api;
 
 import com.trading.config.UniverseLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendService;
 import com.trading.model.Candle;
@@ -52,12 +52,12 @@ public class SupertrendFilterController {
 
     private static final Logger log = LoggerFactory.getLogger(SupertrendFilterController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
 
-    public SupertrendFilterController(WebullProperties props,
+    public SupertrendFilterController(AppProperties props,
                                       UniverseLoader universeLoader,
                                       BarDataManager barData,
                                       SupertrendService supertrend) {
@@ -114,7 +114,7 @@ public class SupertrendFilterController {
                 symbols.size(), want, tfs);
 
         // Prime the shared bar cache per timeframe (one batched request each).
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         for (String tf : tfs) {
             try {
                 barData.getBarsBatch(symbols, tf, warmup);

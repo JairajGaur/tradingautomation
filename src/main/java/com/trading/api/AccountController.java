@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.service.AccountService;
 import com.trading.service.MarketHoursGuard;
 import com.trading.broker.BrokerClient;
@@ -27,20 +28,23 @@ public class AccountController {
 
     private static final Logger log = LoggerFactory.getLogger(AccountController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final BrokerClient client;
     private final AccountService accountService;
     private final RiskManager riskManager;
     private final MarketHoursGuard marketHoursGuard;
     private final PositionTracker positionTracker;
 
-    public AccountController(WebullProperties props,
+    public AccountController(AppProperties props,
+                              WebullApiProperties brokerApi,
                               BrokerClient client,
                               AccountService accountService,
                               RiskManager riskManager,
                               MarketHoursGuard marketHoursGuard,
                               PositionTracker positionTracker) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.client = client;
         this.accountService = accountService;
         this.riskManager = riskManager;
@@ -88,8 +92,8 @@ public class AccountController {
         body.put("marketSession",       marketHoursGuard.currentSessionDescription());
         body.put("tradingAllowed",      marketHoursGuard.isTradingAllowed());
         body.put("openPositions",       positionTracker.allPositions().size());
-        body.put("mode",                props.trading().mode().name());
-        body.put("endpoint",            props.resolvedApiHost());
+        body.put("mode",                props.engine().mode().name());
+        body.put("endpoint",            brokerApi.resolvedApiHost());
         if (webullError != null) body.put("webullError", webullError);
         body.put("timestamp", TimeFormat.nowEt());
 
@@ -134,8 +138,8 @@ public class AccountController {
         body.put("netLiquidationValue", snap.netLiquidationValue().toPlainString());
         body.put("buyingPower",         snap.buyingPower().toPlainString());
         body.put("balanceValid",        balance != null && balance.valid());
-        body.put("mode",                props.trading().mode().name());
-        body.put("endpoint",            props.resolvedApiHost());
+        body.put("mode",                props.engine().mode().name());
+        body.put("endpoint",            brokerApi.resolvedApiHost());
         if (webullError != null) body.put("webullError", webullError);
         body.put("timestamp", TimeFormat.nowEt());
 
@@ -157,8 +161,8 @@ public class AccountController {
         body.put("tradingAllowed",   marketHoursGuard.isTradingAllowed());
         body.put("marketSession",    marketHoursGuard.currentSessionDescription());
         body.put("openPositions",    positionTracker.allPositions().size());
-        body.put("mode",             props.trading().mode().name());
-        body.put("endpoint",         props.resolvedApiHost());
+        body.put("mode",             props.engine().mode().name());
+        body.put("endpoint",         brokerApi.resolvedApiHost());
         body.put("maxDrawdownPct",   props.risk().maxDailyDrawdownPct().toPlainString());
         body.put("minBuyingPower",   props.risk().minBuyingPowerUsd().toPlainString());
         body.put("extendedHours",    props.marketHours().extendedHoursEnabled());

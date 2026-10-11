@@ -41,7 +41,7 @@ public class WatchlistLoader {
 
     private final List<String> tickers;
 
-    public WatchlistLoader(WebullProperties props, ResourceLoader resourceLoader) {
+    public WatchlistLoader(AppProperties props, ResourceLoader resourceLoader) {
         this.tickers = load(props, resourceLoader);
     }
 
@@ -61,15 +61,15 @@ public class WatchlistLoader {
     // Loading logic
     // -----------------------------------------------------------------------
 
-    private List<String> load(WebullProperties props, ResourceLoader resourceLoader) {
-        String path = props.trading().watchlistPath();
+    private List<String> load(AppProperties props, ResourceLoader resourceLoader) {
+        String path = props.engine().watchlistPath();
         log.info("[WatchlistLoader] Loading ticker watchlist from: {}", path);
 
         try {
             Resource resource = resourceLoader.getResource(path);
             if (!resource.exists()) {
                 log.warn("[WatchlistLoader] Watchlist file not found at '{}' — falling back to single ticker: {}",
-                        path, props.trading().ticker());
+                        path, props.engine().ticker());
                 return fallback(props);
             }
 
@@ -85,7 +85,7 @@ public class WatchlistLoader {
 
                 if (loaded.isEmpty()) {
                     log.warn("[WatchlistLoader] Watchlist file '{}' is empty — falling back to single ticker: {}",
-                            path, props.trading().ticker());
+                            path, props.engine().ticker());
                     return fallback(props);
                 }
 
@@ -95,12 +95,12 @@ public class WatchlistLoader {
 
         } catch (Exception e) {
             log.error("[WatchlistLoader] Failed to read watchlist file '{}' — falling back to single ticker: {}",
-                    path, props.trading().ticker(), e);
+                    path, props.engine().ticker(), e);
             return fallback(props);
         }
     }
 
-    private List<String> fallback(WebullProperties props) {
-        return List.of(props.trading().ticker().toUpperCase());
+    private List<String> fallback(AppProperties props) {
+        return List.of(props.engine().ticker().toUpperCase());
     }
 }

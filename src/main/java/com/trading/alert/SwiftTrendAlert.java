@@ -1,6 +1,6 @@
 package com.trading.alert;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SwiftTrendScanner;
 import com.trading.indicator.SwiftTrendScanner.Decision;
 import com.trading.model.Candle;
@@ -31,12 +31,12 @@ public class SwiftTrendAlert implements Alert {
 
     private static final Logger log = LoggerFactory.getLogger(SwiftTrendAlert.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final SwiftTrendScanner scanner;
     private final TelegramChannelSender telegram;
 
-    public SwiftTrendAlert(WebullProperties props,
+    public SwiftTrendAlert(AppProperties props,
                            BarDataManager barData,
                            SwiftTrendScanner scanner,
                            TelegramChannelSender telegram) {
@@ -81,7 +81,7 @@ public class SwiftTrendAlert implements Alert {
         return Math.max(1, TimeframeSupport.minutesOf(tf));   // M3 → 3; D/W/M/Y (-1) → 1
     }
 
-    private WebullProperties.Alerts.SwiftScanCfg cfg() {
+    private AppProperties.Alerts.SwiftScanCfg cfg() {
         return scanner.config();
     }
 
@@ -106,7 +106,7 @@ public class SwiftTrendAlert implements Alert {
      */
     @Override
     public List<AlertHit> evaluate(List<String> universe) {
-        WebullProperties.Alerts.SwiftScanCfg c = cfg();
+        AppProperties.Alerts.SwiftScanCfg c = cfg();
         if (c == null) return List.of();
 
         final String tf;
@@ -127,7 +127,7 @@ public class SwiftTrendAlert implements Alert {
             return List.of();
         }
 
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         long now = System.currentTimeMillis();
 
         for (String symbol : universe) {
@@ -150,11 +150,11 @@ public class SwiftTrendAlert implements Alert {
     }
 
     /** The swift-scan channel id, falling back to the main notifications chat id when blank. */
-    private String resolveChatId(WebullProperties.Alerts.SwiftScanCfg c) {
+    private String resolveChatId(AppProperties.Alerts.SwiftScanCfg c) {
         if (c.telegramChatId() != null && !c.telegramChatId().isBlank()) {
             return c.telegramChatId().trim();
         }
-        WebullProperties.Notifications n = props.notifications();
+        AppProperties.Notifications n = props.notifications();
         return (n != null && n.telegramChatId() != null) ? n.telegramChatId().trim() : null;
     }
 }

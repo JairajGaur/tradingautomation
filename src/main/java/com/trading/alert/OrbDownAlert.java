@@ -1,6 +1,6 @@
 package com.trading.alert;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendService;
 import com.trading.model.Candle;
@@ -31,11 +31,11 @@ public class OrbDownAlert implements Alert {
 
     private static final Logger log = LoggerFactory.getLogger(OrbDownAlert.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
 
-    public OrbDownAlert(WebullProperties props, BarDataManager barData, SupertrendService supertrend) {
+    public OrbDownAlert(AppProperties props, BarDataManager barData, SupertrendService supertrend) {
         this.props = props;
         this.barData = barData;
         this.supertrend = supertrend;
@@ -100,7 +100,7 @@ public class OrbDownAlert implements Alert {
             log.warn("[OrbDownAlert] invalid timeframe config: {}", e.getMessage());
             return List.of();
         }
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         int emaPeriod = props.alerts().orb().emaPeriod();
         int lookback = Math.max(1, props.alerts().orb().emaSlopeLookback());
         boolean stSlopeGate = props.alerts().orb().stSlopeConfirmEnabled();

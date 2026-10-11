@@ -1,7 +1,8 @@
 package com.trading.api;
 
 import com.trading.broker.BrokerClient;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.state.PositionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,14 +27,17 @@ public class PositionsController {
 
     private static final Logger log = LoggerFactory.getLogger(PositionsController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final BrokerClient client;
     private final PositionTracker positionTracker;
 
-    public PositionsController(WebullProperties props,
+    public PositionsController(AppProperties props,
+                                WebullApiProperties brokerApi,
                                 BrokerClient client,
                                 PositionTracker positionTracker) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.client = client;
         this.positionTracker = positionTracker;
     }
@@ -117,8 +121,8 @@ public class PositionsController {
     private ResponseEntity<Map<String, Object>> badGateway(Map<String, Object> webullError) {
         Map<String, Object> err = new LinkedHashMap<>();
         err.put("error", "Failed to fetch positions");
-        err.put("mode", props.trading().mode().name());
-        err.put("endpoint", props.resolvedApiHost());
+        err.put("mode", props.engine().mode().name());
+        err.put("endpoint", brokerApi.resolvedApiHost());
         err.put("webullError", webullError);
         err.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(err);

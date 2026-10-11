@@ -1,5 +1,5 @@
 spring:
-  # Paper vs live is controlled by webull.trading.mode below — NOT by a profile.
+  # Paper vs live is controlled by app.engine.mode below — NOT by a profile.
   # Spring Boot DevTools — auto-restart on classpath changes during development.
   devtools:
     restart:
@@ -11,11 +11,11 @@ spring:
 
 # ── Logging ──────────────────────────────────────────────────────────────
 # To see the Webull request/response logs you need BOTH:
-#   1. webull.api.log-requests: true   (below)
-#   2. this logger at DEBUG            (uncomment the line below)
+#   1. broker.webull.api.log-requests: true   (below)
+#   2. this logger at DEBUG                    (uncomment the line below)
 logging:
   level:
-    com.trading.webull.WebullV3Client: INFO   # set to DEBUG to emit request/response logs
+    com.trading.webull.WebullV3Client: INFO   # set to DEBUG to emit request/response logs; also set broker.webull.api.log-requests: true
     # DEBUG here logs WHY a strategy skipped a ticker each bar (no fresh cross, not above
     # EMAs, not a strong green candle, ST not UP, cooldown, etc.). Noisy but essential for
     # answering "why didn't it take the trade?". Set back to INFO to quiet it.
@@ -31,27 +31,45 @@ logging:
       max-history: 14          # keep 14 days of rolled logs
       total-size-cap: 500MB    # hard cap on total log disk usage
 
-webull:
-  api:
-    app-key: ${WEBULL_APP_KEY}
-    app-secret: ${WEBULL_APP_SECRET}
-    region-id: "us"
-    # Leave blank to use automatic endpoint based on trading.mode:
-    #   PAPER → api.sandbox.webull.com   |   LIVE → api.webull.com
-    endpoint: ""
-    # Optional 2FA access token (x-access-token). Leave blank when 2FA is off.
-    access-token: ${WEBULL_ACCESS_TOKEN:}
-    # Explicit account ID to trade against. Leave blank to auto-pick the MARGIN
-    # equity account from GET /trading/accounts/list (INDIVIDUAL_MARGIN). Set an
-    # override here (or via WEBULL_ACCOUNT_ID env var) only if you need a specific
-    # account and don't want auto-selection.
-    account-id: ${WEBULL_ACCOUNT_ID:}
-    # Log the full request/response to the Webull API (method, path, masked
-    # headers, body). Emitted at DEBUG level — you must ALSO set the logging
-    # level below to DEBUG for the lines to appear. Off by default.
-    log-requests: false
+# ── Broker (broker-specific config: credentials, endpoint paths, routing) ──
+broker:
+  # Selects the active broker adapter. "webull" wires the Webull v3 adapter.
+  provider: webull
+  webull:
+    api:
+      app-key: ${WEBULL_APP_KEY}
+      app-secret: ${WEBULL_APP_SECRET}
+      region-id: "us"
+      # Leave blank to use automatic endpoint based on app.engine.mode:
+      #   PAPER → api.sandbox.webull.com   |   LIVE → api.webull.com
+      endpoint: ""
+      # Optional 2FA access token (x-access-token). Leave blank when 2FA is off.
+      access-token: ${WEBULL_ACCESS_TOKEN:}
+      # Explicit account ID to trade against. Leave blank to auto-pick the MARGIN
+      # equity account from GET /trading/accounts/list (INDIVIDUAL_MARGIN). Set an
+      # override here (or via WEBULL_ACCOUNT_ID env var) only if you need a specific
+      # account and don't want auto-selection.
+      account-id: ${WEBULL_ACCOUNT_ID:}
+      # Log the full request/response to the Webull API (method, path, masked
+      # headers, body). Emitted at DEBUG level — you must ALSO set the logging
+      # level below to DEBUG for the lines to appear. Off by default.
+      log-requests: false
 
-  trading:
+    # ── Webull v3 endpoint paths ───────────────────────────────────────────
+    # Override any path here if Webull changes a route — no recompile needed.
+    endpoints:
+      account-list: "/trading/accounts/list"
+      account-balance: "/trading/assets/balances/get"
+      positions: "/trading/assets/positions/list"
+      place-order: "/trading/orders/place"
+      order-history: "/trading/orders/historical-orders/list"
+      open-orders: "/trading/orders/open-orders/list"
+      bars: "/market-data/stocks/bars/list"
+      snapshot: "/market-data/stocks/snapshots/list"
+
+# ── App (broker-neutral domain config) ─────────────────────────────────────
+app:
+  engine:
     # ── THE ONLY SWITCH between paper and live trading ────────────────────
     #   PAPER = Webull SANDBOX endpoint (api.sandbox.webull.com) — no real money
     #   LIVE  = PRODUCTION endpoint (api.webull.com) — REAL orders, real money
@@ -182,6 +200,7 @@ webull:
     # Exposes GET /api/diagnostics/credentials showing the loaded app key (full)
     # and app secret (MASKED + SHA-256 fingerprint). Off by default.
     # NEVER enable this in a shared or production environment.
+    # Read via @Value("${app.diagnostics.credentials-endpoint-enabled}").
     credentials-endpoint-enabled: true
 
   # ── Risk management ───────────────────────────────────────────────────────
@@ -216,7 +235,7 @@ webull:
   # ── Notifications (push trade alerts to your phone) ───────────────────────
   # Telegram: create a bot via @BotFather for the token, and get your chat id
   # (e.g. message @userinfobot). Failures never affect trading.
-  # Telegram DELIVERY channel only. WHAT gets sent is driven by webull.alerts below
+  # Telegram DELIVERY channel only. WHAT gets sent is driven by app.alerts below
   # (and the /api/notifications/test endpoint). For a channel, set the chat id to
   # @channelname (public) or a -100... id (private) and make the bot a channel admin.
   notifications:
@@ -267,7 +286,7 @@ webull:
       # Supertrend-line-slope confluence (optional). When enabled, an UP break fires only if the
       # Supertrend LINE has been advancing UP on ANY of the last st-slope-bars bars (DOWN mirrors)
       # — so a currently-flat line still passes if it moved in-direction recently. Uses the shared
-      # webull.supertrend length/factor (control those there). The timeframe is INDEPENDENT of the
+      # app.supertrend length/factor (control those there). The timeframe is INDEPENDENT of the
       # ORB range/scan timeframes (any M1/M5/M15/... or synthetic M2/M3).
       st-slope-confirm-enabled: true
       st-slope-timeframe: "M5"      # Supertrend timeframe for this gate (independent of ORB)
@@ -293,7 +312,7 @@ webull:
     # Slow grinds that hug the line, choppy whipsaws, and exhausted/extended moves are all
     # filtered out. Fires ONCE per flip per symbol, then a cooldown. Each signal is posted
     # as its OWN message to a SEPARATE Telegram channel (telegram-chat-id below), reusing
-    # the shared bot token (webull.notifications.telegram-bot-token). Runs on the shared
+    # the shared bot token (app.notifications.telegram-bot-token). Runs on the shared
     # AlertEngine tick, so it only fires within configured market hours.
     # Message: "<prefix><DIR-emoji> <SYMBOL> <DIRECTION> @ <price>".
     # All *-atr thresholds are in ATR units (price-agnostic). timeframe is configurable.
@@ -330,7 +349,7 @@ webull:
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
-  #   1. Supertrend is UP on `supertrend-timespan` (uses webull.supertrend params)
+  #   1. Supertrend is UP on `supertrend-timespan` (uses app.supertrend params)
   #   2. EMA stack on `ema-timespan`: EMA(fast) > EMA(slow), and (if ema-require-mid)
   #      also EMA(mid) > EMA(slow).
   # `condition-logic` combines the legs:
@@ -362,15 +381,3 @@ webull:
     extended-hours-enabled: true
     pre-market-open: "09:00"
     after-hours-close: "15:30"
-
-  # ── Webull v3 endpoint paths ─────────────────────────────────────────────
-  # Override any path here if Webull changes a route — no recompile needed.
-  endpoints:
-    account-list: "/trading/accounts/list"
-    account-balance: "/trading/assets/balances/get"
-    positions: "/trading/assets/positions/list"
-    place-order: "/trading/orders/place"
-    order-history: "/trading/orders/historical-orders/list"
-    open-orders: "/trading/orders/open-orders/list"
-    bars: "/market-data/stocks/bars/list"
-    snapshot: "/market-data/stocks/snapshots/list"

@@ -1,6 +1,7 @@
 package com.trading.webull;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.config.BrokerProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -10,40 +11,49 @@ import org.springframework.stereotype.Component;
  *
  * <p>This is the ONLY configuration surface the Webull adapter
  * ({@link WebullV3Client}) and the {@link com.trading.config.CredentialsValidator}
- * depend on. It deliberately exposes just the broker-specific settings — not the
- * app's neutral trading/risk/exit/strategy/alert configuration — so that broker
- * credentials and routing are isolated to the adapter. A different broker's adapter
- * has its own analogous properties type; nothing broker-agnostic reads this.</p>
+ * depend on. It exposes just the broker-specific settings ({@link BrokerProperties})
+ * plus the resolved host — not the app's neutral trading/risk/exit/strategy/alert
+ * configuration — so that broker credentials and routing are isolated to the adapter.
+ * A different broker's adapter has its own analogous properties type; nothing
+ * broker-agnostic reads this.</p>
  *
- * <p>It is a thin wrapper over the app-wide {@link WebullProperties} binding rather
- * than a second {@code @ConfigurationProperties} class, so there is a single source
- * of truth for the {@code webull.*} YAML and no risk of divergent binding.</p>
+ * <p>Host resolution needs the app's trading mode, so this wrapper reads it from
+ * {@link AppProperties} while all broker-specific fields come from
+ * {@link BrokerProperties}.</p>
  */
 @Component
 @ConditionalOnProperty(name = "broker.provider", havingValue = "webull", matchIfMissing = true)
 public class WebullApiProperties {
 
-    private final WebullProperties props;
+    private final BrokerProperties brokerProps;
+    private final AppProperties appProps;
 
-    public WebullApiProperties(WebullProperties props) {
-        this.props = props;
+    public WebullApiProperties(BrokerProperties brokerProps, AppProperties appProps) {
+        this.brokerProps = brokerProps;
+        this.appProps = appProps;
     }
 
-    /** Webull API credentials + options ({@code webull.api.*}). */
-    public WebullProperties.Api api() {
-        return props.api();
+    /** Webull API credentials + options ({@code broker.webull.api.*}). */
+    public BrokerProperties.Api api() {
+        return brokerProps.api();
     }
 
-    /** Webull v3 endpoint paths ({@code webull.endpoints.*}). */
-    public WebullProperties.Endpoints endpoints() {
-        return props.endpoints();
+    /** Webull v3 endpoint paths ({@code broker.webull.endpoints.*}). */
+    public BrokerProperties.Endpoints endpoints() {
+        return brokerProps.endpoints();
     }
 
     /**
-     * Resolved API host: an explicit {@code webull.api.endpoint} override when set,
-     * otherwise the production or sandbox host selected by {@code webull.trading.mode}.
+     * Resolved API host: an explicit {@code broker.webull.api.endpoint} override when
+     * set, otherwise the production or sandbox host selected by {@code app.engine.mode}.
      */
     public String resolvedApiHost() {
-        return props.resolvedApiHost();
+        String endpoint = brokerProps.api().endpoint();
+        if (endpoint != null && !endpoint.isBlank()) {
+            return endpoint;
+        }
+        return appProps.isLiveMode()
+                ? "api.webull.com"
+                : "api.sandbox.webull.com";
     }
 }

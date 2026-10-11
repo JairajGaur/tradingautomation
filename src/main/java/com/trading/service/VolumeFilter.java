@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.model.Candle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,10 +24,10 @@ public class VolumeFilter {
 
     private static final String TF = "M1";
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
 
-    public VolumeFilter(WebullProperties props, BarDataManager barData) {
+    public VolumeFilter(AppProperties props, BarDataManager barData) {
         this.props = props;
         this.barData = barData;
     }

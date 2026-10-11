@@ -1,7 +1,7 @@
 package com.trading.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -36,11 +36,11 @@ public class TelegramChannelSender {
     private static final Logger log = LoggerFactory.getLogger(TelegramChannelSender.class);
     private static final MediaType JSON = MediaType.parse("application/json");
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final OkHttpClient http;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public TelegramChannelSender(WebullProperties props) {
+    public TelegramChannelSender(AppProperties props) {
         this.props = props;
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -53,7 +53,7 @@ public class TelegramChannelSender {
      * the caller is responsible for having a non-blank target.
      */
     public boolean isConfigured() {
-        WebullProperties.Notifications n = props.notifications();
+        AppProperties.Notifications n = props.notifications();
         return n != null
                 && n.telegramBotToken() != null
                 && !n.telegramBotToken().isBlank();

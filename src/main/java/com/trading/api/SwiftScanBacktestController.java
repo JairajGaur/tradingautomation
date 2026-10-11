@@ -1,6 +1,6 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.indicator.SupertrendService;
@@ -66,12 +66,12 @@ public class SwiftScanBacktestController {
     private static final ZoneId ET = ZoneId.of("America/New_York");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ISO_LOCAL_DATE;
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final MarketDataService marketDataService;
     private final SupertrendService supertrend;
     private final SwiftTrendScanner scanner;
 
-    public SwiftScanBacktestController(WebullProperties props,
+    public SwiftScanBacktestController(AppProperties props,
                                        MarketDataService marketDataService,
                                        SupertrendService supertrend,
                                        SwiftTrendScanner scanner) {
@@ -97,7 +97,7 @@ public class SwiftScanBacktestController {
 
         // Config + detection params all come from the shared scanner — the SAME source of
         // truth the live alert uses, so the backtest can't diverge from live behaviour.
-        WebullProperties.Alerts.SwiftScanCfg cfg = scanner.config();
+        AppProperties.Alerts.SwiftScanCfg cfg = scanner.config();
         if (cfg == null) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "error", "swift-scan config missing", "timestamp", TimeFormat.nowEt()));
@@ -121,7 +121,7 @@ public class SwiftScanBacktestController {
             ts = MarketDataService.normaliseTimespan(
                     (timeframe != null && !timeframe.isBlank()) ? timeframe : cfg.timeframe());
             String requestedSessions = (sessions != null && !sessions.isBlank())
-                    ? sessions : props.trading().tradingSessions();
+                    ? sessions : props.engine().tradingSessions();
             sess = MarketDataService.normaliseSessions(requestedSessions);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -315,7 +315,7 @@ public class SwiftScanBacktestController {
         long barsPerDay = tfMin > 0 ? Math.max(1, 390 / tfMin) : 1;
         // Allow for extended sessions roughly doubling intraday bars; add warm-up buffer.
         long estimate = tradingDays * barsPerDay * 2 + length * 3L + 50;
-        long warmup = props.trading().warmupBars();
+        long warmup = props.engine().warmupBars();
         long floored = Math.max(estimate, warmup);
         // Cap: don't request more than ~20k bars (broker/practical limit).
         return (int) Math.min(floored, 20_000L);

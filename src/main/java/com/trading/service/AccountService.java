@@ -1,7 +1,7 @@
 package com.trading.service;
 
 import com.trading.broker.BrokerClient;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,7 +32,7 @@ public class AccountService {
 
     static final BigDecimal PAPER_BUYING_POWER = new BigDecimal("999999999");
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BrokerClient client;
 
     private final AtomicReference<AccountSnapshot> snapshot =
@@ -47,7 +47,7 @@ public class AccountService {
     private volatile long cachedHoldingsAt = 0L;
     private final Object holdingsLock = new Object();
 
-    public AccountService(WebullProperties props, BrokerClient client) {
+    public AccountService(AppProperties props, BrokerClient client) {
         this.props = props;
         this.client = client;
     }

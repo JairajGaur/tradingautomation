@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -27,9 +27,9 @@ public class QuantityManager {
 
     private static final Logger log = LoggerFactory.getLogger(QuantityManager.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
 
-    public QuantityManager(WebullProperties props) {
+    public QuantityManager(AppProperties props) {
         this.props = props;
     }
 
@@ -48,15 +48,15 @@ public class QuantityManager {
             return 0;
         }
 
-        String mode = props.trading().sizingMode() == null ? "SHARES"
-                : props.trading().sizingMode().trim().toUpperCase();
+        String mode = props.engine().sizingMode() == null ? "SHARES"
+                : props.engine().sizingMode().trim().toUpperCase();
 
         if ("PERCENT".equals(mode)) {
             if (price == null || price.signum() <= 0) {
                 log.info("[QuantityManager] {} — no price for PERCENT sizing → skip", ticker);
                 return 0;
             }
-            BigDecimal pct = props.trading().orderBuyingPowerPct();
+            BigDecimal pct = props.engine().orderBuyingPowerPct();
             BigDecimal budget = buyingPower.multiply(pct);
             int qty = budget.divide(price, 0, RoundingMode.DOWN).intValue();   // floor
             if (qty < 1) {
@@ -70,7 +70,7 @@ public class QuantityManager {
         }
 
         // SHARES (default): fixed quantity; affordability enforced downstream by canAfford.
-        int qty = props.trading().orderQuantity();
+        int qty = props.engine().orderQuantity();
         log.debug("[QuantityManager] {} — SHARES qty={}", ticker, qty);
         return Math.max(0, qty);
     }

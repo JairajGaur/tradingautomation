@@ -22,10 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @SpringBootTest
 @TestPropertySource(properties = {
-        "webull.api.app-key=test-app-key",
-        "webull.api.app-secret=test-app-secret",
+        "broker.webull.api.app-key=test-app-key",
+        "broker.webull.api.app-secret=test-app-secret",
         // Keep the automated loop off during the context test.
-        "webull.trading.trading-enabled=false"
+        "app.engine.trading-enabled=false"
 })
 class ApplicationContextLoadTest {
 

@@ -1,7 +1,7 @@
 package com.trading.alert;
 
 import com.trading.config.UniverseLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.service.BarDataManager;
 import com.trading.service.MarketDataService;
 import com.trading.service.TelegramChannelSender;
@@ -39,7 +39,7 @@ public class AlertEngine {
 
     private static final Logger log = LoggerFactory.getLogger(AlertEngine.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final TelegramChannelSender telegram;
@@ -52,7 +52,7 @@ public class AlertEngine {
     /** Last run epoch-minute per alert id — each alert runs on its OWN cadence. */
     private final Map<String, Long> lastRunByAlert = new ConcurrentHashMap<>();
 
-    public AlertEngine(WebullProperties props,
+    public AlertEngine(AppProperties props,
                        UniverseLoader universeLoader,
                        BarDataManager barData,
                        TelegramChannelSender telegram,
@@ -70,7 +70,7 @@ public class AlertEngine {
     @Scheduled(cron = "0 * * * * *")
     public void tick() {
         try {
-            WebullProperties.Alerts cfg = props.alerts();
+            AppProperties.Alerts cfg = props.alerts();
             if (cfg == null || !cfg.enabled()) return;
             if (!telegram.isConfigured()) return;   // no bot token — nowhere to post
 
@@ -107,7 +107,7 @@ public class AlertEngine {
         if (universe.isEmpty()) return;
 
         // Batch-prefetch only the timeframes the DUE alerts need — once, shared cache.
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         Set<String> tfs = new LinkedHashSet<>();
         for (Alert a : due) {
             for (String tf : a.timeframesNeeded()) {

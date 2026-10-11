@@ -1,6 +1,6 @@
 package com.trading.strategy;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendService;
@@ -48,7 +48,7 @@ public class StCrossStrategyService implements TradingStrategy {
     private static final int EMA_200 = 200;
     private static final int EMA_600 = 600;
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
     private final OrderService orderService;
@@ -57,7 +57,7 @@ public class StCrossStrategyService implements TradingStrategy {
     private final com.trading.service.QuantityManager quantityManager;
     private final com.trading.service.AccountService accountService;
 
-    public StCrossStrategyService(WebullProperties props,
+    public StCrossStrategyService(AppProperties props,
                                   BarDataManager barData,
                                   SupertrendService supertrend,
                                   OrderService orderService,

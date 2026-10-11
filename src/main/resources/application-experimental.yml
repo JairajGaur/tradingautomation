@@ -3,7 +3,7 @@
 #
 # Loaded by ExperimentalPropertySourceConfig via @PropertySource (NOT a Spring
 # profile), so it is layered ADDITIVELY alongside application.yml and never
-# overrides the shared webull.* properties. Everything the experimental strategy
+# overrides the shared app.* / broker.* properties. Everything the experimental strategy
 # does not list here (sessions, market-hours, broker API, warm-up) is reused from
 # application.yml as-is.
 #

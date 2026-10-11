@@ -3,7 +3,8 @@ package com.trading.api;
 import com.trading.broker.BrokerClient;
 import com.trading.broker.BrokerException;
 import com.trading.broker.model.PriceSnapshot;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -34,11 +35,13 @@ public class PriceController {
 
     private static final Logger log = LoggerFactory.getLogger(PriceController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final BrokerClient client;
 
-    public PriceController(WebullProperties props, BrokerClient client) {
+    public PriceController(AppProperties props, WebullApiProperties brokerApi, BrokerClient client) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.client = client;
     }
 
@@ -82,7 +85,7 @@ public class PriceController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "No snapshot returned for ticker");
             body.put("ticker", symbol);
-            body.put("mode", props.trading().mode().name());
+            body.put("mode", props.engine().mode().name());
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
         }
@@ -109,8 +112,8 @@ public class PriceController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", "Snapshot request failed");
         body.put("ticker", symbol);
-        body.put("mode", props.trading().mode().name());
-        body.put("endpoint", props.resolvedApiHost());
+        body.put("mode", props.engine().mode().name());
+        body.put("endpoint", brokerApi.resolvedApiHost());
         body.put("webullError", webullError);
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);

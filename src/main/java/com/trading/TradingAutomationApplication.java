@@ -5,7 +5,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.config.BrokerProperties;
 
 import java.util.TimeZone;
 
@@ -24,7 +25,7 @@ import java.util.TimeZone;
  * (PAPER = sandbox, LIVE = production). Defaults to PAPER.
  */
 @SpringBootApplication
-@EnableConfigurationProperties(WebullProperties.class)
+@EnableConfigurationProperties({AppProperties.class, BrokerProperties.class})
 @EnableScheduling
 public class TradingAutomationApplication {
 

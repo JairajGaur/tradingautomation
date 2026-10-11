@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendService;
@@ -35,11 +35,11 @@ public class EntryGuard {
 
     private static final Logger log = LoggerFactory.getLogger(EntryGuard.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
 
-    public EntryGuard(WebullProperties props, BarDataManager barData,
+    public EntryGuard(AppProperties props, BarDataManager barData,
                       SupertrendService supertrend) {
         this.props = props;
         this.barData = barData;

@@ -2,7 +2,7 @@ package com.trading.service;
 
 import com.trading.broker.BrokerClient;
 import com.trading.broker.BrokerException;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.model.Candle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,10 +95,10 @@ public class MarketDataService {
                 + "; or any synthetic M<n> minute form (e.g. M2, M3) resampled from M1.");
     }
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BrokerClient client;
 
-    public MarketDataService(WebullProperties props, BrokerClient client) {
+    public MarketDataService(AppProperties props, BrokerClient client) {
         this.props = props;
         this.client = client;
     }
@@ -148,7 +148,7 @@ public class MarketDataService {
         // Per-request sessions override the configured default; both are validated.
         String requested = (sessions != null && !sessions.isBlank())
                 ? sessions
-                : props.trading().tradingSessions();
+                : props.engine().tradingSessions();
         String sess = normaliseSessions(requested);
 
         log.info("[MarketDataService] Fetching {} {} bars for ticker={} sessions={}",
@@ -217,7 +217,7 @@ public class MarketDataService {
             return out;
         }
 
-        String requested = (sessions != null && !sessions.isBlank()) ? sessions : props.trading().tradingSessions();
+        String requested = (sessions != null && !sessions.isBlank()) ? sessions : props.engine().tradingSessions();
         String sess = normaliseSessions(requested);
 
         log.info("[MarketDataService] Batch-fetching {} {} bars for {} symbols {}",

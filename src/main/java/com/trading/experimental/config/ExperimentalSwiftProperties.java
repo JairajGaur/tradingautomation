@@ -13,8 +13,9 @@ import java.math.BigDecimal;
  * <p><b>Sandbox contract.</b> This lives entirely in {@code com.trading.experimental} and
  * mirrors only the knobs an experimental Swift strategy needs to vary — a faster Supertrend
  * ({@code length}/{@code factor}) and the ATR momentum thresholds. It intentionally does NOT
- * duplicate the whole {@code webull.*} tree: everything else (sessions, market-hours, broker
- * API, warm-up) is reused from the production {@link com.trading.config.WebullProperties}.
+ * duplicate the whole config tree: everything else (sessions, market-hours, broker
+ * API, warm-up) is reused from the production {@link com.trading.config.AppProperties}
+ * and {@link com.trading.config.BrokerProperties}.
  * Production config and code are never modified; the experimental scanner reads these values
  * and otherwise inherits production behaviour.</p>
  *

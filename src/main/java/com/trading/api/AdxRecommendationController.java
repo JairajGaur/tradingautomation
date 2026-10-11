@@ -1,7 +1,7 @@
 package com.trading.api;
 
 import com.trading.config.UniverseLoader;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.AdxCalculator;
 import com.trading.indicator.AdxCalculator.Advice;
 import com.trading.indicator.AdxCalculator.Point;
@@ -52,12 +52,12 @@ public class AdxRecommendationController {
 
     private static final Logger log = LoggerFactory.getLogger(AdxRecommendationController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final UniverseLoader universeLoader;
     private final BarDataManager barData;
     private final AdxService adx;
 
-    public AdxRecommendationController(WebullProperties props,
+    public AdxRecommendationController(AppProperties props,
                                        UniverseLoader universeLoader,
                                        BarDataManager barData,
                                        AdxService adx) {
@@ -111,7 +111,7 @@ public class AdxRecommendationController {
                 symbols.size(), ts, effPeriod, effThreshold, effRising);
 
         // Prime the shared bar cache in one batched request when scanning many.
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         if (symbols.size() > 1) {
             try {
                 barData.getBarsBatch(symbols, ts, warmup);

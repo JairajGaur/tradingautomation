@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
 import com.trading.service.MarketDataException;
@@ -43,12 +44,15 @@ public class EmaController {
     /** Webull's per-request bar cap (M1 clamps around here); fetch no more than this. */
     private static final int EMA_MAX_BARS = 1200;
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final MarketDataService marketDataService;
 
-    public EmaController(WebullProperties props,
+    public EmaController(AppProperties props,
+                          WebullApiProperties brokerApi,
                           MarketDataService marketDataService) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.marketDataService = marketDataService;
     }
 
@@ -112,9 +116,9 @@ public class EmaController {
         // charting platform shows. An EMA needs ~3x its period of warm-up; with too
         // few bars the long EMAs (e.g. 600) don't converge. Capped at Webull's M1
         // limit (~1200 bars/request).
-        int maxPeriod = props.trading().emaPeriods().stream()
+        int maxPeriod = props.engine().emaPeriods().stream()
                 .filter(java.util.Objects::nonNull).mapToInt(Integer::intValue).max().orElse(600);
-        int barsToFetch = Math.min(EMA_MAX_BARS, Math.max(props.trading().warmupBars(), maxPeriod * 3));
+        int barsToFetch = Math.min(EMA_MAX_BARS, Math.max(props.engine().warmupBars(), maxPeriod * 3));
         List<Candle> history;
         try {
             history = marketDataService.fetchHistoricalBars(symbol, barsToFetch, ts, sess);
@@ -123,8 +127,8 @@ public class EmaController {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("error", "Market-data request failed");
             body.put("ticker", symbol);
-            body.put("mode", props.trading().mode().name());
-            body.put("endpoint", props.resolvedApiHost());
+            body.put("mode", props.engine().mode().name());
+            body.put("endpoint", brokerApi.resolvedApiHost());
             body.put("webullError", e.toDetailMap());   // ← actual Webull details
             body.put("timestamp", TimeFormat.nowEt());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
@@ -135,8 +139,8 @@ public class EmaController {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "error", "No market data available for ticker",
                     "ticker", symbol,
-                    "mode", props.trading().mode().name(),
-                    "endpoint", props.resolvedApiHost(),
+                    "mode", props.engine().mode().name(),
+                    "endpoint", brokerApi.resolvedApiHost(),
                     "hint", "The market-data API returned an empty bar list (no error). "
                           + "In PAPER mode the sandbox data can be sparse or unavailable "
                           + "outside market hours.",
@@ -148,7 +152,7 @@ public class EmaController {
                 .collect(Collectors.toList());
 
         // ── 3. Compute each configured EMA period ─────────────────────────
-        List<Integer> periods = props.trading().emaPeriods();
+        List<Integer> periods = props.engine().emaPeriods();
         Map<String, String> emaValues = new LinkedHashMap<>();
 
         for (Integer period : periods) {
@@ -175,7 +179,7 @@ public class EmaController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ticker", symbol);
         body.put("timespan", ts);
-        body.put("sessions", sess != null ? sess : props.trading().tradingSessions());
+        body.put("sessions", sess != null ? sess : props.engine().tradingSessions());
         body.put("barsUsed", closes.size());
         body.put("lastClose", lastClose.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
         body.put("emaValues", emaValues);

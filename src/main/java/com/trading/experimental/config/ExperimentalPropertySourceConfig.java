@@ -1,6 +1,6 @@
 package com.trading.experimental.config;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.experimental.indicator.ExperimentalSwiftTrendScanner;
 import com.trading.indicator.SupertrendService;
 import com.trading.indicator.SwiftTrendScanner;
@@ -19,7 +19,7 @@ import org.springframework.context.annotation.PropertySource;
  * <ul>
  *   <li>{@link EnableConfigurationProperties} registers {@link ExperimentalSwiftProperties}
  *       (prefix {@code experimental.swift}). This is additive — the production
- *       {@code @EnableConfigurationProperties(WebullProperties.class)} on the main app class
+ *       {@code @EnableConfigurationProperties(AppProperties.class)} on the main app class
  *       is untouched, and both bind independently.</li>
  *   <li>{@link PropertySource} loads {@code classpath:application-experimental.yml} using a
  *       YAML-aware factory ({@link YamlPropertySourceFactory}, a small local helper) so the
@@ -32,7 +32,7 @@ import org.springframework.context.annotation.PropertySource;
  * </ul>
  *
  * <p>Shared properties (sessions, market-hours, broker API, warm-up) are still read from the
- * production {@link com.trading.config.WebullProperties} by the experimental beans — nothing
+ * production {@link com.trading.config.AppProperties} by the experimental beans — nothing
  * is duplicated.</p>
  */
 @Configuration
@@ -53,7 +53,7 @@ public class ExperimentalPropertySourceConfig {
      */
     @Bean(name = "experimentalSwiftTrendScanner")
     public ExperimentalSwiftTrendScanner experimentalSwiftTrendScanner(
-            WebullProperties props,
+            AppProperties props,
             SupertrendService supertrend,
             MarketHoursGuard marketHoursGuard,
             ExperimentalSwiftProperties exp) {

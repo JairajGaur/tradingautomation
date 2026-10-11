@@ -1,6 +1,7 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,7 +42,7 @@ import java.util.Map;
  * <h2>Safety gate</h2>
  * This endpoint is DISABLED by default. Enable it explicitly for local debugging:
  * <pre>{@code
- *   webull.diagnostics.credentials-endpoint-enabled: true
+ *   app.diagnostics.credentials-endpoint-enabled: true
  * }</pre>
  * When disabled it returns 404. Never enable it in a shared/production environment.
  */
@@ -51,13 +52,16 @@ public class CredentialsDiagnosticsController {
 
     private static final Logger log = LoggerFactory.getLogger(CredentialsDiagnosticsController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final boolean enabled;
 
     public CredentialsDiagnosticsController(
-            WebullProperties props,
-            @Value("${webull.diagnostics.credentials-endpoint-enabled:false}") boolean enabled) {
+            AppProperties props,
+            WebullApiProperties brokerApi,
+            @Value("${app.diagnostics.credentials-endpoint-enabled:false}") boolean enabled) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.enabled = enabled;
     }
 
@@ -67,15 +71,15 @@ public class CredentialsDiagnosticsController {
             // Behave as if the endpoint does not exist when the flag is off.
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "error", "Diagnostics endpoint is disabled",
-                    "hint", "Set webull.diagnostics.credentials-endpoint-enabled=true to enable "
+                    "hint", "Set app.diagnostics.credentials-endpoint-enabled=true to enable "
                           + "(local debugging only — never in production)."));
         }
 
         log.warn("[CredentialsDiagnostics] Credentials diagnostics endpoint accessed — " +
                  "masked values only, ensure this endpoint is disabled outside local dev.");
 
-        String appKey    = safe(props.api().appKey());
-        String appSecret = safe(props.api().appSecret());
+        String appKey    = safe(brokerApi.api().appKey());
+        String appSecret = safe(brokerApi.api().appSecret());
 
         Map<String, Object> body = new LinkedHashMap<>();
         // App key: shown in full — it is an identifier, already sent as x-app-key header.
@@ -87,9 +91,9 @@ public class CredentialsDiagnosticsController {
         body.put("appSecretLength", appSecret.length());
         body.put("appSecretSha256", sha256(appSecret));
 
-        body.put("regionId", props.api().regionId());
-        body.put("endpoint", props.resolvedApiHost());
-        body.put("mode", props.trading().mode().name());
+        body.put("regionId", brokerApi.api().regionId());
+        body.put("endpoint", brokerApi.resolvedApiHost());
+        body.put("mode", props.engine().mode().name());
         body.put("verifyHint",
                 "Compare appSecretSha256 with:  echo -n \"<your_secret>\" | shasum -a 256");
         body.put("timestamp", TimeFormat.nowEt());

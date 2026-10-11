@@ -2,7 +2,8 @@ package com.trading.api;
 
 import com.trading.broker.BrokerClient;
 import com.trading.broker.model.ConnectivityStatus;
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
+import com.trading.webull.WebullApiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -31,11 +32,13 @@ public class HealthController {
 
     private static final Logger log = LoggerFactory.getLogger(HealthController.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
+    private final WebullApiProperties brokerApi;
     private final BrokerClient v3Client;
 
-    public HealthController(WebullProperties props, BrokerClient v3Client) {
+    public HealthController(AppProperties props, WebullApiProperties brokerApi, BrokerClient v3Client) {
         this.props = props;
+        this.brokerApi = brokerApi;
         this.v3Client = v3Client;
     }
 
@@ -45,7 +48,7 @@ public class HealthController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "UP");
         body.put("application", "tradingautomation");
-        body.put("mode", props.trading().mode().name());
+        body.put("mode", props.engine().mode().name());
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }
@@ -69,9 +72,9 @@ public class HealthController {
         long latency = System.currentTimeMillis() - start;
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("mode", props.trading().mode().name());
-        body.put("endpoint", props.resolvedApiHost());
-        body.put("path", props.endpoints().accountList());
+        body.put("mode", props.engine().mode().name());
+        body.put("endpoint", brokerApi.resolvedApiHost());
+        body.put("path", brokerApi.endpoints().accountList());
         body.put("apiVersion", "v3");
         body.put("httpStatus", status.httpStatus());
         body.put("latencyMs", latency);

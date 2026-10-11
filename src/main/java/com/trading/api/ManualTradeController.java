@@ -1,6 +1,6 @@
 package com.trading.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.service.OrderService;
 import com.trading.state.PositionTracker;
 import com.trading.state.PositionTracker.Position;
@@ -45,12 +45,12 @@ public class ManualTradeController {
 
     private static final String MANUAL = "MANUAL";
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
     private final com.trading.broker.BrokerClient client;
 
-    public ManualTradeController(WebullProperties props,
+    public ManualTradeController(AppProperties props,
                                   OrderService orderService,
                                   PositionTracker positionTracker,
                                   com.trading.broker.BrokerClient client) {
@@ -172,7 +172,7 @@ public class ManualTradeController {
         body.put("webullHttpStatus", result.httpStatus());    // -1 = not sent (simulated/guardrail)
         body.put("webullResponse", result.rawResponse());     // raw Webull success/failure payload
         body.put("submittedToWebull", result.httpStatus() > 0);
-        body.put("mode", props.trading().mode().name());
+        body.put("mode", props.engine().mode().name());
         body.put("heldAfter", positionTracker.getPosition(symbol)
                 .map(Position::quantity).orElse(0));
         body.put("timestamp", TimeFormat.nowEt());

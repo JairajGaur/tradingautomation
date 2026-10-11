@@ -1,6 +1,6 @@
 package com.trading.experimental.indicator;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.experimental.config.ExperimentalSwiftProperties;
 import com.trading.indicator.SupertrendService;
 import com.trading.indicator.SwiftTrendScanner;
@@ -19,7 +19,7 @@ import java.math.BigDecimal;
  * <p><b>Why this works without touching production.</b> {@code detect()} calls the overridable
  * {@code length()/factor()/thresholds()}, and {@code thresholds()} delegates to
  * {@code thresholds(config())}. By overriding {@code config()} to return a
- * {@link WebullProperties.Alerts.SwiftScanCfg} built from the experimental properties, every
+ * {@link AppProperties.Alerts.SwiftScanCfg} built from the experimental properties, every
  * downstream threshold is picked up automatically — no production class is modified and the
  * canonical firing rule stays the single source of truth.</p>
  *
@@ -34,7 +34,7 @@ public class ExperimentalSwiftTrendScanner extends SwiftTrendScanner {
 
     private final ExperimentalSwiftProperties exp;
 
-    public ExperimentalSwiftTrendScanner(WebullProperties props,
+    public ExperimentalSwiftTrendScanner(AppProperties props,
                                          SupertrendService supertrend,
                                          MarketHoursGuard marketHoursGuard,
                                          ExperimentalSwiftProperties exp) {
@@ -56,13 +56,13 @@ public class ExperimentalSwiftTrendScanner extends SwiftTrendScanner {
     }
 
     /**
-     * Returns a {@link WebullProperties.Alerts.SwiftScanCfg} assembled from the experimental
+     * Returns a {@link AppProperties.Alerts.SwiftScanCfg} assembled from the experimental
      * thresholds, so {@code thresholds()} / {@code detect()} use the experimental knobs while
      * all the mapping/clamping logic in the production {@code thresholds(cfg)} is reused as-is.
      */
     @Override
-    public WebullProperties.Alerts.SwiftScanCfg config() {
-        return new WebullProperties.Alerts.SwiftScanCfg(
+    public AppProperties.Alerts.SwiftScanCfg config() {
+        return new AppProperties.Alerts.SwiftScanCfg(
                 exp.enabled(),
                 exp.timeframe(),
                 1,                          // scanMinutes — unused by the backtest path

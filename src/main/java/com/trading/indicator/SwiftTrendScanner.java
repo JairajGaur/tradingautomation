@@ -1,6 +1,6 @@
 package com.trading.indicator;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SwiftTrendDetector.Result;
 import com.trading.indicator.SwiftTrendDetector.Thresholds;
@@ -29,14 +29,14 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class SwiftTrendScanner {
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final SupertrendService supertrend;
     private final com.trading.service.MarketHoursGuard marketHoursGuard;
 
     /** Last-fired state per "SYMBOL|DIRECTION" for the live latch + cooldown. */
     private final Map<String, FireState> fireState = new ConcurrentHashMap<>();
 
-    public SwiftTrendScanner(WebullProperties props, SupertrendService supertrend,
+    public SwiftTrendScanner(AppProperties props, SupertrendService supertrend,
                              com.trading.service.MarketHoursGuard marketHoursGuard) {
         this.props = props;
         this.supertrend = supertrend;
@@ -61,7 +61,7 @@ public class SwiftTrendScanner {
     public record FireState(java.time.Instant flipTime, long firedAtMs) {}
 
     /** The swift-scan config block (may be null if alerts config is absent). */
-    public WebullProperties.Alerts.SwiftScanCfg config() {
+    public AppProperties.Alerts.SwiftScanCfg config() {
         return props.alerts() == null ? null : props.alerts().swiftScan();
     }
 
@@ -77,7 +77,7 @@ public class SwiftTrendScanner {
     }
 
     /** Builds the detection thresholds from the given swift-scan config. */
-    public Thresholds thresholds(WebullProperties.Alerts.SwiftScanCfg c) {
+    public Thresholds thresholds(AppProperties.Alerts.SwiftScanCfg c) {
         return new Thresholds(
                 c.minTravelAtr(),
                 c.minSeparationAtr(),
@@ -185,7 +185,7 @@ public class SwiftTrendScanner {
      * ({@link com.trading.alert.AlertMessageFormat}) — same shape as every other alert:
      * {@code <prefix><emoji> <SYMBOL> <DIRECTION> @ <price> [<timeframe>]}.
      */
-    public String formatMessage(WebullProperties.Alerts.SwiftScanCfg c, String symbol, Result r) {
+    public String formatMessage(AppProperties.Alerts.SwiftScanCfg c, String symbol, Result r) {
         String prefix = c == null || c.messagePrefix() == null ? "" : c.messagePrefix();
         String tf = c == null ? "" : c.timeframe();
         com.trading.alert.AlertMessageFormat.Dir dir = r.direction() == Direction.UP

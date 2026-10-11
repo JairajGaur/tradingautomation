@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.state.PositionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +39,7 @@ public class RiskManager {
     private static final Logger log = LoggerFactory.getLogger(RiskManager.class);
     private static final MathContext MC = MathContext.DECIMAL128;
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final AccountService accountService;
     private final PositionTracker positionTracker;
     private final OrderService orderService;
@@ -51,7 +51,7 @@ public class RiskManager {
     private final AtomicReference<BigDecimal> startOfDayEquity =
             new AtomicReference<>(BigDecimal.ZERO);
 
-    public RiskManager(WebullProperties props,
+    public RiskManager(AppProperties props,
                        AccountService accountService,
                        PositionTracker positionTracker,
                        OrderService orderService) {

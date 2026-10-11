@@ -1,6 +1,6 @@
 package com.trading.service;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.AdxCalculator;
 import com.trading.indicator.AdxCalculator.Direction;
 import com.trading.indicator.AdxCalculator.Point;
@@ -25,12 +25,12 @@ public class ConfluenceService {
 
     private static final Logger log = LoggerFactory.getLogger(ConfluenceService.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final AdxService adx;
     private final VolumeFilter volumeFilter;
 
-    public ConfluenceService(WebullProperties props, BarDataManager barData,
+    public ConfluenceService(AppProperties props, BarDataManager barData,
                              AdxService adx, VolumeFilter volumeFilter) {
         this.props = props;
         this.barData = barData;
@@ -65,7 +65,7 @@ public class ConfluenceService {
     /** Full confluence evaluation for {@code symbol} across {@code tfs}. */
     public Result evaluate(String symbol, List<String> tfs, int period,
                            BigDecimal threshold, int rising) {
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
         int bull = 0, bear = 0, evaluated = 0;
         String lastClose = null;
 

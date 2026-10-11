@@ -4,13 +4,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Typed configuration properties bound from application.yml under the
- * {@code webull} prefix.
+ * Typed, broker-NEUTRAL domain configuration bound from application.yml under the
+ * {@code app} prefix. Holds the trading engine, strategies, exit/risk rules,
+ * market hours, indicator params, entry guard, notifications and alerts.
+ *
+ * <p>Broker-specific settings (API credentials, endpoint paths, host) live in
+ * {@link BrokerProperties} instead.</p>
  */
-@ConfigurationProperties(prefix = "webull")
-public record WebullProperties(
-        Api api,
-        Trading trading,
+@ConfigurationProperties(prefix = "app")
+public record AppProperties(
+        Engine engine,
         Strategies strategies,
         Exit exit,
         Risk risk,
@@ -19,8 +22,7 @@ public record WebullProperties(
         @DefaultValue Adx adx,
         EntryGuard entryGuard,
         @DefaultValue Notifications notifications,
-        @DefaultValue Alerts alerts,
-        Endpoints endpoints
+        @DefaultValue Alerts alerts
 ) {
 
     public enum Mode { PAPER, LIVE }
@@ -28,7 +30,7 @@ public record WebullProperties(
     /**
      * Push-notification transport config. When {@code enabled} and {@code channel=TELEGRAM},
      * messages are delivered to a Telegram chat/channel via the Bot API. This is just the
-     * delivery channel — WHAT gets sent is driven by the alert framework ({@code webull.alerts})
+     * delivery channel — WHAT gets sent is driven by the alert framework ({@code app.alerts})
      * and the {@code /api/notifications/test} endpoint. Failures never affect trading.
      *
      * @param enabled          master on/off (default false)
@@ -73,7 +75,7 @@ public record WebullProperties(
          * @param stSlopeConfirmEnabled when true, add a Supertrend-line-slope confluence gate:
          *                         an UP break fires only if the Supertrend LINE has been
          *                         advancing UP (DOWN mirrors). Uses the shared
-         *                         {@code webull.supertrend} length/factor. Default false (no gate).
+         *                         {@code app.supertrend} length/factor. Default false (no gate).
          * @param stSlopeTimeframe  timeframe for the Supertrend used by this gate — INDEPENDENT of
          *                         the ORB range/scan timeframes (any M1/M5/… or synthetic M2/M3).
          *                         Default M5.
@@ -217,37 +219,7 @@ public record WebullProperties(
         ) {}
     }
 
-    public record Api(
-            String appKey,
-            String appSecret,
-            @DefaultValue("us") String regionId,
-            @DefaultValue("") String endpoint,
-
-            /**
-             * Optional 2FA access token (x-access-token header). Only needed when
-             * Two-Factor Authentication is enabled on the account. Leave blank when
-             * 2FA is off (sandbox test tokens are valid by default).
-             */
-            @DefaultValue("") String accessToken,
-
-            /**
-             * Optional explicit account ID to trade against. When set, this exact ID
-             * is used and account-list auto-selection is skipped. Leave blank to let
-             * the app auto-pick the equity (stock) account from the account list.
-             */
-            @DefaultValue("") String accountId,
-
-            /**
-             * When {@code true}, the outgoing request (method, path, masked headers,
-             * body) and the incoming response are logged at DEBUG level. When
-             * {@code false} (default), no request/response logging is emitted.
-             * Note: DEBUG logging for {@code com.trading.webull} must also be enabled
-             * for these lines to appear.
-             */
-            @DefaultValue("false") boolean logRequests
-    ) {}
-
-    public record Trading(
+    public record Engine(
             @DefaultValue("PAPER") Mode mode,
 
             /**
@@ -579,7 +551,7 @@ public record WebullProperties(
      *
      * <ol>
      *   <li><b>Supertrend UP</b> on {@code supertrendTimespan} (default M30) — using
-     *       {@code webull.supertrend} params.</li>
+     *       {@code app.supertrend} params.</li>
      *   <li><b>EMA stack</b> on {@code emaTimespan} (default M1): EMA{@code emaFast}
      *       above EMA{@code emaSlow}, and — when {@code emaRequireMid} is true (default) —
      *       EMA{@code emaMid} above EMA{@code emaSlow} too (default 100 &amp; 200 above 600).</li>
@@ -616,45 +588,20 @@ public record WebullProperties(
             @DefaultValue("AND")   String conditionLogic
     ) {}
 
-    /**
-     * Webull OpenAPI v3 endpoint paths. Configurable so a path can be corrected
-     * without a recompile if Webull changes a route. Defaults reflect the current
-     * v3 API as of the migration.
-     */
-    public record Endpoints(
-            @DefaultValue("/trading/accounts/list")          String accountList,
-            @DefaultValue("/trading/assets/balances/get")    String accountBalance,
-            @DefaultValue("/trading/assets/positions/list")  String positions,
-            @DefaultValue("/trading/orders/place")                     String placeOrder,
-            @DefaultValue("/trading/orders/historical-orders/list")    String orderHistory,
-            @DefaultValue("/trading/orders/open-orders/list")          String openOrders,
-            @DefaultValue("/market-data/stocks/bars/list")             String bars,
-            @DefaultValue("/market-data/stocks/snapshots/list")        String snapshot
-    ) {}
-
     // -----------------------------------------------------------------------
     // Derived helpers
     // -----------------------------------------------------------------------
 
-    public String resolvedApiHost() {
-        if (api.endpoint() != null && !api.endpoint().isBlank()) {
-            return api.endpoint();
-        }
-        return trading.mode() == Mode.LIVE
-                ? "api.webull.com"
-                : "api.sandbox.webull.com";
-    }
-
     /** Returns {@code true} when running in LIVE (production) mode. */
     public boolean isLiveMode() {
-        return trading.mode() == Mode.LIVE;
+        return engine().mode() == Mode.LIVE;
     }
 
     /**
-     * Returns {@code true} when orders should be sent to the Webull API.
+     * Returns {@code true} when orders should be sent to the broker API.
      *
-     * <p>Controlled by the single {@code trading.mode} switch: orders are always
-     * submitted to the resolved endpoint — the Webull SANDBOX in {@code PAPER}
+     * <p>Controlled by the single {@code engine.mode} switch: orders are always
+     * submitted to the resolved endpoint — the SANDBOX in {@code PAPER}
      * mode (no real money) and PRODUCTION in {@code LIVE} mode (real money).</p>
      */
     public boolean shouldSubmitOrders() {

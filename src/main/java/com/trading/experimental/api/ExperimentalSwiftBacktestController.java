@@ -1,6 +1,6 @@
 package com.trading.experimental.api;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.experimental.indicator.ExperimentalSwiftTrendScanner;
 import com.trading.service.TimeframeSupport;
 import com.trading.indicator.SupertrendCalculator.Direction;
@@ -56,13 +56,13 @@ public class ExperimentalSwiftBacktestController {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final DateTimeFormatter HHMM = DateTimeFormatter.ofPattern("HH:mm");
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final MarketDataService marketDataService;
     private final SwiftTrendScanner production;
     private final ExperimentalSwiftTrendScanner experimental;
 
     public ExperimentalSwiftBacktestController(
-            WebullProperties props,
+            AppProperties props,
             MarketDataService marketDataService,
             SwiftTrendScanner production,
             @Qualifier("experimentalSwiftTrendScanner") ExperimentalSwiftTrendScanner experimental) {
@@ -104,7 +104,7 @@ public class ExperimentalSwiftBacktestController {
         try {
             ts = MarketDataService.normaliseTimespan(tfReq);   // accepts native + synthetic M<n>
             String sessReq = (sessions != null && !sessions.isBlank())
-                    ? sessions : props.trading().tradingSessions();
+                    ? sessions : props.engine().tradingSessions();
             sess = MarketDataService.normaliseSessions(sessReq);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -285,7 +285,7 @@ public class ExperimentalSwiftBacktestController {
         long tradingDays = (long) Math.ceil((daysBack + 1) * 7.0 / 5.0) + 2;
         long barsPerDay = tfMin > 0 ? Math.max(1, 390 / tfMin) : 1;
         long estimate = tradingDays * barsPerDay * 2 + length * 3L + 50;
-        long warmup = props.trading().warmupBars();
+        long warmup = props.engine().warmupBars();
         long floored = Math.max(estimate, warmup);
         // Clamp to the broker's hard per-request cap so we never trip HTTP 417.
         return (int) Math.min(floored, TimeframeSupport.BROKER_MAX_BARS);

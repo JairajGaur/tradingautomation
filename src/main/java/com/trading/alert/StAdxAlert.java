@@ -1,6 +1,6 @@
 package com.trading.alert;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.AdxCalculator;
 import com.trading.indicator.AdxCalculator.Advice;
 import com.trading.indicator.AdxCalculator.Point;
@@ -34,12 +34,12 @@ public class StAdxAlert implements Alert {
 
     private static final Logger log = LoggerFactory.getLogger(StAdxAlert.class);
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
     private final AdxService adx;
 
-    public StAdxAlert(WebullProperties props, BarDataManager barData,
+    public StAdxAlert(AppProperties props, BarDataManager barData,
                       SupertrendService supertrend, AdxService adx) {
         this.props = props;
         this.barData = barData;
@@ -133,7 +133,7 @@ public class StAdxAlert implements Alert {
         int period = adx.period();
         BigDecimal threshold = adx.threshold();
         int rising = adx.rising();
-        int warmup = props.trading().warmupBars();
+        int warmup = props.engine().warmupBars();
 
         List<AlertHit> hits = new ArrayList<>();
         for (String symbol : universe) {

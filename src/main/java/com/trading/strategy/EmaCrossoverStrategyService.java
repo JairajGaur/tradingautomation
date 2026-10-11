@@ -1,6 +1,6 @@
 package com.trading.strategy;
 
-import com.trading.config.WebullProperties;
+import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.model.Candle;
 import com.trading.service.BarDataManager;
@@ -39,7 +39,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private static final int FAST_PERIOD = 20;
     private static final int SLOW_PERIOD = 100;
 
-    private final WebullProperties props;
+    private final AppProperties props;
     private final BarDataManager barData;
     private final OrderService orderService;
     private final PositionTracker positionTracker;
@@ -50,7 +50,7 @@ public class EmaCrossoverStrategyService implements TradingStrategy {
     private final com.trading.service.QuantityManager quantityManager;
     private final com.trading.service.AccountService accountService;
 
-    public EmaCrossoverStrategyService(WebullProperties props,
+    public EmaCrossoverStrategyService(AppProperties props,
                                         BarDataManager barData,
                                         OrderService orderService,
                                         PositionTracker positionTracker,
