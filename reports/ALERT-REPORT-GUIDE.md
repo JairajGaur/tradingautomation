@@ -78,8 +78,9 @@ every report so results are reproducible and comparable across days. Defaults ab
    and WIN/LOSS/FLAT per §2, using the bars strictly AFTER T.
 5. **Build the per-alert detail table** (one row per fired alert) with those columns.
 6. **Roll up per alert TYPE** (ORB-up, ORB-down, Swift-up, Swift-down, StAdx, …) → §4 stats.
-7. **Write the report** (markdown + optional HTML dashboard like the Oct-9 one) with the
-   parameters, per-alert detail, and the comparison table. Save under `logs/`.
+7. **Write the report** (markdown + HTML dashboard like the Oct-9 one) with the parameters,
+   per-alert detail, and the comparison table. **ALWAYS save under `reports/`** (NOT `logs/` —
+   `logs/` is gitignored). Both the `.md` and `.html` for a report go in `reports/`.
 
 ---
 
@@ -109,15 +110,17 @@ and the best/worst individual alerts (largest MFE, worst MAE).
 
 ## 5. Output format
 
-Produce BOTH, saved in `logs/`:
-- `alert-report-<date>.md` — parameters header, per-alert detail table, per-type stats, comparison
-  table, and a short written takeaway (which alert type performed best and why, with the caveat
-  from §2).
-- `alert-report-<date>.html` — a self-contained dashboard (no external deps), mirroring the
-  Oct-9 report style: KPI cards, per-type comparison bars, a timeline, and per-stock cards. Embed
-  the computed data inline.
+**All reports are generated into the `reports/` folder** (project root). NEVER write them to
+`logs/` — `logs/` is gitignored, so reports there are untracked/lost. Produce BOTH files:
+- `reports/alert-accuracy-report-<date>.md` — parameters header, per-alert detail table,
+  per-type stats, comparison table, and a short written takeaway (which alert type performed
+  best and why, with the caveat from §2).
+- `reports/alert-accuracy-report-<date>.html` — a self-contained dashboard (no external deps),
+  mirroring the existing Oct-9 dashboards: KPI cards, per-type comparison bars, a timeline, and
+  a sortable/filterable per-signal table. Embed the computed data inline.
 
-Register the HTML as an artifact so it previews in chat.
+(The stock-wise variant uses `reports/alert-report-<date>.{md,html}`.) Register the HTML as an
+artifact so it previews in chat.
 
 ---
 
