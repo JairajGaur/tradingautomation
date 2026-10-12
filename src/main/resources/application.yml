@@ -386,3 +386,52 @@ app:
     extended-hours-enabled: true
     pre-market-open: "09:00"
     after-hours-close: "15:30"
+
+  # ── Local-LLM advisory analyst (broker-neutral) ──────────────────────────
+  # An OPTIONAL reasoning layer on top of the deterministic indicators/alerts. It
+  # turns a signal "briefing" into a conviction score + action recommendation; it
+  # NEVER computes indicators and NEVER places orders — the risk/exit layer keeps
+  # final authority and can override it. If the LLM is off, down, slow, or returns
+  # garbage, callers fail safe to a neutral WAIT (trading is never affected).
+  #
+  # Targets a local Ollama server by default. Swapping runtime/model is config-only:
+  #   ollama serve           # starts the runtime on localhost:11434
+  #   ollama pull qwen3:8b   # the default model
+  # Inspect it (no trading wiring) via:
+  #   GET /api/llm/analyze/{ticker}?fact=...&fact=...
+  llm:
+    enabled: true                   # opt-in; set false to disable the whole layer
+    base-url: "http://localhost:11434"
+    model: "qwen3:8b"               # fast decision-maker. Use qwen3:14b for deeper review.
+    generate-path: "/api/generate"
+    temperature: 0.2                # low = disciplined/deterministic
+    think: false                    # true = slower, step-by-step reasoning (EOD review)
+    timeout-seconds: 20             # on timeout, caller fails safe to WAIT
+    max-conviction: 10
+
+  # ── Parallel LLM alert review (broker-neutral) ───────────────────────────
+  # When an alert fires, a SEPARATE async pipeline gathers a multi-timeframe
+  # distilled snapshot of the symbol (bars + Supertrend + EMA stack per TF) and
+  # asks the LLM to measure conviction + confidence in the ALERT's direction,
+  # with reasoning and next-direction scenarios. Results are logged (structured
+  # line + JSON sidecar) for end-of-day analysis.
+  #
+  # Runs AFTER the alert is delivered, on its own executor — never slows or blocks
+  # alert delivery, and any failure is swallowed (the alert path is unaffected).
+  #
+  # Scope (agreed): M1 intraday, 5xM30, 10xM60, 2 daily bars. Each TF is DISTILLED
+  # (never raw bars) so the whole briefing fits the context window with headroom
+  # (~2-2.5K tokens vs the 32K window). All bars are read via BarDataManager, which
+  # fetches with the configured app.engine.trading-sessions.
+  alert-review:
+    enabled: true                   # opt-in; set false to disable the whole pipeline
+    model: "qwen3:14b"              # deeper model — off the critical path, latency OK.
+                                    #   blank → fall back to app.llm.model (qwen3:8b)
+    m1-bars: 500                    # ~a full intraday session; under the 1650 broker cap
+    m30-bars: 5
+    m60-bars: 10
+    daily-bars: 2
+    # ema-periods:                  # blank → use app.engine.ema-periods (8,20,50,100,200,600)
+    pool-size: 2                    # async review workers
+    log-json: true                  # also write a per-review JSON sidecar
+    json-dir: "logs/alert-reviews"

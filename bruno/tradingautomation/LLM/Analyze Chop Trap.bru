@@ -1,0 +1,40 @@
+meta {
+  name: Analyze Chop Trap
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/llm/analyze/TSLA?timeframe=M5&session=RTH&fact=Supertrend flipped BULLISH 1 bar ago&fact=3 Supertrend flips in the last 5 bars (whipsaw)&fact=ADX 14 and falling&fact=Signal bar range is 3.2 ATR (climax bar)
+  body: none
+  auth: none
+}
+
+params:query {
+  timeframe: M5
+  session: RTH
+  fact: Supertrend flipped BULLISH 1 bar ago
+  fact: 3 Supertrend flips in the last 5 bars (whipsaw)
+  fact: ADX 14 and falling
+  fact: Signal bar range is 3.2 ATR (climax bar)
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # LLM Analyze — Chop / Trap
+
+  Same endpoint as "Analyze Clean Setup", but the briefing describes a messy,
+  low-quality setup: a brand-new flip inside a whipsaw, a weak/falling ADX, and
+  a climax (over-extended) signal bar.
+
+  Expect the analyst to SKIP with a LOW conviction and to surface risk flags
+  such as "recent whipsaw", "falling ADX", and "climax bar". Use this request as
+  the counter-example when tuning the system prompt — a good configuration should
+  clearly separate this from the clean setup.
+
+  Edit the `fact` lines (and the ticker/timeframe/session) to probe other
+  scenarios. Requires `app.llm.enabled=true` and a reachable local runtime.
+}

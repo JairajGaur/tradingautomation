@@ -1,0 +1,54 @@
+meta {
+  name: Prompt Direct
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/llm/prompt?prompt=In one sentence, what is a Supertrend indicator?&model=qwen3:8b&think=false
+  body: none
+  auth: none
+}
+
+params:query {
+  prompt: In one sentence, what is a Supertrend indicator?
+  model: qwen3:8b
+  think: false
+  ~timeout: 60
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # LLM Prompt Direct
+
+  The simplest possible way to talk to the local LLM: send a prompt, get the raw
+  text reply. No trading logic, no JSON contract, no multi-timeframe distillation
+  — a thin passthrough for quick testing and prompt tinkering.
+
+  ## Two forms
+  - GET  /api/llm/prompt?prompt=...   — quick, prompt in the query string (this request)
+  - POST /api/llm/prompt              — prompt in the request body (for longer text);
+                                        same query params for model/think/timeout
+
+  ## Query params
+  - `prompt`  — the text to send (required; GET).
+  - `model`   — model tag; omit to use app.llm.model (qwen3:8b). Use qwen3:14b for
+                the deeper model.
+  - `think`   — true enables the model's step-by-step reasoning monologue (slower);
+                default false.
+  - `timeout` — per-call timeout in seconds; omit to use app.llm.timeout-seconds.
+
+  ## Response (200)
+  { model, think, latencyMs, prompt, response, timestamp }
+
+  ## Errors
+  - `400` — empty prompt.
+  - `503` — app.llm.enabled=false.
+  - `502` — the runtime call failed (down/timeout); `detail` explains why.
+
+  Requires app.llm.enabled=true and a reachable runtime with the model pulled.
+  Testing only — nothing here trades.
+}

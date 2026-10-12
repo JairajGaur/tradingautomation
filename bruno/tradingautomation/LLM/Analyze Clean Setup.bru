@@ -1,0 +1,58 @@
+meta {
+  name: Analyze Clean Setup
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/llm/analyze/SPY?timeframe=M5&session=RTH&fact=Swift Trend flipped BULLISH 3 bars ago&fact=ADX 28 and rising&fact=Price 0.4 ATR above the Supertrend line and separation widening&fact=No scheduled news in next 30 minutes
+  body: none
+  auth: none
+}
+
+params:query {
+  timeframe: M5
+  session: RTH
+  fact: Swift Trend flipped BULLISH 3 bars ago
+  fact: ADX 28 and rising
+  fact: Price 0.4 ATR above the Supertrend line and separation widening
+  fact: No scheduled news in next 30 minutes
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # LLM Analyze — Clean Bullish Setup
+
+  Runs the local-LLM advisory analyst over a hand-built signal briefing and
+  returns its verdict. INSPECTION ONLY — it does NOT place orders and does NOT
+  read live market data; you pass the signal facts directly so you can probe any
+  scenario and watch how the model scores it.
+
+  Requires `app.llm.enabled=true` and a reachable local runtime (Ollama by
+  default at http://localhost:11434 running the configured model, e.g. qwen3:8b).
+
+  ## Path
+  - `{ticker}` — any symbol label (free text; need not be in the watchlist).
+
+  ## Query
+  - `timeframe` — the timeframe the facts describe (default M5).
+  - `session`   — market session label (default RTH).
+  - `fact`      — REPEATABLE. Each occurrence is one plain-language signal fact.
+                  Add/remove `fact` lines to change the briefing.
+
+  ## Response (200)
+  { ticker, timeframe, session, facts[], model, llmEnabled,
+    verdict: { action (ENTER|WAIT|SKIP), conviction (1..maxConviction),
+               rationale, riskFlags[], ok, note },
+    timestamp }
+
+  - `ok=true`  → a trusted, parsed model verdict.
+  - `ok=false` → fail-safe WAIT (LLM disabled/down/slow/bad output); `note`
+    explains why. The verdict is advisory — the risk/exit layer keeps final say.
+
+  This request is the "clean setup": a fresh bullish flip with a rising ADX and
+  widening separation. Expect ENTER with a high conviction.
+}

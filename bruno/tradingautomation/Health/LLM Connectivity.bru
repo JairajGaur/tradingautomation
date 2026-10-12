@@ -1,0 +1,42 @@
+meta {
+  name: LLM Connectivity
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/health/llm
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # LLM Connectivity
+
+  Health probe for the local-LLM advisory layer (app.llm.* / GET
+  /api/llm/analyze). Checks that the configured runtime (Ollama by default, at
+  app.llm.base-url) is reachable and that the configured model is installed.
+
+  Uses a cheap /api/version + /api/tags probe — it does NOT run a generation, so
+  it never cold-loads a model and is safe to poll frequently (unlike Webull
+  Connectivity, which issues a real authenticated request).
+
+  ## Outcomes
+  - `200 UP`       — runtime reachable. `modelReady=true` means the configured
+    model is installed; `false` adds a `warning` (the analyst would fail safe to
+    WAIT until the model is pulled). Includes `version` and `latencyMs`.
+  - `200 DISABLED` — app.llm.enabled=false; nothing is probed.
+  - `503 DOWN`     — runtime unreachable; `detail` explains why. The app keeps
+    running — the analyst just fails safe to WAIT until the runtime returns.
+
+  Response always echoes `baseUrl`, `model`, `enabled`, and `timestamp`.
+
+  ## Bringing the LLM up/down
+  - Start : ./scripts/llm-start.sh
+  - Stop  : ./scripts/llm-stop.sh
+  - Status: ./scripts/llm-status.sh   (CLI equivalent of this probe)
+}

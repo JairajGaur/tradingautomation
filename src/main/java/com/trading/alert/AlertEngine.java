@@ -45,6 +45,7 @@ public class AlertEngine {
     private final TelegramChannelSender telegram;
     private final com.trading.service.DesktopNotifier desktop;
     private final com.trading.service.MarketHoursGuard marketHoursGuard;
+    private final org.springframework.context.ApplicationEventPublisher events;
     private final List<Alert> alerts;
 
     /** Last posted state per "alertId|ticker" for dedupe. */
@@ -59,6 +60,7 @@ public class AlertEngine {
                        TelegramChannelSender telegram,
                        com.trading.service.DesktopNotifier desktop,
                        com.trading.service.MarketHoursGuard marketHoursGuard,
+                       org.springframework.context.ApplicationEventPublisher events,
                        List<Alert> alerts) {
         this.props = props;
         this.universeLoader = universeLoader;
@@ -66,6 +68,7 @@ public class AlertEngine {
         this.telegram = telegram;
         this.desktop = desktop;
         this.marketHoursGuard = marketHoursGuard;
+        this.events = events;
         this.alerts = alerts;
     }
 
@@ -152,6 +155,13 @@ public class AlertEngine {
                     // Uniform, machine-parseable fired-alert line (same shape for every alert).
                     AlertLog.fired(hit.alertId(), hit.ticker(), hit.direction(), hit.price(),
                             null, hit.state(), "channel=" + channel);
+                    // Fire-and-forget: hand the hit to the parallel LLM review pipeline (async,
+                    // off this critical path). A publish failure must never affect delivery.
+                    try {
+                        events.publishEvent(new com.trading.llm.AlertReviewEvent(hit));
+                    } catch (Exception ex) {
+                        log.debug("[AlertEngine] alert-review publish failed (ignored): {}", ex.getMessage());
+                    }
                     // Buffer for a single coalesced desktop banner at the end of the tick.
                     desktopBurst.add(new com.trading.service.DesktopNotifier.Fired(
                             hit.alertId(), hit.ticker(),

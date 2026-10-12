@@ -22,7 +22,9 @@ public record AppProperties(
         @DefaultValue Adx adx,
         EntryGuard entryGuard,
         @DefaultValue Notifications notifications,
-        @DefaultValue Alerts alerts
+        @DefaultValue Alerts alerts,
+        @DefaultValue Llm llm,
+        @DefaultValue AlertReview alertReview
 ) {
 
     public enum Mode { PAPER, LIVE }
@@ -591,6 +593,100 @@ public record AppProperties(
             @DefaultValue("M30")   String supertrendTimespan,
             @DefaultValue("true")  boolean emaRequireMid,
             @DefaultValue("AND")   String conditionLogic
+    ) {}
+
+    /**
+     * Local-LLM "analyst" layer config (broker-NEUTRAL — a domain capability, not a
+     * broker setting, so it lives here under {@code app.llm} rather than in
+     * {@link BrokerProperties}).
+     *
+     * <p>The LLM is an <b>advisory reasoning layer</b> on top of the deterministic
+     * indicators/alerts. It never computes indicator math and never places orders —
+     * it turns a structured signal briefing into a conviction score + action
+     * recommendation + rationale, which the risk/exit layer may then act on (and can
+     * always override). If the LLM is disabled, unreachable, slow, or returns garbage,
+     * callers fail safe to a neutral {@code WAIT} verdict — trading is never broken by
+     * an LLM hiccup (same spirit as notifications: failures never affect trading).</p>
+     *
+     * <p>Talks to any OpenAI-/Ollama-style local runtime over HTTP. The default targets
+     * a local <a href="https://ollama.com">Ollama</a> server. Swapping runtimes (e.g.
+     * llama.cpp's server) is just a {@code base-url}/{@code model} change — no code.</p>
+     *
+     * @param enabled        master on/off (default false — opt in explicitly)
+     * @param baseUrl        runtime base URL (default local Ollama {@code http://localhost:11434})
+     * @param model          model tag to run (default {@code qwen3:8b})
+     * @param generatePath   generate endpoint path appended to {@code baseUrl} (default {@code /api/generate})
+     * @param temperature    sampling temperature; low = deterministic/disciplined (default 0.2)
+     * @param think          enable the model's step-by-step reasoning monologue. false =
+     *                       fast, clean answer (good for per-alert scoring); true = slower,
+     *                       deeper (good for end-of-day review). Default false.
+     * @param timeoutSeconds per-call HTTP timeout; on timeout the caller fails safe (default 20)
+     * @param maxConviction  conviction scale upper bound the model is told to use (default 10)
+     */
+    public record Llm(
+            @DefaultValue("false") boolean enabled,
+            @DefaultValue("http://localhost:11434") String baseUrl,
+            @DefaultValue("qwen3:8b") String model,
+            @DefaultValue("/api/generate") String generatePath,
+            @DefaultValue("0.2") java.math.BigDecimal temperature,
+            @DefaultValue("false") boolean think,
+            @DefaultValue("20") int timeoutSeconds,
+            @DefaultValue("10") int maxConviction
+    ) {
+        /** Full generate URL ({@code baseUrl} + {@code generatePath}), trimming any dup slash. */
+        public String generateUrl() {
+            String b = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
+            String p = generatePath == null ? "" : generatePath;
+            if (!p.startsWith("/")) p = "/" + p;
+            return b + p;
+        }
+    }
+
+    /**
+     * Parallel LLM "alert review" pipeline (broker-NEUTRAL). When an alert fires, a separate
+     * ASYNC pipeline gathers a multi-timeframe distilled snapshot of the symbol (bars +
+     * Supertrend + EMA stack per timeframe) and asks the LLM to measure how much conviction
+     * and confidence it has in the ALERT'S direction, with reasoning and next-direction
+     * scenarios. The result is logged (structured line + optional JSON sidecar) for end-of-day
+     * analysis.
+     *
+     * <p><b>Off the critical path.</b> This runs on its own executor AFTER the alert has
+     * already been delivered and logged, so it never slows or blocks alert delivery. Any
+     * failure is swallowed (fail-safe) — the alert pipeline is unaffected (same spirit as
+     * notifications: failures never affect trading/alerts).</p>
+     *
+     * <p>The timeframes/counts default to the agreed scope: M1 for today's pre-market +
+     * regular session, 5×M30, 10×M60, and 2 daily bars. Each timeframe is DISTILLED to a
+     * compact set of facts (never raw bars) so the whole multi-timeframe briefing fits the
+     * context window with headroom.</p>
+     *
+     * @param enabled        master on/off (default false — opt in explicitly)
+     * @param model          model tag for the review; blank → use {@code app.llm.model}.
+     *                       Defaults to a deeper model ({@code qwen3:14b}) since the review
+     *                       runs off the critical path and latency is not a concern.
+     * @param m1Bars         max M1 bars to fetch (default 500 — ~a full intraday session; well
+     *                       under the broker's 1650 cap). Sessions follow the configured
+     *                       {@code app.engine.trading-sessions} (bars read via BarDataManager).
+     * @param m30Bars        number of M30 bars (default 5)
+     * @param m60Bars        number of M60 bars (default 10)
+     * @param dailyBars      number of daily (D) bars (default 2)
+     * @param emaPeriods     EMA periods computed per timeframe; blank → use
+     *                       {@code app.engine.emaPeriods} (20/100/200/600)
+     * @param poolSize       async worker threads for reviews (default 2)
+     * @param logJson        also write a per-review JSON sidecar under {@code logs/} (default true)
+     * @param jsonDir        directory for the JSON sidecars (default {@code logs/alert-reviews})
+     */
+    public record AlertReview(
+            @DefaultValue("false") boolean enabled,
+            @DefaultValue("qwen3:14b") String model,
+            @DefaultValue("500") int m1Bars,
+            @DefaultValue("5")   int m30Bars,
+            @DefaultValue("10")  int m60Bars,
+            @DefaultValue("2")   int dailyBars,
+            java.util.List<Integer> emaPeriods,
+            @DefaultValue("2")   int poolSize,
+            @DefaultValue("true") boolean logJson,
+            @DefaultValue("logs/alert-reviews") String jsonDir
     ) {}
 
     // -----------------------------------------------------------------------

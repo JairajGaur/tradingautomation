@@ -1,0 +1,72 @@
+meta {
+  name: Evaluate Symbol
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/llm/evaluate/AAPL?timeframe=M5&count=300
+  body: none
+  auth: none
+}
+
+params:query {
+  timeframe: M5
+  count: 300
+  ~sessions: RTH
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # LLM Evaluate Symbol
+
+  The "do it all" analysis endpoint. You give it a symbol + timeframe; the app
+  fetches the historical bars, computes the Supertrend series, DISTILS them into
+  a compact briefing, and asks the LLM for a verdict AND a forward-looking read
+  of the next likely directions.
+
+  Unlike "Analyze Clean Setup" (which takes hand-typed facts), here the briefing
+  is built from REAL market data — no manual facts.
+
+  ## Path
+  - `{ticker}` — any US symbol (need not be in the watchlist).
+
+  ## Query
+  - `timeframe` — M1/M5/M15/M30/M60/M120/M240 or synthetic M2/M3 (default M5).
+  - `count`     — bars to fetch (default 300; broker caps at 1650).
+  - `sessions`  — RTH/PRE/ATH/OVN (default: configured trading sessions).
+
+  ## Why distilled, not raw bars
+  A small local model reasons poorly over hundreds of raw OHLCV rows. The app
+  does the quant work (bars + Supertrend) in Java and hands the model a short
+  list of facts: current price, window travel, high/low, Supertrend direction +
+  line + price-to-line separation in ATR units, the latest flip and its age, the
+  flip count, the volume trend, and a tail of the most recent bars. You can see
+  exactly what the model saw in `briefingFacts`.
+
+  ## Response (200)
+  { ticker, timeframe, sessions, barsFetched, model, llmEnabled,
+    briefingFacts: [ ...the distilled facts fed to the LLM... ],
+    verdict: {
+      action (ENTER|WAIT|SKIP), conviction, rationale, riskFlags[],
+      nextDirections: [ { direction (BULLISH|BEARISH|SIDEWAYS), trigger,
+                          rationale, likelihood (HIGH|MEDIUM|LOW) } ],
+      ok, note
+    },
+    timestamp }
+
+  - `ok=false` → fail-safe WAIT (LLM disabled/down/bad output); `note` says why.
+    The briefing is still returned so you can see the inputs.
+
+  ## Errors (mirrors /api/supertrend)
+  - `400` — invalid timeframe/sessions.
+  - `502` — market-data (broker) request failed.
+  - `503` — no data, or not enough bars for the Supertrend length.
+
+  ## Advisory only
+  The verdict and scenarios are opinions — nothing here places an order. The
+  risk/exit layer keeps final authority.
+}
