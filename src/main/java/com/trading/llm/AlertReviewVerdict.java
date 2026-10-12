@@ -1,39 +1,31 @@
 package com.trading.llm;
 
-import java.util.List;
-
 /**
- * The structured result of an LLM review of a fired alert (see {@code prompts/alert-review.txt}).
+ * The simple, day-trader-friendly result of an LLM review of a fired alert
+ * (see {@code prompts/alert-review.txt}).
  *
- * <p>Scoped to one question: how much should a disciplined trader trust the alert's stated
- * direction, given the multi-timeframe context? <b>Advisory only</b> — it never places or
- * blocks an order; it is logged for end-of-day analysis.</p>
+ * <p>One question, plainly answered: does the multi-timeframe evidence back the alert's
+ * stated direction, and how strongly? <b>Advisory only</b> — it never places or blocks an
+ * order; it is logged for end-of-day analysis.</p>
  *
- * @param conviction         1..maxConviction — strength of the evidence FOR the alert direction
- * @param confidence         HIGH / MEDIUM / LOW — how sure the model is, given data quality
- * @param alignment          ALIGNED / MIXED / CONFLICTING — how the timeframes relate to the
- *                           alert direction overall
- * @param supportingFactors  evidence for the alert direction (may be empty)
- * @param riskFactors        evidence against / things to watch (may be empty)
- * @param rationale          2-3 sentence explanation
- * @param nextDirections     forward-looking scenarios (reuses {@link LlmVerdict.Scenario})
- * @param ok                 true when parsed from a real model reply; false for a fail-safe
- * @param note               diagnostic note when {@code ok} is false; else blank
+ * @param verdict    AGREE / NEUTRAL / DISAGREE — does the evidence support the alert direction?
+ * @param conviction 1..maxConviction — how strong that judgment is
+ * @param reason     one short line explaining the call
+ * @param watchFor   the single thing that would change / confirm it next (may be blank)
+ * @param ok         true when parsed from a real model reply; false for a fail-safe fallback
+ * @param note       diagnostic note when {@code ok} is false; else blank
  */
 public record AlertReviewVerdict(
+        String verdict,
         int conviction,
-        String confidence,
-        String alignment,
-        List<String> supportingFactors,
-        List<String> riskFactors,
-        String rationale,
-        List<LlmVerdict.Scenario> nextDirections,
+        String reason,
+        String watchFor,
         boolean ok,
         String note
 ) {
     /** Neutral fail-safe verdict when the LLM is disabled/down/returns garbage. */
     public static AlertReviewVerdict failSafe(String note) {
-        return new AlertReviewVerdict(1, "LOW", "MIXED", List.of(), List.of(),
-                "LLM review unavailable.", List.of(), false, note == null ? "" : note);
+        return new AlertReviewVerdict("NEUTRAL", 1, "LLM review unavailable.", "",
+                false, note == null ? "" : note);
     }
 }

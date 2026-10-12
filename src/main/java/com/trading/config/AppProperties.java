@@ -644,46 +644,41 @@ public record AppProperties(
 
     /**
      * Parallel LLM "alert review" pipeline (broker-NEUTRAL). When an alert fires, a separate
-     * ASYNC pipeline gathers a multi-timeframe distilled snapshot of the symbol (bars +
-     * Supertrend + EMA stack per timeframe) and asks the LLM to measure how much conviction
-     * and confidence it has in the ALERT'S direction, with reasoning and next-direction
-     * scenarios. The result is logged (structured line + optional JSON sidecar) for end-of-day
-     * analysis.
+     * ASYNC pipeline gathers a DAY-TRADING multi-timeframe snapshot of the symbol and asks the
+     * LLM to judge whether the evidence AGREES with the alert's direction, with a conviction
+     * score and a one-line reason. The result is logged (structured line + JSON sidecar) for
+     * end-of-day analysis.
      *
-     * <p><b>Off the critical path.</b> This runs on its own executor AFTER the alert has
-     * already been delivered and logged, so it never slows or blocks alert delivery. Any
-     * failure is swallowed (fail-safe) — the alert pipeline is unaffected (same spirit as
-     * notifications: failures never affect trading/alerts).</p>
+     * <p><b>Off the critical path.</b> Runs on its own executor AFTER the alert is delivered
+     * and logged, so it never slows or blocks alert delivery. Any failure is swallowed
+     * (fail-safe) — the alert pipeline is unaffected.</p>
      *
-     * <p>The timeframes/counts default to the agreed scope: M1 for today's pre-market +
-     * regular session, 5×M30, 10×M60, and 2 daily bars. Each timeframe is DISTILLED to a
-     * compact set of facts (never raw bars) so the whole multi-timeframe briefing fits the
-     * context window with headroom.</p>
+     * <p><b>Day-trading timeframes.</b> M15 / M5 (primary) / M1 — with bar counts large enough
+     * that Supertrend and ADX actually compute on each (ADX needs ~2×period+1 bars). A compact
+     * daily-bias line (prior close vs today's open) gives higher-timeframe context without a
+     * near-useless 2-bar daily indicator block. Each timeframe is DISTILLED to one line
+     * (Supertrend + ADX + volume trend + a fast EMA stack + position in the day's range) —
+     * never raw bars — so the whole briefing stays small.</p>
      *
-     * @param enabled        master on/off (default false — opt in explicitly)
-     * @param model          model tag for the review; blank → use {@code app.llm.model}.
-     *                       Defaults to a deeper model ({@code qwen3:14b}) since the review
-     *                       runs off the critical path and latency is not a concern.
-     * @param m1Bars         max M1 bars to fetch (default 500 — ~a full intraday session; well
-     *                       under the broker's 1650 cap). Sessions follow the configured
-     *                       {@code app.engine.trading-sessions} (bars read via BarDataManager).
-     * @param m30Bars        number of M30 bars (default 5)
-     * @param m60Bars        number of M60 bars (default 10)
-     * @param dailyBars      number of daily (D) bars (default 2)
-     * @param emaPeriods     EMA periods computed per timeframe; blank → use
-     *                       {@code app.engine.emaPeriods} (20/100/200/600)
-     * @param poolSize       async worker threads for reviews (default 2)
-     * @param logJson        also write a per-review JSON sidecar under {@code logs/} (default true)
-     * @param jsonDir        directory for the JSON sidecars (default {@code logs/alert-reviews})
+     * @param enabled      master on/off (default false — opt in explicitly)
+     * @param model        model tag for the review; blank → {@code app.llm.model}. Defaults to
+     *                     a deeper model ({@code qwen3:14b}) since latency is off the critical path.
+     * @param m15Bars      M15 bars to fetch (default 80 — swing/structure context)
+     * @param m5Bars       M5 bars to fetch (default 120 — the primary day-trade timeframe)
+     * @param m1Bars       M1 bars to fetch (default 200 — entry timing / today's session)
+     * @param emaPeriods   fast EMA periods per timeframe; blank → defaults to day-trade set
+     *                     {@code 9, 20, 50}
+     * @param poolSize     async worker threads for reviews (default 2)
+     * @param logJson      also write a per-review JSON sidecar (default true)
+     * @param jsonDir      directory for the JSON sidecars (default {@code logs/alert-reviews})
      */
     public record AlertReview(
             @DefaultValue("false") boolean enabled,
             @DefaultValue("qwen3:14b") String model,
-            @DefaultValue("500") int m1Bars,
-            @DefaultValue("5")   int m30Bars,
-            @DefaultValue("10")  int m60Bars,
-            @DefaultValue("2")   int dailyBars,
-            java.util.List<Integer> emaPeriods,
+            @DefaultValue("80")  int m15Bars,
+            @DefaultValue("120") int m5Bars,
+            @DefaultValue("200") int m1Bars,
+            @DefaultValue({"9", "20", "50"}) java.util.List<Integer> emaPeriods,
             @DefaultValue("2")   int poolSize,
             @DefaultValue("true") boolean logJson,
             @DefaultValue("logs/alert-reviews") String jsonDir

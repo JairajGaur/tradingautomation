@@ -1,6 +1,8 @@
 package com.trading.llm;
 
 import com.trading.config.AppProperties;
+import com.trading.indicator.AdxCalculator;
+import com.trading.indicator.AdxService;
 import com.trading.indicator.EmaCalculator;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
@@ -18,22 +20,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Assembles the multi-timeframe, DISTILLED context used by the parallel LLM alert review.
+ * Assembles the DAY-TRADING, DISTILLED context the parallel LLM alert review reasons over.
  *
- * <p>For the alert's symbol it gathers bars across several timeframes (via the shared,
- * cached {@link BarDataManager} — so this adds no uncached Webull load), computes the
- * Supertrend and the EMA stack per timeframe, and distils each into a compact block of
- * plain-language facts. It never emits raw OHLCV rows: the whole multi-timeframe briefing is
- * a few dozen facts (~2 KB of text), which keeps it well inside the model's context window
- * while still reflecting every bar that was fetched.</p>
+ * <p>For the alert's symbol it reads bars at the intraday timeframes <b>M15 / M5 / M1</b>
+ * (via the shared, cached {@link BarDataManager}) and distils each into a single
+ * information-dense line carrying the signals a day trader actually weighs:</p>
+ * <ul>
+ *   <li><b>Supertrend</b> — direction, line value, price-to-line distance in ATR, recent flips</li>
+ *   <li><b>ADX</b> — trend strength + the dominant DI side (+DI/−DI)</li>
+ *   <li><b>Volume</b> — recent-half vs older-half trend (rising / falling / flat)</li>
+ *   <li><b>EMA stack</b> — a fast day-trade set (default 9/20/50), each price-above/below</li>
+ *   <li><b>Range position</b> — where the last close sits within the window's high–low</li>
+ * </ul>
  *
- * <p>Scope (from {@code app.alert-review.*}): M1 (intraday), N×M30, N×M60, N daily bars.
- * All timeframes are read through {@link BarDataManager#getBars}, which fetches with the
- * application's configured trading sessions ({@code app.engine.trading-sessions}) and shares
- * one cached series per (ticker, timeframe). EMA periods come from
- * {@code app.alert-review.ema-periods} or fall back to {@code app.engine.ema-periods}
- * (20/100/200/600). An EMA that lacks enough bars on a short timeframe (e.g. the 600-EMA on
- * 5 M30 bars) is simply omitted — never faked.</p>
+ * <p>A compact <b>daily-bias</b> line (prior close vs today's open, gap %) opens the block to
+ * give higher-timeframe context without a near-useless 2-bar daily indicator block. Bar counts
+ * (from {@code app.alert-review.*}) are sized so Supertrend and ADX actually compute on every
+ * timeframe (ADX needs ~2×period+1 bars). Nothing is ever faked: an indicator without enough
+ * bars is reported as such. No raw OHLCV rows are emitted — the whole briefing stays small.</p>
  */
 @Component
 public class AlertReviewContextBuilder {
@@ -44,46 +48,69 @@ public class AlertReviewContextBuilder {
     private final AppProperties props;
     private final BarDataManager barData;
     private final SupertrendService supertrend;
+    private final AdxService adx;
 
     public AlertReviewContextBuilder(AppProperties props, BarDataManager barData,
-                                     SupertrendService supertrend) {
+                                     SupertrendService supertrend, AdxService adx) {
         this.props = props;
         this.barData = barData;
         this.supertrend = supertrend;
+        this.adx = adx;
     }
 
     /**
-     * Builds the distilled multi-timeframe context block for {@code ticker}. Never throws —
-     * a timeframe that fails to fetch or compute is reported inline as unavailable, so the
-     * reviewer still runs on whatever context is available.
-     *
-     * @return a text block of per-timeframe facts, ready to drop into the review prompt
+     * Builds the distilled day-trading context block for {@code ticker}. Never throws — a
+     * timeframe that fails to fetch or compute is reported inline, so the reviewer still runs
+     * on whatever is available.
      */
     public String build(String ticker) {
         AppProperties.AlertReview cfg = props.alertReview();
         List<Integer> emaPeriods = (cfg.emaPeriods() != null && !cfg.emaPeriods().isEmpty())
-                ? cfg.emaPeriods() : props.engine().emaPeriods();
+                ? cfg.emaPeriods() : List.of(9, 20, 50);
 
         StringBuilder sb = new StringBuilder();
 
-        // All timeframes read through the shared BarDataManager cache, which fetches with the
-        // application's configured trading sessions. Daily first (macro), then swing, then M1.
-        appendTimeframe(sb, ticker, "D", cfg.dailyBars(), emaPeriods);
-        appendTimeframe(sb, ticker, "M60", cfg.m60Bars(), emaPeriods);
-        appendTimeframe(sb, ticker, "M30", cfg.m30Bars(), emaPeriods);
+        // Daily-bias one-liner (higher-TF context without a full daily indicator block).
+        sb.append(dailyBiasLine(ticker));
+
+        // Intraday timeframes, swing → primary → entry.
+        appendTimeframe(sb, ticker, "M15", cfg.m15Bars(), emaPeriods);
+        appendTimeframe(sb, ticker, "M5", cfg.m5Bars(), emaPeriods);
         appendTimeframe(sb, ticker, "M1", cfg.m1Bars(), emaPeriods);
 
         return sb.toString();
     }
 
-    /** Fetches one timeframe, computes ST + EMAs, and appends a distilled block. */
+    /** A compact daily-bias line: prior close, today's open, and the gap. */
+    private String dailyBiasLine(String ticker) {
+        try {
+            List<Candle> daily = barData.getBars(ticker, "D", 3);
+            if (daily != null && daily.size() >= 2) {
+                Candle today = daily.get(daily.size() - 1);
+                Candle prior = daily.get(daily.size() - 2);
+                BigDecimal priorClose = prior.close();
+                BigDecimal todayOpen = today.open();
+                BigDecimal gapPct = priorClose.signum() == 0 ? BigDecimal.ZERO
+                        : todayOpen.subtract(priorClose, MC).divide(priorClose, MC)
+                            .multiply(BigDecimal.valueOf(100), MC);
+                String gapDir = gapPct.signum() > 0 ? "gap up" : gapPct.signum() < 0 ? "gap down" : "flat";
+                return "[Daily bias] prior close %s, today open %s (%s %s%%), today high %s / low %s.\n"
+                        .formatted(plain(priorClose), plain(todayOpen), gapDir,
+                                plain2(gapPct.abs()), plain(today.high()), plain(today.low()));
+            }
+        } catch (RuntimeException e) {
+            log.debug("[AlertReviewContextBuilder] daily-bias unavailable for {}: {}", ticker, e.getMessage());
+        }
+        return "[Daily bias] unavailable.\n";
+    }
+
+    /** Fetches one timeframe and appends a one-line distilled day-trade summary. */
     private void appendTimeframe(StringBuilder sb, String ticker, String tf, int bars,
                                  List<Integer> emaPeriods) {
         sb.append("[").append(tf).append("] ");
 
         List<Candle> candles;
         try {
-            // Reads through the shared cache; fetches with the configured trading sessions.
             candles = barData.getBars(ticker, tf, bars);
         } catch (RuntimeException e) {
             sb.append("data unavailable (").append(e.getMessage()).append(").\n");
@@ -93,67 +120,99 @@ public class AlertReviewContextBuilder {
             sb.append("no bars available.\n");
             return;
         }
-
-        // Trim to the requested count (getBars may return more from cache).
         if (candles.size() > bars) {
             candles = candles.subList(candles.size() - bars, candles.size());
         }
 
         Candle last = candles.get(candles.size() - 1);
-        sb.append(candles.size()).append(" bars; last close ").append(plain(last.close())).append(". ");
+        sb.append("close ").append(plain(last.close())).append(". ");
 
-        // Supertrend (needs length+1 bars).
-        if (candles.size() >= supertrend.length() + 1) {
-            try {
-                List<Point> pts = supertrend.calculate(candles);
-                Point latest = null;
-                for (int i = pts.size() - 1; i >= 0; i--) {
-                    if (pts.get(i).supertrend() != null) { latest = pts.get(i); break; }
-                }
-                if (latest != null && latest.direction() != null) {
-                    sb.append("ST ").append(latest.direction().name())
-                      .append(" @ ").append(plain(latest.supertrend()));
-                    BigDecimal atr = latest.atr();
-                    if (atr != null && atr.signum() > 0) {
-                        BigDecimal sepAtr = last.close().subtract(latest.supertrend(), MC).abs()
-                                .divide(atr, MC);
-                        String side = latest.direction() == Direction.UP ? "above" : "below";
-                        sb.append(" (price ").append(plain2(sepAtr)).append(" ATR ").append(side).append(")");
-                    }
-                    int flips = 0;
-                    for (Point p : pts) if (p.flip()) flips++;
-                    sb.append("; ").append(flips).append(" flip(s) in window");
-                    sb.append(". ");
-                } else {
-                    sb.append("ST warming up. ");
-                }
-            } catch (RuntimeException e) {
-                sb.append("ST error. ");
-            }
-        } else {
-            sb.append("ST n/a (only ").append(candles.size()).append(" bars). ");
+        appendSupertrend(sb, candles, last);
+        appendAdx(sb, candles);
+        appendVolume(sb, candles);
+        appendEmas(sb, candles, last, emaPeriods);
+        appendRangePosition(sb, candles, last);
+
+        sb.append('\n');
+    }
+
+    private void appendSupertrend(StringBuilder sb, List<Candle> candles, Candle last) {
+        if (candles.size() < supertrend.length() + 1) {
+            sb.append("ST n/a. ");
+            return;
         }
+        try {
+            List<Point> pts = supertrend.calculate(candles);
+            Point latest = null;
+            for (int i = pts.size() - 1; i >= 0; i--) {
+                if (pts.get(i).supertrend() != null) { latest = pts.get(i); break; }
+            }
+            if (latest == null || latest.direction() == null) { sb.append("ST warming up. "); return; }
 
-        // EMA stack — only periods with enough bars; report price-vs-EMA.
+            sb.append("ST ").append(latest.direction().name());
+            BigDecimal atr = latest.atr();
+            if (atr != null && atr.signum() > 0) {
+                BigDecimal sepAtr = last.close().subtract(latest.supertrend(), MC).abs().divide(atr, MC);
+                String side = latest.direction() == Direction.UP ? "above" : "below";
+                sb.append(" (").append(plain2(sepAtr)).append(" ATR ").append(side).append(")");
+            }
+            int flips = 0;
+            for (Point p : pts) if (p.flip()) flips++;
+            sb.append(", ").append(flips).append(" flips. ");
+        } catch (RuntimeException e) {
+            sb.append("ST error. ");
+        }
+    }
+
+    private void appendAdx(StringBuilder sb, List<Candle> candles) {
+        AdxCalculator.Point p = adx.latestCompleted(candles);
+        if (p == null || p.adx() == null) { sb.append("ADX n/a. "); return; }
+        String strength = AdxCalculator.strengthOf(p.adx()).name();
+        String diSide = p.direction() == null ? "FLAT" : p.direction().name();
+        sb.append("ADX ").append(plain2(p.adx()))
+          .append(" (").append(strength).append(", ").append(diSide).append("). ");
+    }
+
+    private void appendVolume(StringBuilder sb, List<Candle> candles) {
+        int n = candles.size();
+        if (n < 4) { sb.append("Vol n/a. "); return; }
+        int mid = n / 2;
+        double older = avgVolume(candles, 0, mid);
+        double recent = avgVolume(candles, mid, n);
+        String dir = recent > older * 1.1 ? "rising" : recent < older * 0.9 ? "falling" : "flat";
+        sb.append("Vol ").append(dir).append(". ");
+    }
+
+    private void appendEmas(StringBuilder sb, List<Candle> candles, Candle last, List<Integer> emaPeriods) {
         List<BigDecimal> closes = new ArrayList<>(candles.size());
         for (Candle c : candles) closes.add(c.close());
-        List<String> emaBits = new ArrayList<>();
+        List<String> bits = new ArrayList<>();
         for (int period : emaPeriods) {
-            if (closes.size() < period) continue;   // not enough bars → omit, never fake
+            if (closes.size() < period) continue;
             try {
                 BigDecimal ema = EmaCalculator.calculate(closes, period);
-                String rel = last.close().compareTo(ema) >= 0 ? "above" : "below";
-                emaBits.add("EMA" + period + "=" + plain(ema) + " (price " + rel + ")");
-            } catch (RuntimeException ignored) {
-                // skip this period
-            }
+                bits.add("EMA" + period + (last.close().compareTo(ema) >= 0 ? "↑" : "↓"));
+            } catch (RuntimeException ignored) { }
         }
-        if (!emaBits.isEmpty()) {
-            sb.append("EMAs: ").append(String.join(", ", emaBits)).append(".");
-        } else {
-            sb.append("EMAs: none (insufficient bars).");
+        if (!bits.isEmpty()) sb.append("Price vs ").append(String.join("/", bits)).append(". ");
+    }
+
+    private void appendRangePosition(StringBuilder sb, List<Candle> candles, Candle last) {
+        BigDecimal hi = last.high(), lo = last.low();
+        for (Candle c : candles) {
+            if (c.high().compareTo(hi) > 0) hi = c.high();
+            if (c.low().compareTo(lo) < 0) lo = c.low();
         }
-        sb.append('\n');
+        BigDecimal span = hi.subtract(lo, MC);
+        if (span.signum() <= 0) return;
+        BigDecimal posPct = last.close().subtract(lo, MC).divide(span, MC).multiply(BigDecimal.valueOf(100), MC);
+        sb.append("At ").append(plain2(posPct)).append("% of range.");
+    }
+
+    private static double avgVolume(List<Candle> candles, int fromInc, int toExc) {
+        long sum = 0; int c = 0;
+        for (int i = fromInc; i < toExc; i++) { sum += candles.get(i).volume(); c++; }
+        return c == 0 ? 0 : (double) sum / c;
     }
 
     private static String plain(BigDecimal v) {

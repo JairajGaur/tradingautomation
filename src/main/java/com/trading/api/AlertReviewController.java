@@ -7,7 +7,6 @@ import com.trading.llm.AlertReviewContextBuilder;
 import com.trading.llm.AlertReviewLog;
 import com.trading.llm.AlertReviewVerdict;
 import com.trading.llm.LlmAnalystService;
-import com.trading.llm.LlmVerdict;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -118,23 +115,10 @@ public class AlertReviewController {
 
     private Map<String, Object> toVerdictMap(AlertReviewVerdict v) {
         Map<String, Object> m = new LinkedHashMap<>();
+        m.put("verdict", v.verdict());
         m.put("conviction", v.conviction());
-        m.put("confidence", v.confidence());
-        m.put("alignment", v.alignment());
-        m.put("supportingFactors", v.supportingFactors());
-        m.put("riskFactors", v.riskFactors());
-        m.put("rationale", v.rationale());
-
-        List<Map<String, Object>> dirs = new ArrayList<>();
-        for (LlmVerdict.Scenario s : v.nextDirections()) {
-            Map<String, Object> d = new LinkedHashMap<>();
-            d.put("direction", s.direction());
-            d.put("trigger", s.trigger());
-            d.put("rationale", s.rationale());
-            d.put("likelihood", s.likelihood());
-            dirs.add(d);
-        }
-        m.put("nextDirections", dirs);
+        m.put("reason", v.reason());
+        m.put("watchFor", v.watchFor());
         m.put("ok", v.ok());
         m.put("note", v.note());
         return m;

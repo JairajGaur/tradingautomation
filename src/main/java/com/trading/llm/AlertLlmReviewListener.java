@@ -60,8 +60,8 @@ public class AlertLlmReviewListener {
             reviewLog.record(hit, verdict, context);
 
             long ms = System.currentTimeMillis() - t0;
-            log.info("[AlertLlmReviewListener] reviewed {} {} → conviction={} confidence={} ({}ms)",
-                    hit.alertId(), hit.ticker(), verdict.conviction(), verdict.confidence(), ms);
+            log.info("[AlertLlmReviewListener] reviewed {} {} → verdict={} conviction={} ({}ms)",
+                    hit.alertId(), hit.ticker(), verdict.verdict(), verdict.conviction(), ms);
         } catch (Exception e) {
             // Never let a review failure escape — the alert already fired and was logged.
             log.warn("[AlertLlmReviewListener] review failed for {} {} (ignored): {}",

@@ -1,7 +1,6 @@
 package com.trading.llm;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.trading.alert.AlertHit;
 import com.trading.api.TimeFormat;
@@ -79,16 +78,14 @@ public class AlertReviewLog {
         sb.append(" ticker=").append(hit.ticker());
         if (hit.direction() != null) sb.append(" alertDir=").append(hit.direction());
         if (hit.timeframe() != null && !hit.timeframe().isBlank()) sb.append(" tf=").append(hit.timeframe());
+        sb.append(" verdict=").append(v.verdict());
         sb.append(" conviction=").append(v.conviction());
-        sb.append(" confidence=").append(v.confidence());
-        sb.append(" alignment=").append(v.alignment());
         sb.append(" ok=").append(v.ok());
-        if (!v.nextDirections().isEmpty()) {
-            LlmVerdict.Scenario top = v.nextDirections().get(0);
-            sb.append(" nextDir=").append(top.direction()).append('/').append(top.likelihood());
+        if (v.reason() != null && !v.reason().isBlank()) {
+            sb.append(" reason=\"").append(v.reason().replace('"', '\'')).append('"');
         }
-        if (v.rationale() != null && !v.rationale().isBlank()) {
-            sb.append(" reason=\"").append(v.rationale().replace('"', '\'')).append('"');
+        if (v.watchFor() != null && !v.watchFor().isBlank()) {
+            sb.append(" watch=\"").append(v.watchFor().replace('"', '\'')).append('"');
         }
         line.info(sb.toString());
     }
@@ -113,22 +110,12 @@ public class AlertReviewLog {
         alert.put("state", hit.state());
 
         ObjectNode verdict = root.putObject("verdict");
+        verdict.put("verdict", v.verdict());
         verdict.put("conviction", v.conviction());
-        verdict.put("confidence", v.confidence());
-        verdict.put("alignment", v.alignment());
-        verdict.put("rationale", v.rationale());
+        verdict.put("reason", v.reason());
+        verdict.put("watchFor", v.watchFor());
         verdict.put("ok", v.ok());
         verdict.put("note", v.note());
-        putStrings(verdict.putArray("supportingFactors"), v.supportingFactors());
-        putStrings(verdict.putArray("riskFactors"), v.riskFactors());
-        ArrayNode dirs = verdict.putArray("nextDirections");
-        for (LlmVerdict.Scenario s : v.nextDirections()) {
-            ObjectNode d = dirs.addObject();
-            d.put("direction", s.direction());
-            d.put("trigger", s.trigger());
-            d.put("rationale", s.rationale());
-            d.put("likelihood", s.likelihood());
-        }
 
         root.put("context", context);
         root.put("model", props.alertReview().model());
@@ -136,10 +123,6 @@ public class AlertReviewLog {
         Path out = dir.resolve(file);
         Files.write(out, mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(root));
         log.debug("[AlertReviewLog] wrote {}", out);
-    }
-
-    private static void putStrings(ArrayNode arr, Iterable<String> values) {
-        for (String s : values) arr.add(s);
     }
 
     private static String safe(String s) {

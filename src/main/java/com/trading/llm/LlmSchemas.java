@@ -39,27 +39,21 @@ final class LlmSchemas {
     }
 
     /**
-     * Schema for the alert-review verdict:
-     * {@code {conviction, confidence, alignment, supporting_factors[], risk_factors[],
-     * rationale, next_directions[]}}.
+     * Schema for the SIMPLE day-trade alert-review verdict:
+     * {@code {verdict, conviction, reason, watch_for}}.
      */
     static ObjectNode reviewSchema(ObjectMapper m, int maxConviction) {
         ObjectNode schema = m.createObjectNode();
         schema.put("type", "object");
         ObjectNode props = schema.putObject("properties");
 
+        props.set("verdict", enumProp(m, "AGREE", "NEUTRAL", "DISAGREE"));
         props.set("conviction", intProp(m, 1, maxConviction));
-        props.set("confidence", enumProp(m, "HIGH", "MEDIUM", "LOW"));
-        props.set("alignment", enumProp(m, "ALIGNED", "MIXED", "CONFLICTING"));
-        props.set("supporting_factors", strArrayProp(m));
-        props.set("risk_factors", strArrayProp(m));
-        props.set("rationale", strProp(m));
-        props.set("next_directions", scenariosProp(m));
+        props.set("reason", strProp(m));
+        props.set("watch_for", strProp(m));
 
         schema.set("required", m.createArrayNode()
-                .add("conviction").add("confidence").add("alignment")
-                .add("supporting_factors").add("risk_factors")
-                .add("rationale").add("next_directions"));
+                .add("verdict").add("conviction").add("reason").add("watch_for"));
         return schema;
     }
 

@@ -188,7 +188,7 @@ public class LlmAnalystService {
         }
     }
 
-    /** Parses the alert-review JSON reply into a validated verdict. Throws on malformed input. */
+    /** Parses the simple day-trade alert-review reply into a validated verdict. */
     AlertReviewVerdict parseReview(String raw, int maxConviction) {
         JsonNode node;
         try {
@@ -204,18 +204,14 @@ public class LlmAnalystService {
         if (conviction < 1) conviction = 1;
         if (conviction > maxConviction) conviction = maxConviction;
 
-        String confidence = text(node, "confidence").toUpperCase();
-        String alignment = text(node, "alignment").toUpperCase();
-        String rationale = text(node, "rationale");
+        String verdict = text(node, "verdict").toUpperCase();
+        if (!verdict.equals("AGREE") && !verdict.equals("DISAGREE")) verdict = "NEUTRAL";
 
         return new AlertReviewVerdict(
+                verdict,
                 conviction,
-                confidence.isEmpty() ? "LOW" : confidence,
-                alignment.isEmpty() ? "MIXED" : alignment,
-                parseStringArray(node.get("supporting_factors")),
-                parseStringArray(node.get("risk_factors")),
-                rationale,
-                parseScenarios(node.get("next_directions")),
+                text(node, "reason"),
+                text(node, "watch_for"),
                 true, "");
     }
 
@@ -238,18 +234,6 @@ public class LlmAnalystService {
             }
         }
         return List.copyOf(directions);
-    }
-
-    /** Parses a JSON array of strings, dropping blanks. */
-    private static List<String> parseStringArray(JsonNode arr) {
-        List<String> out = new ArrayList<>();
-        if (arr != null && arr.isArray()) {
-            for (JsonNode el : arr) {
-                String s = el.asText("").strip();
-                if (!s.isEmpty()) out.add(s);
-            }
-        }
-        return List.copyOf(out);
     }
 
     private static String nz(String s) {
