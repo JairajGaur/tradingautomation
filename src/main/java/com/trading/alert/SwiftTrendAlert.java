@@ -36,17 +36,20 @@ public class SwiftTrendAlert implements Alert {
     private final SwiftTrendScanner scanner;
     private final TelegramChannelSender telegram;
     private final com.trading.service.DesktopNotifier desktop;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public SwiftTrendAlert(AppProperties props,
                            BarDataManager barData,
                            SwiftTrendScanner scanner,
                            TelegramChannelSender telegram,
-                           com.trading.service.DesktopNotifier desktop) {
+                           com.trading.service.DesktopNotifier desktop,
+                           org.springframework.context.ApplicationEventPublisher events) {
         this.props = props;
         this.barData = barData;
         this.scanner = scanner;
         this.telegram = telegram;
         this.desktop = desktop;
+        this.events = events;
     }
 
     @Override
@@ -148,9 +151,18 @@ public class SwiftTrendAlert implements Alert {
                 AlertMessageFormat.Dir dir =
                         d.result().direction() == com.trading.indicator.SupertrendCalculator.Direction.UP
                                 ? AlertMessageFormat.Dir.UP : AlertMessageFormat.Dir.DOWN;
-                AlertLog.fired(id(), symbol, dir, d.result().close(), tf,
-                        "flip@" + (d.result().flipTime() == null ? "?" : d.result().flipTime()),
-                        d.reason());
+                String state = "flip@" + (d.result().flipTime() == null ? "?" : d.result().flipTime());
+                AlertLog.fired(id(), symbol, dir, d.result().close(), tf, state, d.reason());
+                // Hand this self-delivered hit to the parallel LLM review pipeline (async,
+                // fail-safe). The engine's run() loop only publishes for engine-delivered
+                // alerts, so a self-delivering alert must publish its own event here, else it
+                // is never reviewed. Wrapped so a publish failure can't break the scan.
+                try {
+                    AlertHit hit = new AlertHit(id(), symbol, state, text, dir, d.result().close(), tf);
+                    events.publishEvent(new com.trading.llm.AlertReviewEvent(hit));
+                } catch (Exception ex) {
+                    log.debug("[SwiftTrendAlert] review publish failed (ignored): {}", ex.getMessage());
+                }
                 // Buffer for a single coalesced desktop banner at the end of the scan.
                 desktopBurst.add(new com.trading.service.DesktopNotifier.Fired(id(), symbol, dir.name(), tf));
             } catch (Exception e) {
