@@ -150,6 +150,7 @@ public class AlertReviewContextBuilder {
             if (latest == null || latest.direction() == null) { sb.append("ST warming up. "); return; }
 
             sb.append("ST ").append(latest.direction().name());
+            sb.append(" line ").append(plain(latest.supertrend()));
             BigDecimal atr = latest.atr();
             if (atr != null && atr.signum() > 0) {
                 BigDecimal sepAtr = last.close().subtract(latest.supertrend(), MC).abs().divide(atr, MC);

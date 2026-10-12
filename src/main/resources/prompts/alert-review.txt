@@ -16,7 +16,7 @@ Reason only from the facts provided.
 === INTRADAY CONTEXT (distilled; each line is pre-computed) ===
 {context}
 
-Legend: ST = Supertrend (dir, distance from line in ATR, flip count). ADX = trend
+Legend: ST = Supertrend (dir, line price, distance from line in ATR, flip count). ADX = trend
 strength (NO_TREND/WEAK/… + dominant DI side). Vol = volume trend. EMA numbers are
 PERIODS — e.g. EMA9/EMA20/EMA50 are the 9-, 20- and 50-period EMAs; ↑ = price above
 that EMA, ↓ = below. "% of range" = where price sits in the window's high–low.
@@ -47,7 +47,10 @@ Return ONLY a single JSON object, no prose, with EXACTLY these keys:
                 EMA period, and timeframe you mean — e.g. "price below the 9/20/50 EMAs
                 on M5" or "M15 ADX NO_TREND". Do NOT write vague phrases like "key EMAs"
                 or "the indicators".
-  "watch_for":  ONE short sentence — the single thing that would confirm or flip this next,
-                also naming the specific level/indicator/timeframe.
+  "watch_for":  ONE short sentence naming a CONCRETE PRICE LEVEL from the context that
+                would confirm or flip the call — e.g. the M5 Supertrend line value, the
+                day's high/low, or a specific close level. Prefer an actual number over
+                vague advice like "volume to stabilize". Example: "a close back below the
+                M5 Supertrend line at 189.3 would flip this bearish".
 
 Base every field ONLY on the context above.
