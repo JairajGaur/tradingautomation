@@ -117,6 +117,78 @@ public class LlmClient {
     }
 
     /**
+     * Schema-constrained generation (the "Jev-like" typed path): sends {@code prompt} with a
+     * JSON <b>schema</b> as the {@code format}, so the runtime forces the model to emit output
+     * conforming to that schema — not just "some JSON". The caller can then deserialize the
+     * reply straight into a typed record with confidence it matches the expected shape.
+     *
+     * @param prompt          the fully-rendered prompt
+     * @param schema          a JSON-schema object (Jackson node) describing the required output
+     * @param modelOverride   model tag; null/blank → {@code app.llm.model}
+     * @param timeoutOverride per-call timeout in seconds; &le;0 → {@code app.llm.timeout-seconds}
+     * @return the model's {@code response} string (guaranteed to match {@code schema})
+     * @throws LlmException on any transport/HTTP/decoding failure
+     */
+    public String generateSchema(String prompt, JsonNode schema, String modelOverride, int timeoutOverride) {
+        AppProperties.Llm cfg = props.llm();
+        String url = cfg.generateUrl();
+        String model = (modelOverride != null && !modelOverride.isBlank()) ? modelOverride : cfg.model();
+        int timeout = timeoutOverride > 0 ? timeoutOverride : cfg.timeoutSeconds();
+
+        ObjectNode body = mapper.createObjectNode();
+        body.put("model", model);
+        body.put("prompt", prompt);
+        body.put("stream", false);
+        body.set("format", schema);          // JSON SCHEMA — forces conforming output
+        body.put("think", cfg.think());
+        ObjectNode options = body.putObject("options");
+        options.put("temperature", cfg.temperature().doubleValue());
+
+        OkHttpClient http = new OkHttpClient.Builder()
+                .callTimeout(Duration.ofSeconds(timeout))
+                .connectTimeout(Duration.ofSeconds(Math.min(5, timeout)))
+                .readTimeout(Duration.ofSeconds(timeout))
+                .build();
+
+        Request request;
+        try {
+            request = new Request.Builder()
+                    .url(url)
+                    .post(RequestBody.create(mapper.writeValueAsBytes(body), JSON))
+                    .build();
+        } catch (Exception e) {
+            throw new LlmException("Failed to encode LLM request", e);
+        }
+
+        long t0 = System.nanoTime();
+        try (Response resp = http.newCall(request).execute()) {
+            ResponseBody rb = resp.body();
+            String raw = rb == null ? "" : rb.string();
+            if (!resp.isSuccessful()) {
+                throw new LlmException("LLM HTTP " + resp.code() + " from " + url + ": "
+                        + abbreviate(raw));
+            }
+            JsonNode root = mapper.readTree(raw);
+            JsonNode response = root.get("response");
+            if (response == null || response.isNull()) {
+                throw new LlmException("LLM response missing 'response' field: " + abbreviate(raw));
+            }
+            long ms = (System.nanoTime() - t0) / 1_000_000;
+            log.debug("[LlmClient] (schema) model={} url={} took={}ms", model, url, ms);
+            return response.asText();
+        } catch (LlmException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new LlmException("LLM request to " + url + " failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Exposes the shared ObjectMapper so callers can build schema nodes / parse replies. */
+    public ObjectMapper mapper() {
+        return mapper;
+    }
+
+    /**
      * Free-form generation: sends {@code prompt} and returns the model's plain-text reply.
      * Unlike {@link #generateJson}, it does NOT force {@code format=json}, so this is the raw
      * passthrough used by the direct "prompt the LLM" endpoint.

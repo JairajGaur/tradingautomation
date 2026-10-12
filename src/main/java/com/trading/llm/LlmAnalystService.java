@@ -56,7 +56,10 @@ public class LlmAnalystService {
         String prompt = buildPrompt(briefing, cfg.maxConviction());
         String raw;
         try {
-            raw = client.generateJson(prompt);
+            // Schema-constrained ("typed") output: the runtime forces the reply to match the
+            // analyze schema, so parsing below is validation/clamping, not hope-it-parses.
+            raw = client.generateSchema(prompt,
+                    LlmSchemas.analyzeSchema(client.mapper(), cfg.maxConviction()), null, 0);
         } catch (RuntimeException e) {
             log.warn("[LlmAnalystService] LLM call failed for {} — failing safe: {}",
                     briefing.ticker(), e.getMessage());
@@ -167,7 +170,9 @@ public class LlmAnalystService {
 
         String raw;
         try {
-            raw = client.generateJson(prompt, model, timeout);
+            // Schema-constrained ("typed") output for the review verdict shape.
+            raw = client.generateSchema(prompt,
+                    LlmSchemas.reviewSchema(client.mapper(), llm.maxConviction()), model, timeout);
         } catch (RuntimeException e) {
             log.warn("[LlmAnalystService] alert review LLM call failed for {} — failing safe: {}",
                     ticker, e.getMessage());
