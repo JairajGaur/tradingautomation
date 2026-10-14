@@ -285,7 +285,7 @@ app:
       require-breakout-candle-color: true
       ema-period: 20
       ema-slope-lookback: 3
-      ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation
+      ema-slope-enabled: true      # false = fire on a pure break, no EMA-slope confirmation
       # Default Telegram channel for BOTH ORB directions. A direction's own telegram-chat-id
       # (under up:/down:) overrides this. Blank here AND there = that direction is skipped
       # (there is no common channel). Set the same id for both to share one channel, or
