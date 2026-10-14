@@ -120,7 +120,11 @@ public class OrbUpAlert implements Alert {
                 Candle bar = OrbSupport.latestCompleted(scanBars);
                 if (bar == null) continue;
 
-                boolean brokeOut = OrbSupport.closesAbove(bar, range.high());
+                int rangeMinutes = props.alerts().orb().rangeMinutes();
+                // A breakout is only valid once the opening range is COMPLETE (bar closes at/after
+                // 09:30 + range-minutes) — never on a bar inside the still-forming opening range.
+                boolean brokeOut = OrbSupport.isAfterRangeClose(bar, rangeMinutes)
+                        && OrbSupport.closesAbove(bar, range.high());
                 boolean insideRange = !brokeOut;   // UP: inside = not above the high
 
                 // Advance / resolve the breakout leg. A leg opens ONLY on a fresh break that
@@ -134,7 +138,11 @@ public class OrbUpAlert implements Alert {
                 // continuation bars we emit the same-state hit to hold dedupe without re-gating.
                 if (lr.newLeg()) {
                     boolean pass = true;
-                    if (props.alerts().orb().emaSlopeEnabled()) {
+                    // Candle-color gate: an UP break must be a GREEN candle (close > open).
+                    if (props.alerts().orb().requireBreakoutCandleColor() && !OrbSupport.isGreen(bar)) {
+                        pass = false;
+                    }
+                    if (pass && props.alerts().orb().emaSlopeEnabled()) {
                         BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
                         if (slope == null || slope.signum() < 0) pass = false;   // not rising
                     }

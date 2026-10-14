@@ -120,7 +120,10 @@ public class OrbDownAlert implements Alert {
                 Candle bar = OrbSupport.latestCompleted(scanBars);
                 if (bar == null) continue;
 
-                boolean brokeOut = OrbSupport.closesBelow(bar, range.low());
+                int rangeMinutes = props.alerts().orb().rangeMinutes();
+                // Valid only once the opening range is COMPLETE (bar closes at/after 09:30 + range).
+                boolean brokeOut = OrbSupport.isAfterRangeClose(bar, rangeMinutes)
+                        && OrbSupport.closesBelow(bar, range.low());
                 boolean insideRange = !brokeOut;   // DOWN: inside = not below the low
 
                 // Advance / resolve the breakout leg (see OrbUpAlert for the rationale): a leg
@@ -132,7 +135,11 @@ public class OrbDownAlert implements Alert {
 
                 if (lr.newLeg()) {
                     boolean pass = true;
-                    if (props.alerts().orb().emaSlopeEnabled()) {
+                    // Candle-color gate: a DOWN break must be a RED candle (close < open).
+                    if (props.alerts().orb().requireBreakoutCandleColor() && !OrbSupport.isRed(bar)) {
+                        pass = false;
+                    }
+                    if (pass && props.alerts().orb().emaSlopeEnabled()) {
                         BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
                         if (slope == null || slope.signum() > 0) pass = false;   // not falling
                     }

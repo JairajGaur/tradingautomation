@@ -101,6 +101,10 @@ public record AppProperties(
          */
         public record Orb(
                 @DefaultValue("15")   int rangeMinutes,
+                /** Require the breakout candle's COLOR to match the break direction: an UP break
+                 *  must be a green candle (close &gt; open), a DOWN break must be red (close &lt;
+                 *  open). A doji (close == open) is neither and is rejected. Default true. */
+                @DefaultValue("true") boolean requireBreakoutCandleColor,
                 @DefaultValue("600")  int emaPeriod,
                 @DefaultValue("3")    int emaSlopeLookback,
                 /** When true (default), require the EMA slope to confirm the break

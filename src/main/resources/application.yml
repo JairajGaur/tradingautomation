@@ -280,6 +280,9 @@ app:
     # NOTE: range-minutes and scan-minutes MUST be Webull timeframes: 1/5/15/30/60.
     orb:
       range-minutes: 15
+      # Require the breakout candle's color to match the direction: UP break must be a GREEN
+      # candle (close > open), DOWN break must be RED (close < open). Doji = rejected. true = on.
+      require-breakout-candle-color: true
       ema-period: 600
       ema-slope-lookback: 3
       ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation

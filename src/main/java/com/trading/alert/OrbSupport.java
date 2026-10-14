@@ -205,4 +205,25 @@ final class OrbSupport {
     static boolean closesBelow(Candle bar, BigDecimal level) {
         return bar != null && level != null && bar.close().compareTo(level) < 0;
     }
+
+    /** True if {@code bar} is a GREEN candle (close &gt; open) — the color for an UP break. */
+    static boolean isGreen(Candle bar) {
+        return bar != null && bar.close().compareTo(bar.open()) > 0;
+    }
+
+    /** True if {@code bar} is a RED candle (close &lt; open) — the color for a DOWN break. */
+    static boolean isRed(Candle bar) {
+        return bar != null && bar.close().compareTo(bar.open()) < 0;
+    }
+
+    /**
+     * True once the opening range is COMPLETE for {@code bar} — i.e. the bar closes at or after
+     * 09:30 + {@code rangeMinutes} ET (the opening-range candle's close). A breakout must occur
+     * on or after this, never on a bar inside the still-forming opening range.
+     */
+    static boolean isAfterRangeClose(Candle bar, int rangeMinutes) {
+        if (bar == null) return false;
+        LocalTime t = bar.timestamp().atZone(ET).toLocalTime();
+        return !t.isBefore(OPEN.plusMinutes(Math.max(1, rangeMinutes)));
+    }
 }

@@ -5,15 +5,15 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/orb-scan/backtest/ORCL?date=2026-10-13
+  url: {{baseUrl}}/api/orb-scan/backtest/ORCL?date=2026-10-13&rangeTimeframe=M15&scanTimeframe=M2
   body: none
   auth: none
 }
 
 params:query {
   date: 2026-10-13
-  ~rangeTimeframe: M15
-  ~scanTimeframe: M5
+  rangeTimeframe: M15
+  scanTimeframe: M2
   ~stSlopeTimeframe: M5
   ~sessions: RTH,PRE,ATH
   ~count: 1200
@@ -26,21 +26,21 @@ headers {
 
 docs {
   # Opening-Range-Breakout — Backtest
-
+  
   Replays a historical day for ONE ticker and reports exactly WHEN the ORB alerts
   (up/down) would have fired. Reuses the SAME live ORB logic (OrbSupport gates +
   SupertrendService + app.alerts.orb config) via OrbBacktester, so the output
   matches what fired live. Detection/analysis only — no orders, no notifications.
-
+  
   An ORB signal = a CLOSE on the scan timeframe beyond the opening range (high/low
   of the day's 09:30 ET candle on the range timeframe), passing the configured
   gates (optional EMA-slope and Supertrend-slope confluence). Re-fires match live:
   a direction re-arms on any scan where it stops matching (price back inside the
   range OR a gate fails), then fires again on the next qualifying break.
-
+  
   ## Path
   - `/{ticker}` — any US stock symbol.
-
+  
   ## Query
   - `date`             — ET date, YYYY-MM-DD (default: today ET).
   - `rangeTimeframe`   — opening-range timeframe M5/M15/M30/M60
@@ -56,12 +56,12 @@ docs {
                          of range — the response `note`/`warmup` shows coverage.
   - `debug`            — true to include `debugTrace`: a per-break-bar row with the
                          break level, EMA/ST gate results, fired flag, and reason.
-
+  
   The two timeframe params are the "any range timeframe + any alert timeframe"
   controls — change them to explore different ORB configurations for the day.
   Gate on/off + lookbacks + thresholds always come from app.alerts.orb (so the
   default run matches live exactly).
-
+  
   ## Response (200)
   {
     ticker, date, rangeTimeframe, scanTimeframe, stSlopeTimeframe?,
@@ -71,18 +71,18 @@ docs {
     gates: { emaSlopeEnabled, emaPeriod, stSlopeConfirmEnabled },
     warmup: { scanBarsFetched, barsOnTargetDate, emaPeriod }
   }
-
+  
   `signals` is a flat, chronological list of the breakouts that would have fired —
   each line is the ET time of the completed bar, direction + emoji, price, and the
   break level crossed. Signal times are ~1 scan-interval earlier than the live log
   (the live scanner fires on the NEXT scan after the bar completes).
-
+  
   ## Debug trace (when debug=true)
   `debugTrace: [ { timeEt, close, attempted (UP|DOWN), broke, emaSlopeOk,
                    stSlopeOk, fired, reason } ]`
   One row per bar that attempted a break. `reason` says why it fired or was held
   ("deduped (still matching)", "EMA slope not rising", "ST slope not advancing up").
-
+  
   ## Errors
   - `400` — invalid date/timeframe/session.
   - `502` — Webull market-data error.

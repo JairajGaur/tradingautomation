@@ -49,6 +49,7 @@ public final class OrbBacktester {
 
     /** Gate parameters, read from config by the controller and passed in. */
     public record Params(
+            int rangeMinutes, boolean requireColor,
             int emaPeriod, int emaSlopeLookback, boolean emaSlopeEnabled,
             boolean stSlopeEnabled, int stSlopeLookback, BigDecimal stSlopeMinAtr, int stSlopeBars,
             boolean upEnabled, boolean downEnabled) {}
@@ -124,15 +125,20 @@ public final class OrbBacktester {
 
             List<Candle> seriesToHere = scanBars.subList(0, i + 1);
 
+            boolean afterRangeClose = OrbSupport.isAfterRangeClose(bar, p.rangeMinutes());
+
             // Evaluate UP.
             if (p.upEnabled()) {
-                boolean brokeOut = OrbSupport.closesAbove(bar, range.high());
+                boolean brokeOut = afterRangeClose && OrbSupport.closesAbove(bar, range.high());
                 OrbSupport.LegResult lr = OrbSupport.advanceLeg(upLeg, brokeOut, !brokeOut);
                 if (lr.leg() > 0 && lr.newLeg()) {
                     Boolean emaOk = null, stOk = null;
                     boolean pass = true;
                     String reason = "break above " + plain(range.high());
-                    if (p.emaSlopeEnabled()) {
+                    if (p.requireColor() && !OrbSupport.isGreen(bar)) {
+                        pass = false; reason = "break candle not green";
+                    }
+                    if (pass && p.emaSlopeEnabled()) {
                         BigDecimal slope = OrbSupport.emaSlope(appended(seriesToHere, bar),
                                 p.emaPeriod(), Math.max(1, p.emaSlopeLookback()));
                         emaOk = slope != null && slope.signum() >= 0;
@@ -154,13 +160,16 @@ public final class OrbBacktester {
 
             // Evaluate DOWN: mirror.
             if (p.downEnabled()) {
-                boolean brokeOut = OrbSupport.closesBelow(bar, range.low());
+                boolean brokeOut = afterRangeClose && OrbSupport.closesBelow(bar, range.low());
                 OrbSupport.LegResult lr = OrbSupport.advanceLeg(downLeg, brokeOut, !brokeOut);
                 if (lr.leg() > 0 && lr.newLeg()) {
                     Boolean emaOk = null, stOk = null;
                     boolean pass = true;
                     String reason = "break below " + plain(range.low());
-                    if (p.emaSlopeEnabled()) {
+                    if (p.requireColor() && !OrbSupport.isRed(bar)) {
+                        pass = false; reason = "break candle not red";
+                    }
+                    if (pass && p.emaSlopeEnabled()) {
                         BigDecimal slope = OrbSupport.emaSlope(appended(seriesToHere, bar),
                                 p.emaPeriod(), Math.max(1, p.emaSlopeLookback()));
                         emaOk = slope != null && slope.signum() <= 0;

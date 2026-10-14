@@ -401,6 +401,7 @@ public class BacktestController {
         OrbBacktester.Range range = OrbBacktester.openingRange(rangeBars, targetDate);
 
         OrbBacktester.Params params = new OrbBacktester.Params(
+                orb.rangeMinutes(), orb.requireBreakoutCandleColor(),
                 emaPeriod, orb.emaSlopeLookback(), orb.emaSlopeEnabled(),
                 orb.stSlopeConfirmEnabled(), orb.stSlopeLookback(), orb.stSlopeMinAtr(), orb.stSlopeBars(),
                 orb.up().enabled(), orb.down().enabled());
@@ -443,6 +444,7 @@ public class BacktestController {
         body.put("signals", audit);
 
         Map<String, Object> gates = new LinkedHashMap<>();
+        gates.put("requireBreakoutCandleColor", orb.requireBreakoutCandleColor());
         gates.put("emaSlopeEnabled", orb.emaSlopeEnabled());
         gates.put("emaPeriod", emaPeriod);
         gates.put("stSlopeConfirmEnabled", orb.stSlopeConfirmEnabled());
