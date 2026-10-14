@@ -120,24 +120,35 @@ public class OrbDownAlert implements Alert {
                 Candle bar = OrbSupport.latestCompleted(scanBars);
                 if (bar == null) continue;
 
-                if (!OrbSupport.closesBelow(bar, range.low())) continue;   // no downside break
+                boolean brokeOut = OrbSupport.closesBelow(bar, range.low());
+                boolean insideRange = !brokeOut;   // DOWN: inside = not below the low
 
-                // EMA slope confirmation (optional): must be falling (<= over the lookback) for DOWN.
-                if (props.alerts().orb().emaSlopeEnabled()) {
-                    BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
-                    if (slope == null || slope.signum() > 0) continue;     // rising/insufficient → skip
-                }
+                // Advance / resolve the breakout leg (see OrbUpAlert for the rationale): a leg
+                // opens only on a fresh break after a re-entry; a stale extended break keeps the
+                // same leg (deduped); a close back inside the range re-arms the next leg.
+                OrbSupport.LegState legState = legStateFor(symbol, day);
+                OrbSupport.LegResult lr = OrbSupport.advanceLeg(legState, brokeOut, insideRange);
+                if (lr.leg() == 0) continue;   // inside the range → not a breakout; no hit
 
-                // Supertrend-line-slope confluence (optional): the ST line must have advanced DOWN
-                // on any of the last N bars on the configured (independent) ST timeframe.
-                if (stSlopeGate && stTf != null) {
-                    List<Candle> stBarsSeries = barData.getBars(symbol, stTf, warmup);
-                    if (!supertrend.slopeConfirms(stBarsSeries, Direction.DOWN, stLookback, stMinAtr, stBars)) {
-                        continue;   // Supertrend not advancing down → skip
+                if (lr.newLeg()) {
+                    boolean pass = true;
+                    if (props.alerts().orb().emaSlopeEnabled()) {
+                        BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
+                        if (slope == null || slope.signum() > 0) pass = false;   // not falling
+                    }
+                    if (pass && stSlopeGate && stTf != null) {
+                        List<Candle> stBarsSeries = barData.getBars(symbol, stTf, warmup);
+                        if (!supertrend.slopeConfirms(stBarsSeries, Direction.DOWN, stLookback, stMinAtr, stBars)) {
+                            pass = false;   // Supertrend not advancing down
+                        }
+                    }
+                    if (!pass) {
+                        OrbSupport.rollbackLeg(legState);
+                        continue;
                     }
                 }
 
-                String state = "BREAKOUT_DOWN_" + day;
+                String state = "BREAKOUT_DOWN_" + day + "_" + lr.leg();
                 hits.add(new AlertHit(id(), symbol, state,
                         AlertMessageFormat.line(messagePrefix(), symbol,
                                 AlertMessageFormat.Dir.DOWN, bar.close().toPlainString(), scanTf),
@@ -147,5 +158,12 @@ public class OrbDownAlert implements Alert {
             }
         }
         return hits;
+    }
+
+    /** Per-ticker breakout-leg state for the day (singleton-scoped). */
+    private final java.util.Map<String, OrbSupport.LegState> legStates = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private OrbSupport.LegState legStateFor(String symbol, String day) {
+        return legStates.computeIfAbsent(symbol + "|" + day, k -> new OrbSupport.LegState());
     }
 }

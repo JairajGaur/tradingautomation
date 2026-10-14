@@ -120,24 +120,39 @@ public class OrbUpAlert implements Alert {
                 Candle bar = OrbSupport.latestCompleted(scanBars);
                 if (bar == null) continue;
 
-                if (!OrbSupport.closesAbove(bar, range.high())) continue;   // no upside break
+                boolean brokeOut = OrbSupport.closesAbove(bar, range.high());
+                boolean insideRange = !brokeOut;   // UP: inside = not above the high
 
-                // EMA slope confirmation (optional): must be rising (>= over the lookback) for UP.
-                if (props.alerts().orb().emaSlopeEnabled()) {
-                    BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
-                    if (slope == null || slope.signum() < 0) continue;     // falling/insufficient → skip
-                }
+                // Advance / resolve the breakout leg. A leg opens ONLY on a fresh break that
+                // follows a re-entry; a stale, extended break keeps the SAME leg (so the engine
+                // dedupes it). A close back inside the range re-arms the next leg.
+                OrbSupport.LegState legState = legStateFor(symbol, day);
+                OrbSupport.LegResult lr = OrbSupport.advanceLeg(legState, brokeOut, insideRange);
+                if (lr.leg() == 0) continue;   // inside the range → not a breakout; no hit
 
-                // Supertrend-line-slope confluence (optional): the ST line must have advanced UP
-                // on any of the last N bars on the configured (independent) ST timeframe.
-                if (stSlopeGate && stTf != null) {
-                    List<Candle> stBarsSeries = barData.getBars(symbol, stTf, warmup);
-                    if (!supertrend.slopeConfirms(stBarsSeries, Direction.UP, stLookback, stMinAtr, stBars)) {
-                        continue;   // Supertrend not advancing up → skip
+                // Gates apply only when a NEW leg has just opened (the fresh break bar). On
+                // continuation bars we emit the same-state hit to hold dedupe without re-gating.
+                if (lr.newLeg()) {
+                    boolean pass = true;
+                    if (props.alerts().orb().emaSlopeEnabled()) {
+                        BigDecimal slope = OrbSupport.emaSlope(scanBars, emaPeriod, lookback);
+                        if (slope == null || slope.signum() < 0) pass = false;   // not rising
+                    }
+                    if (pass && stSlopeGate && stTf != null) {
+                        List<Candle> stBarsSeries = barData.getBars(symbol, stTf, warmup);
+                        if (!supertrend.slopeConfirms(stBarsSeries, Direction.UP, stLookback, stMinAtr, stBars)) {
+                            pass = false;   // Supertrend not advancing up
+                        }
+                    }
+                    if (!pass) {
+                        // Fresh break failed its gates — don't open the leg; a later qualifying
+                        // break can still open it.
+                        OrbSupport.rollbackLeg(legState);
+                        continue;
                     }
                 }
 
-                String state = "BREAKOUT_UP_" + day;   // per-day (latched by the engine)
+                String state = "BREAKOUT_UP_" + day + "_" + lr.leg();   // leg-stamped → engine posts per leg
                 hits.add(new AlertHit(id(), symbol, state,
                         AlertMessageFormat.line(messagePrefix(), symbol,
                                 AlertMessageFormat.Dir.UP, bar.close().toPlainString(), scanTf),
@@ -147,5 +162,12 @@ public class OrbUpAlert implements Alert {
             }
         }
         return hits;
+    }
+
+    /** Per-ticker breakout-leg state for the day (singleton-scoped). */
+    private final java.util.Map<String, OrbSupport.LegState> legStates = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private OrbSupport.LegState legStateFor(String symbol, String day) {
+        return legStates.computeIfAbsent(symbol + "|" + day, k -> new OrbSupport.LegState());
     }
 }

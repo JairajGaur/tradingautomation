@@ -40,6 +40,63 @@ final class OrbSupport {
         return LocalDate.now(ET).toString();
     }
 
+    // -----------------------------------------------------------------------
+    // Breakout-leg tracking (so a stale, extended break never re-alerts).
+    //
+    // A genuine ORB signal is the FIRST close beyond the range. After that, price
+    // trending far away is NOT a new breakout — only a close back INSIDE the range,
+    // followed by a fresh break, is. We model this with a per-ticker+direction "leg"
+    // sequence that advances ONLY on a break that follows a re-entry. The alert's
+    // state string embeds the leg, so the engine's dedupe (post only when state
+    // changes) naturally suppresses the stale extended re-fires while still posting a
+    // true re-break. The alert must emit the (same-state) hit on EVERY above-range bar
+    // so it stays "matching" and the engine does not clear its dedupe between legs.
+    // -----------------------------------------------------------------------
+
+    /** Per key ("ticker|day|dir") breakout-leg state: current leg #, and whether price has
+     *  re-entered the range since that leg fired (arming the next leg). */
+    static final class LegState {
+        int leg = 0;              // 0 = no breakout yet today
+        boolean reentered = true; // true = inside/not-yet-broken → the next break opens a new leg
+    }
+
+    /** Outcome of advancing the leg for one bar. {@code leg==0} → inside the range (no breakout);
+     *  {@code newLeg} → this bar OPENED a fresh leg (gates should be checked); otherwise it's a
+     *  continuation of an existing leg (same state → engine dedupes it). */
+    record LegResult(int leg, boolean newLeg) {}
+
+    /**
+     * Advances the breakout-leg state for one bar. A leg opens only on a break that follows a
+     * re-entry (or the first break of the day); a continued break keeps the same leg; a close
+     * back inside the range re-arms the next leg.
+     *
+     * @param state       per-key mutable state (live: shared map in the alert; backtest: local)
+     * @param brokeOut    the latest completed bar closed beyond the range in this direction
+     * @param insideRange the latest completed bar closed back INSIDE the range
+     */
+    static LegResult advanceLeg(LegState state, boolean brokeOut, boolean insideRange) {
+        if (insideRange) {
+            state.reentered = true;          // armed: next break starts a new leg
+            return new LegResult(0, false);  // inside → not a breakout
+        }
+        if (brokeOut) {
+            if (state.reentered) {           // fresh break after a re-entry (or first of day)
+                state.leg++;
+                state.reentered = false;
+                return new LegResult(state.leg, true);   // NEW leg — caller applies gates
+            }
+            return new LegResult(state.leg, false);      // continuation of the current leg
+        }
+        return new LegResult(0, false);      // neither → no hit
+    }
+
+    /** Rolls back a leg that {@link #advanceLeg} opened but whose gates then failed, so a later
+     *  qualifying break can still open it (keeps the "re-entered" arm set). */
+    static void rollbackLeg(LegState state) {
+        if (state.leg > 0) state.leg--;
+        state.reentered = true;
+    }
+
     /**
      * Resolves an ORB direction's Telegram channel: the direction-specific id if set, else the
      * ORB-parent default, else null (no channel — the engine skips delivery). There is no
@@ -52,20 +109,21 @@ final class OrbSupport {
     }
 
     /**
-     * Maps an interval in minutes to the matching Webull timeframe token
-     * (1→M1, 5→M5, 15→M15, 30→M30, 60→M60). Any other value throws — callers should only
-     * pass Webull-supported timeframes.
+     * Maps an interval in minutes to the matching {@code M<n>} timeframe token, validated the
+     * same way the Swift scanner validates its string timeframe. Native broker minutes
+     * (1/5/15/30/60/120/240) map to their native token; non-native minute multiples (e.g.
+     * {@code 2 → M2}, {@code 3 → M3}) are SYNTHETIC and transparently resampled from M1 by the
+     * market-data layer (see {@code TimeframeSupport} / {@code BarResampler}) — so ORB supports
+     * M2/M3 just like the swift scan. Throws if {@code minutes < 1} or not a valid minute form.
      */
     static String timeframeForMinutes(int minutes) {
-        return switch (minutes) {
-            case 1 -> "M1";
-            case 5 -> "M5";
-            case 15 -> "M15";
-            case 30 -> "M30";
-            case 60 -> "M60";
-            default -> throw new IllegalArgumentException(
-                    "Unsupported ORB timeframe minutes=" + minutes + " (use 1/5/15/30/60)");
-        };
+        if (minutes < 1) {
+            throw new IllegalArgumentException("Unsupported ORB timeframe minutes=" + minutes + " (must be >= 1)");
+        }
+        // Build the M<n> token and run it through the shared normaliser, which accepts native
+        // AND synthetic minute timeframes (and rejects anything unsupported) — single source of
+        // truth, identical to how the swift scan resolves its timeframe.
+        return com.trading.service.MarketDataService.normaliseTimespan("M" + minutes);
     }
 
     /**

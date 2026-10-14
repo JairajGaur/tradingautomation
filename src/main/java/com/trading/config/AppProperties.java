@@ -72,10 +72,11 @@ public record AppProperties(
         /**
          * All Opening-Range-Breakout config under one parent ({@code alerts.orb}).
          *
-         * @param rangeMinutes     opening-range length in minutes → the Webull timeframe
+         * @param rangeMinutes     opening-range length in minutes → the {@code M<n>} timeframe
          *                         whose 09:30 ET candle IS the range (15 → M15 = 09:30–09:45,
-         *                         30 → M30 = 09:30–10:00). Webull timeframe: 5/15/30/60.
-         *                         Fetched once/day and cached (late-start safe).
+         *                         30 → M30 = 09:30–10:00). Native (1/5/15/30/60) OR synthetic
+         *                         M2/M3 (resampled from M1, like the swift scan). Fetched
+         *                         once/day and cached (late-start safe).
          * @param emaPeriod        EMA period for the slope confirmation (default 600).
          * @param emaSlopeLookback candles back to measure the EMA slope; UP needs
          *                         EMA(now) ≥ EMA(lookback ago), DOWN ≤ (default 3).
@@ -155,7 +156,7 @@ public record AppProperties(
          * a CLOSE on the {@code scanMinutes} timeframe beyond the opening range (from
          * {@code orbRangeMinutes}), and the alert also polls on that timeframe. So
          * {@code scanMinutes} both selects the breakout candle timeframe AND the poll
-         * cadence — it MUST be a Webull-supported timeframe (1/5/15/30/60). An EMA slope
+         * cadence — native (1/5/15/30/60) OR synthetic M2/M3 (resampled from M1). An EMA slope
          * confirmation on the same timeframe is also required. Once per ticker per day.
          * Each direction has its own enable flag, timeframe, prefix, and optional Telegram
          * channel. When {@code telegramChatId} is blank this direction falls back to the

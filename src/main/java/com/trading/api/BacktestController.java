@@ -1,5 +1,6 @@
 package com.trading.api;
 
+import com.trading.alert.OrbBacktester;
 import com.trading.config.AppProperties;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
@@ -12,6 +13,7 @@ import com.trading.indicator.SwiftTrendScanner;
 import com.trading.model.Candle;
 import com.trading.service.MarketDataException;
 import com.trading.service.MarketDataService;
+import com.trading.service.TimeframeSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -33,36 +35,31 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * REST API — <b>Swift Trend Scanner backtest</b>. Replays a historical day for a single
- * ticker and reports exactly WHEN the Swift Trend Scanner would have fired a swift UP or
- * DOWN signal, using the SAME configuration as the live scanner
- * ({@code webull.alerts.swift-scan} + {@code webull.supertrend}). Detection/analysis only —
- * no orders, no notifications.
+ * REST API — <b>strategy backtests</b>. One controller for replaying a historical day for a
+ * single ticker and reporting exactly WHEN each alert strategy would have fired, using the
+ * SAME configuration + logic as the live alerts (detection/analysis only — no orders, no
+ * notifications).
  *
  * <table border="1">
- *   <tr><th>Method</th><th>Path</th><th>Description</th></tr>
- *   <tr><td>GET</td><td>/api/swift-scan/backtest/{ticker}?date=YYYY-MM-DD</td>
- *       <td>Swift UP/DOWN signals that would have fired on that ET date</td></tr>
+ *   <tr><th>Method</th><th>Path</th><th>Strategy</th></tr>
+ *   <tr><td>GET</td><td>/api/swift-scan/backtest/{ticker}</td>
+ *       <td>Swift Trend Scanner (Supertrend flip + momentum)</td></tr>
+ *   <tr><td>GET</td><td>/api/orb-scan/backtest/{ticker}</td>
+ *       <td>Opening-Range Breakout (up/down)</td></tr>
  * </table>
  *
- * <p>Query params:</p>
- * <ul>
- *   <li>{@code date}      — ET calendar date to analyse, {@code YYYY-MM-DD} (default: today ET)</li>
- *   <li>{@code timeframe} — Webull timeframe; default: the configured {@code swift-scan.timeframe}</li>
- *   <li>{@code sessions}  — RTH/PRE/ATH/OVN; default: configured trading sessions</li>
- *   <li>{@code count}     — bars to fetch back from now; default auto-sized to reach the date
- *       with Supertrend warm-up. Increase for older dates if "no bars for date".</li>
- * </ul>
- *
- * <p>Because the broker returns the most-recent N bars (no explicit date range), older
- * dates need a larger {@code count} to reach back far enough. The response reports the
- * date range actually covered so you can tell when a date is out of range.</p>
+ * <p>Shared params: {@code date} (ET YYYY-MM-DD, default today), {@code sessions}
+ * (RTH/PRE/ATH/OVN, default configured), {@code count} (fetch size; auto-sized to reach the
+ * date with warm-up), {@code debug} (per-bar trace). Swift adds {@code timeframe}; ORB adds
+ * {@code rangeTimeframe}/{@code scanTimeframe}/{@code stSlopeTimeframe} (native or synthetic
+ * M2/M3). The broker returns most-recent N bars (no date range), so older dates need a larger
+ * {@code count}; the response reports the covered range.</p>
  */
 @RestController
-@RequestMapping("/api/swift-scan")
-public class SwiftScanBacktestController {
+@RequestMapping("/api")
+public class BacktestController {
 
-    private static final Logger log = LoggerFactory.getLogger(SwiftScanBacktestController.class);
+    private static final Logger log = LoggerFactory.getLogger(BacktestController.class);
     private static final ZoneId ET = ZoneId.of("America/New_York");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ISO_LOCAL_DATE;
 
@@ -71,17 +68,17 @@ public class SwiftScanBacktestController {
     private final SupertrendService supertrend;
     private final SwiftTrendScanner scanner;
 
-    public SwiftScanBacktestController(AppProperties props,
-                                       MarketDataService marketDataService,
-                                       SupertrendService supertrend,
-                                       SwiftTrendScanner scanner) {
+    public BacktestController(AppProperties props,
+                             MarketDataService marketDataService,
+                             SupertrendService supertrend,
+                             SwiftTrendScanner scanner) {
         this.props = props;
         this.marketDataService = marketDataService;
         this.supertrend = supertrend;
         this.scanner = scanner;
     }
 
-    @GetMapping("/backtest/{ticker}")
+    @GetMapping("/swift-scan/backtest/{ticker}")
     public ResponseEntity<Map<String, Object>> backtest(
             @PathVariable String ticker,
             @RequestParam(required = false) String date,
@@ -319,6 +316,205 @@ public class SwiftScanBacktestController {
         long floored = Math.max(estimate, warmup);
         // Cap: don't request more than ~20k bars (broker/practical limit).
         return (int) Math.min(floored, 20_000L);
+    }
+
+    // =========================================================================
+    // ORB (Opening-Range-Breakout) backtest — replays the live OrbUp/OrbDown logic
+    // via OrbBacktester (shared OrbSupport gates), with configurable range + scan
+    // timeframes (native or synthetic M2/M3).
+    // =========================================================================
+
+    @GetMapping("/orb-scan/backtest/{ticker}")
+    public ResponseEntity<Map<String, Object>> orbBacktest(
+            @PathVariable String ticker,
+            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String rangeTimeframe,
+            @RequestParam(required = false) String scanTimeframe,
+            @RequestParam(required = false) String stSlopeTimeframe,
+            @RequestParam(required = false) String sessions,
+            @RequestParam(required = false) Integer count,
+            @RequestParam(required = false, defaultValue = "false") boolean debug) {
+
+        String symbol = ticker == null ? "" : ticker.trim().toUpperCase();
+        if (symbol.isEmpty()) return badRequest("ticker is required");
+
+        AppProperties.Alerts.Orb orb = props.alerts() == null ? null : props.alerts().orb();
+        if (orb == null) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "error", "orb config missing", "timestamp", TimeFormat.nowEt()));
+        }
+
+        LocalDate targetDate;
+        try {
+            targetDate = (date != null && !date.isBlank())
+                    ? LocalDate.parse(date.trim(), DATE) : LocalDate.now(ET);
+        } catch (Exception e) {
+            return badRequest("Invalid date '" + date + "' — use YYYY-MM-DD");
+        }
+
+        String rangeTf, scanTf, stTf, sess;
+        try {
+            rangeTf = resolveTf(rangeTimeframe, OrbBacktester.timeframeForMinutes(orb.rangeMinutes()));
+            scanTf = resolveTf(scanTimeframe, OrbBacktester.timeframeForMinutes(orb.up().scanMinutes()));
+            stTf = orb.stSlopeConfirmEnabled()
+                    ? resolveTf(stSlopeTimeframe, MarketDataService.normaliseTimespan(orb.stSlopeTimeframe()))
+                    : null;
+            String requestedSessions = (sessions != null && !sessions.isBlank())
+                    ? sessions : props.engine().tradingSessions();
+            sess = MarketDataService.normaliseSessions(requestedSessions);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", e.getMessage(),
+                    "supportedTimespans", MarketDataService.SUPPORTED_TIMESPANS,
+                    "supportedSessions", MarketDataService.SUPPORTED_SESSIONS,
+                    "timestamp", TimeFormat.nowEt()));
+        }
+
+        int emaPeriod = orb.emaPeriod();
+        int warmupNeeded = emaPeriod + Math.max(orb.emaSlopeLookback(), supertrend.length()) + 10;
+        int scanFetch = (count != null && count > 0) ? count : autoCountOrb(scanTf, targetDate, warmupNeeded);
+
+        List<Candle> scanBars, rangeBars, stBars = null;
+        try {
+            scanBars = marketDataService.fetchHistoricalBars(symbol, scanFetch, scanTf, sess);
+            int rangeFetch = autoCountOrb(rangeTf, targetDate, 50);
+            rangeBars = marketDataService.fetchHistoricalBars(symbol, rangeFetch, rangeTf, sess);
+            if (stTf != null) {
+                int stFetch = autoCountOrb(stTf, targetDate, supertrend.length() + 10);
+                stBars = marketDataService.fetchHistoricalBars(symbol, stFetch, stTf, sess);
+            }
+        } catch (MarketDataException e) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("error", "Market-data request failed");
+            body.put("ticker", symbol);
+            body.put("webullError", e.toDetailMap());
+            body.put("timestamp", TimeFormat.nowEt());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
+        }
+
+        if (scanBars.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "error", "No market data available for ticker",
+                    "ticker", symbol, "scanTimeframe", scanTf, "timestamp", TimeFormat.nowEt()));
+        }
+
+        OrbBacktester.Range range = OrbBacktester.openingRange(rangeBars, targetDate);
+
+        OrbBacktester.Params params = new OrbBacktester.Params(
+                emaPeriod, orb.emaSlopeLookback(), orb.emaSlopeEnabled(),
+                orb.stSlopeConfirmEnabled(), orb.stSlopeLookback(), orb.stSlopeMinAtr(), orb.stSlopeBars(),
+                orb.up().enabled(), orb.down().enabled());
+
+        List<OrbBacktester.Signal> signals = OrbBacktester.run(scanBars, rangeBars, stBars, targetDate, supertrend, params);
+
+        Candle first = scanBars.get(0), last = scanBars.get(scanBars.size() - 1);
+        LocalDate firstDate = first.timestamp().atZone(ET).toLocalDate();
+        LocalDate lastDate = last.timestamp().atZone(ET).toLocalDate();
+        boolean dateInRange = !targetDate.isBefore(firstDate) && !targetDate.isAfter(lastDate);
+        long barsOnDate = scanBars.stream()
+                .filter(c -> c.timestamp().atZone(ET).toLocalDate().equals(targetDate)).count();
+
+        int upCount = 0, downCount = 0;
+        List<String> audit = new ArrayList<>();
+        for (OrbBacktester.Signal s : signals) {
+            if (s.direction() == Direction.UP) upCount++; else downCount++;
+            audit.add(auditLineOrb(s));
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ticker", symbol);
+        body.put("date", targetDate.toString());
+        body.put("rangeTimeframe", rangeTf);
+        body.put("scanTimeframe", scanTf);
+        if (stTf != null) body.put("stSlopeTimeframe", stTf);
+
+        Map<String, Object> rangeMap = new LinkedHashMap<>();
+        if (range != null) {
+            rangeMap.put("high", range.high().toPlainString());
+            rangeMap.put("low", range.low().toPlainString());
+        } else {
+            rangeMap.put("note", "opening range (09:30 " + rangeTf + " candle) not found for " + targetDate);
+        }
+        body.put("openingRange", rangeMap);
+
+        body.put("signalCount", signals.size());
+        body.put("orbUpCount", upCount);
+        body.put("orbDownCount", downCount);
+        body.put("signals", audit);
+
+        Map<String, Object> gates = new LinkedHashMap<>();
+        gates.put("emaSlopeEnabled", orb.emaSlopeEnabled());
+        gates.put("emaPeriod", emaPeriod);
+        gates.put("stSlopeConfirmEnabled", orb.stSlopeConfirmEnabled());
+        body.put("gates", gates);
+
+        if (debug) {
+            List<OrbBacktester.Trace> traces = OrbBacktester.trace(scanBars, rangeBars, stBars, targetDate, supertrend, params);
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (OrbBacktester.Trace t : traces) rows.add(traceRowOrb(t));
+            body.put("debugTrace", rows);
+        }
+
+        Map<String, Object> warmup = new LinkedHashMap<>();
+        warmup.put("scanBarsFetched", scanBars.size());
+        warmup.put("barsOnTargetDate", barsOnDate);
+        warmup.put("emaPeriod", emaPeriod);
+        body.put("warmup", warmup);
+
+        if (!dateInRange) {
+            body.put("note", "Requested date is outside the fetched range (" + firstDate
+                    + " .. " + lastDate + "). Increase ?count= to reach older dates.");
+        } else if (barsOnDate == 0) {
+            body.put("note", "No bars on " + targetDate + " (holiday/weekend or no trades).");
+        } else if (range == null) {
+            body.put("note", "No 09:30 ET opening candle on the " + rangeTf
+                    + " range timeframe for " + targetDate + " — cannot compute the opening range.");
+        }
+
+        log.info("[Backtest/ORB] {} {} range={} scan={} → {} UP, {} DOWN (barsOnDate={}, fetched={})",
+                symbol, targetDate, rangeTf, scanTf, upCount, downCount, barsOnDate, scanBars.size());
+
+        return ResponseEntity.ok(body);
+    }
+
+    private Map<String, Object> traceRowOrb(OrbBacktester.Trace t) {
+        Candle c = t.bar();
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("timeEt", OrbBacktester.timeEt(c));
+        row.put("close", c.close().toPlainString());
+        row.put("attempted", t.attempted() == null ? null : t.attempted().name());
+        row.put("broke", t.broke());
+        row.put("emaSlopeOk", t.emaSlopeOk());
+        row.put("stSlopeOk", t.stSlopeOk());
+        row.put("fired", t.fired());
+        row.put("reason", t.reason());
+        return row;
+    }
+
+    private String auditLineOrb(OrbBacktester.Signal s) {
+        String emoji = s.direction() == Direction.UP ? "🟢" : "🔴";
+        String price = s.bar().close().setScale(2, RoundingMode.HALF_UP).toPlainString();
+        String lvl = s.breakLevel().setScale(2, RoundingMode.HALF_UP).toPlainString();
+        return OrbBacktester.timeEt(s.bar()) + " ET  " + emoji + " " + s.direction()
+                + "  @ " + price + "  (break " + (s.direction() == Direction.UP ? "> " : "< ") + lvl + ")";
+    }
+
+    /** Timeframe query override (validated) or the configured default. */
+    private String resolveTf(String override, String fallback) {
+        if (override != null && !override.isBlank()) {
+            return MarketDataService.normaliseTimespan(override);
+        }
+        return fallback;
+    }
+
+    /** ORB fetch auto-sizing (handles native + synthetic M2/M3 via TimeframeSupport.minutesOf). */
+    private int autoCountOrb(String timeframe, LocalDate targetDate, int warmupNeeded) {
+        int tfMin = Math.max(0, TimeframeSupport.minutesOf(timeframe));
+        long daysBack = Math.max(0, java.time.temporal.ChronoUnit.DAYS.between(targetDate, LocalDate.now(ET)));
+        long tradingDays = (long) Math.ceil((daysBack + 1) * 7.0 / 5.0) + 2;
+        long barsPerDay = tfMin > 0 ? Math.max(1, 390 / tfMin) : 1;
+        long estimate = tradingDays * barsPerDay * 2 + warmupNeeded * 3L + 50;
+        return (int) Math.min(Math.max(estimate, warmupNeeded + 50), 1200L);
     }
 
     private ResponseEntity<Map<String, Object>> badRequest(String message) {
