@@ -1,0 +1,76 @@
+meta {
+  name: Get Heikin Ashi Values
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/heikin-ashi/AAPL?timespan=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M5
+  ~sessions: RTH
+  ~count: 700
+  ~bars: 50
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get Heikin-Ashi Values
+
+  Converts the symbol's regular OHLC bars into Heikin-Ashi ("average bar") candles so
+  you can verify them against the chart. Inspection/analysis only — no orders.
+
+  Heikin-Ashi smooths price: each bar folds into a running average, so trends show as a
+  run of same-colour candles with little/no opposite wick.
+    HA_close = (open + high + low + close) / 4
+    HA_open  = (prev HA_open + prev HA_close) / 2   (first bar seeds with (open+close)/2)
+    HA_high  = max(high, HA_open, HA_close)
+    HA_low   = min(low,  HA_open, HA_close)
+
+  Any US stock symbol works (the ticker need NOT be in the watchlist).
+
+  ## Timeframes
+  Every timeframe the market-data layer serves: native M1/M5/M15/M30/M60/M120/M240 AND
+  synthetic minute multiples (M2, M3, …) resampled from M1 transparently. The HA transform
+  is timeframe-agnostic.
+
+  ## Query
+  - `timespan` — M1/M2/M3/M5/M15/M30/M60/M120/M240/D/W/M/Y (default M1).
+  - `sessions` — RTH, PRE, ATH, OVN (default: configured trading sessions).
+  - `count`    — bars to fetch back from now (default = warmup-bars). HA is computed over the
+                 FULL fetched series so the running average is seeded continuously; only the
+                 OUTPUT is trimmed by `bars`.
+  - `bars`     — how many most-recent HA points to return (default 50; use 0 for all).
+
+  ## Response (200)
+  {
+    ticker, timespan, sessions, barsFetched,
+    latestHaOpen, latestHaClose, latestColor,
+    returned,
+    series: [ { timestamp, timestampEt,
+                haOpen, haHigh, haLow, haClose, color (GREEN|RED|DOJI),
+                open, high, low, close, volume } ]
+  }
+
+  Each row carries BOTH the Heikin-Ashi OHLC and the RAW OHLC (+ volume), index-aligned, so
+  you can compare the HA candle against the real bar directly. `color` is GREEN when
+  haClose > haOpen, RED when below, DOJI when equal.
+
+  ## Verifying against Webull
+  Set the chart to Heikin-Ashi on the SAME timeframe and compare on COMPLETED bars. The most
+  recent bar may still be forming; if the last value looks off, compare the previous bar. The
+  first few HA bars of the fetched series drift until the running average settles (increase
+  `count` so plenty of warm-up precedes the day you care about).
+
+  ## Errors
+  - `400` — invalid session.
+  - `502` — Webull market-data error.
+  - `503` — no bars returned.
+}
