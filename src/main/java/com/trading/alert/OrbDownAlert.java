@@ -145,7 +145,8 @@ public class OrbDownAlert implements Alert {
                     }
                     if (pass && stSlopeGate && stTf != null) {
                         List<Candle> stBarsSeries = barData.getBars(symbol, stTf, warmup);
-                        if (!supertrend.slopeConfirms(stBarsSeries, Direction.DOWN, stLookback, stMinAtr, stBars)) {
+                        if (!supertrend.slopeConfirms(stBarsSeries, Direction.DOWN, stLookback, stMinAtr, stBars,
+                                props.alerts().orb().stSlopeAcceptFlip(), props.alerts().orb().stSlopeFlipBars())) {
                             pass = false;   // Supertrend not advancing down
                         }
                     }

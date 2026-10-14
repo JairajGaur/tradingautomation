@@ -82,6 +82,28 @@ public class SupertrendService {
      */
     public boolean slopeConfirms(List<Candle> candles, Direction dir,
                                  int lookback, BigDecimal minSlopeAtr, int bars) {
+        return slopeConfirms(candles, dir, lookback, minSlopeAtr, bars, false, 0);
+    }
+
+    /**
+     * Flip-aware variant of {@link #slopeConfirms(List, Direction, int, BigDecimal, int)}.
+     *
+     * <p>A Supertrend FLIP into {@code dir} is itself the strongest "advancing" signal, yet the
+     * raw line-slope test <em>rejects</em> the bars right after a flip: on a flip the line jumps
+     * to the opposite band (e.g. an UP flip drops the line from above price to below price), so
+     * its measured slope is strongly NEGATIVE for a bar or two even though the trend just turned.
+     * When {@code acceptFlip} is on, the gate also passes if any of the last {@code flipBars}
+     * completed bars is in {@code dir} AND flipped there — so a fresh in-direction flip confirms
+     * without waiting for the line to start climbing again. The slope test still applies too, so
+     * this only ever ADDS passes (never removes them); {@code acceptFlip=false} is identical to
+     * the plain overload.</p>
+     *
+     * @param acceptFlip when true, a recent in-direction flip also confirms
+     * @param flipBars   how many of the latest completed bars to scan for an in-direction flip (>= 1 when acceptFlip)
+     */
+    public boolean slopeConfirms(List<Candle> candles, Direction dir,
+                                 int lookback, BigDecimal minSlopeAtr, int bars,
+                                 boolean acceptFlip, int flipBars) {
         if (candles == null || dir == null || minSlopeAtr == null) return false;
         int look = Math.max(1, lookback);
         int n = Math.max(1, bars);
@@ -96,6 +118,15 @@ public class SupertrendService {
             if (pts.get(i).supertrend() != null) { cur = i; break; }
         }
         if (cur < 0) return false;
+
+        // Flip-accept: a recent in-direction flip confirms outright (see javadoc).
+        if (acceptFlip) {
+            int fb = Math.max(1, flipBars);
+            for (int b = cur; b > cur - fb && b >= 0; b--) {
+                Point p = pts.get(b);
+                if (p.direction() == dir && p.flip()) return true;
+            }
+        }
 
         // Test the last N bars; pass if ANY of them advances >= threshold in `dir`.
         for (int b = cur; b > cur - n && b >= 0; b--) {

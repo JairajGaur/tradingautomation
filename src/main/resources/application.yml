@@ -283,7 +283,7 @@ app:
       # Require the breakout candle's color to match the direction: UP break must be a GREEN
       # candle (close > open), DOWN break must be RED (close < open). Doji = rejected. true = on.
       require-breakout-candle-color: true
-      ema-period: 600
+      ema-period: 20
       ema-slope-lookback: 3
       ema-slope-enabled: false      # false = fire on a pure break, no EMA-slope confirmation
       # Default Telegram channel for BOTH ORB directions. A direction's own telegram-chat-id
@@ -301,6 +301,13 @@ app:
       st-slope-lookback: 2         # bars spanned by ONE slope measurement (same as swift)
       st-slope-min-atr: 0.1         # required line advance over the lookback, in ATR units
       st-slope-bars: 3              # pass if ANY of the last N bars meets the slope threshold
+      # Accept a FRESH flip as confirmation. A Supertrend flip into the break direction is the
+      # strongest in-direction signal, but the raw slope test rejects the bars right after a flip
+      # (the line jumps to the opposite band → slope reads negative for a bar or two). With this
+      # on, the gate ALSO passes if ST flipped in-direction within the last st-slope-flip-bars
+      # completed bars. Only ADDS passes — never removes them.
+      st-slope-accept-flip: true    # false = pure slope-only (original behaviour)
+      st-slope-flip-bars: 2         # scan the last N completed ST bars for an in-direction flip
       up:
         enabled: true
         scan-minutes: 2        # break + EMA on M5 (poll every 5 min)

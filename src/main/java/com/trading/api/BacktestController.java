@@ -411,6 +411,7 @@ public class BacktestController {
                 orb.rangeMinutes(), orb.requireBreakoutCandleColor(),
                 emaPeriodEff, emaSlopeLookbackEff, emaSlopeEnabledEff,
                 orb.stSlopeConfirmEnabled(), orb.stSlopeLookback(), orb.stSlopeMinAtr(), orb.stSlopeBars(),
+                orb.stSlopeAcceptFlip(), orb.stSlopeFlipBars(),
                 orb.up().enabled(), orb.down().enabled());
 
         List<OrbBacktester.Signal> signals = OrbBacktester.run(scanBars, rangeBars, stBars, targetDate, supertrend, params);
@@ -461,6 +462,8 @@ public class BacktestController {
         gates.put("emaPeriod", emaPeriodEff);
         gates.put("emaSlopeLookback", emaSlopeLookbackEff);
         gates.put("stSlopeConfirmEnabled", orb.stSlopeConfirmEnabled());
+        gates.put("stSlopeAcceptFlip", orb.stSlopeAcceptFlip());
+        gates.put("stSlopeFlipBars", orb.stSlopeFlipBars());
         body.put("gates", gates);
 
         if (debug) {

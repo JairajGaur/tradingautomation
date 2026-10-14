@@ -115,6 +115,18 @@ public record AppProperties(
                 @DefaultValue("3")    int stSlopeLookback,
                 @DefaultValue("0.1")  java.math.BigDecimal stSlopeMinAtr,
                 @DefaultValue("3")    int stSlopeBars,
+                /** When true, the ST-slope gate ALSO passes if the Supertrend flipped into the
+                 *  break direction within the last {@code stSlopeFlipBars} completed bars. A fresh
+                 *  flip is the strongest in-direction signal, but the raw line-slope test rejects
+                 *  the bars right after a flip (the line jumps to the opposite band, so its slope
+                 *  reads negative for a bar or two). This flip-accept lets a just-flipped breakout
+                 *  confirm without waiting for the line to climb. Only ADDS passes — never removes
+                 *  them. Default false (preserves the pure slope-only behaviour). */
+                @DefaultValue("false") boolean stSlopeAcceptFlip,
+                /** How many of the latest completed ST bars to scan for an in-direction flip when
+                 *  {@code stSlopeAcceptFlip} is on. Default 2 (the flip bar + the one after it,
+                 *  i.e. the window the slope test typically still rejects post-flip). */
+                @DefaultValue("2")    int stSlopeFlipBars,
                 /** Default Telegram channel for BOTH ORB directions; a direction's own
                  *  {@code telegram-chat-id} overrides it. Blank → that direction has no channel
                  *  and is skipped (no common fallback). */

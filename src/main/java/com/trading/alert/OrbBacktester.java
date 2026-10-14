@@ -52,6 +52,7 @@ public final class OrbBacktester {
             int rangeMinutes, boolean requireColor,
             int emaPeriod, int emaSlopeLookback, boolean emaSlopeEnabled,
             boolean stSlopeEnabled, int stSlopeLookback, BigDecimal stSlopeMinAtr, int stSlopeBars,
+            boolean stSlopeAcceptFlip, int stSlopeFlipBars,
             boolean upEnabled, boolean downEnabled) {}
 
     /**
@@ -146,7 +147,8 @@ public final class OrbBacktester {
                     }
                     if (pass && p.stSlopeEnabled() && stBars != null) {
                         stOk = supertrend.slopeConfirms(stBarsThrough(stBars, bar), Direction.UP,
-                                p.stSlopeLookback(), p.stSlopeMinAtr(), p.stSlopeBars());
+                                p.stSlopeLookback(), p.stSlopeMinAtr(), p.stSlopeBars(),
+                                p.stSlopeAcceptFlip(), p.stSlopeFlipBars());
                         if (!stOk) { pass = false; reason = "ST slope not advancing up"; }
                     }
                     if (pass) {
@@ -177,7 +179,8 @@ public final class OrbBacktester {
                     }
                     if (pass && p.stSlopeEnabled() && stBars != null) {
                         stOk = supertrend.slopeConfirms(stBarsThrough(stBars, bar), Direction.DOWN,
-                                p.stSlopeLookback(), p.stSlopeMinAtr(), p.stSlopeBars());
+                                p.stSlopeLookback(), p.stSlopeMinAtr(), p.stSlopeBars(),
+                                p.stSlopeAcceptFlip(), p.stSlopeFlipBars());
                         if (!stOk) { pass = false; reason = "ST slope not advancing down"; }
                     }
                     if (pass) {
