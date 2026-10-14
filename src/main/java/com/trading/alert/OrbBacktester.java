@@ -215,7 +215,25 @@ public final class OrbBacktester {
         return through;
     }
 
-    /** HH:mm ET of a signal bar (for audit lines). */
+    /**
+     * HH:mm ET <b>close/end time</b> of a signal bar — i.e. the bar's open-timestamp plus its
+     * length in minutes. The engine timestamps a candle by its OPEN minute, but the Webull app
+     * labels each intraday candle by its CLOSE minute; reporting the end time here makes the
+     * backtest's signal clock line up with the candle the user actually sees on the Webull chart
+     * (e.g. an M2 break the engine stamps 09:52 is Webull's 09:54 candle). Label-only: the
+     * breakout/color/leg logic is unchanged.
+     *
+     * @param c          the signal bar (open-stamped)
+     * @param barMinutes the scan timeframe length in minutes (M2 → 2, M3 → 3, …)
+     */
+    public static String timeEt(Candle c, int barMinutes) {
+        return c.timestamp().atZone(ET).plusMinutes(Math.max(0, barMinutes)).format(HM);
+    }
+
+    /**
+     * HH:mm ET OPEN time of a signal bar. Prefer {@link #timeEt(Candle, int)} for user-facing
+     * output so the label matches the Webull chart's close-time candle labelling.
+     */
     public static String timeEt(Candle c) {
         return c.timestamp().atZone(ET).format(HM);
     }

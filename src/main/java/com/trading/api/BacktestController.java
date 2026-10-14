@@ -415,11 +415,16 @@ public class BacktestController {
         long barsOnDate = scanBars.stream()
                 .filter(c -> c.timestamp().atZone(ET).toLocalDate().equals(targetDate)).count();
 
+        // Signal/trace times are reported as the candle's CLOSE/END minute so the clock matches
+        // the Webull app, which labels each intraday candle by its close (the engine stamps the
+        // open). Label-only — the breakout logic is unchanged.
+        int scanMinutes = Math.max(0, TimeframeSupport.minutesOf(scanTf));
+
         int upCount = 0, downCount = 0;
         List<String> audit = new ArrayList<>();
         for (OrbBacktester.Signal s : signals) {
             if (s.direction() == Direction.UP) upCount++; else downCount++;
-            audit.add(auditLineOrb(s));
+            audit.add(auditLineOrb(s, scanMinutes));
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -453,7 +458,7 @@ public class BacktestController {
         if (debug) {
             List<OrbBacktester.Trace> traces = OrbBacktester.trace(scanBars, rangeBars, stBars, targetDate, supertrend, params);
             List<Map<String, Object>> rows = new ArrayList<>();
-            for (OrbBacktester.Trace t : traces) rows.add(traceRowOrb(t));
+            for (OrbBacktester.Trace t : traces) rows.add(traceRowOrb(t, scanMinutes));
             body.put("debugTrace", rows);
         }
 
@@ -479,10 +484,10 @@ public class BacktestController {
         return ResponseEntity.ok(body);
     }
 
-    private Map<String, Object> traceRowOrb(OrbBacktester.Trace t) {
+    private Map<String, Object> traceRowOrb(OrbBacktester.Trace t, int scanMinutes) {
         Candle c = t.bar();
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("timeEt", OrbBacktester.timeEt(c));
+        row.put("timeEt", OrbBacktester.timeEt(c, scanMinutes));
         row.put("close", c.close().toPlainString());
         row.put("attempted", t.attempted() == null ? null : t.attempted().name());
         row.put("broke", t.broke());
@@ -493,11 +498,11 @@ public class BacktestController {
         return row;
     }
 
-    private String auditLineOrb(OrbBacktester.Signal s) {
+    private String auditLineOrb(OrbBacktester.Signal s, int scanMinutes) {
         String emoji = s.direction() == Direction.UP ? "🟢" : "🔴";
         String price = s.bar().close().setScale(2, RoundingMode.HALF_UP).toPlainString();
         String lvl = s.breakLevel().setScale(2, RoundingMode.HALF_UP).toPlainString();
-        return OrbBacktester.timeEt(s.bar()) + " ET  " + emoji + " " + s.direction()
+        return OrbBacktester.timeEt(s.bar(), scanMinutes) + " ET  " + emoji + " " + s.direction()
                 + "  @ " + price + "  (break " + (s.direction() == Direction.UP ? "> " : "< ") + lvl + ")";
     }
 
