@@ -331,6 +331,9 @@ public class BacktestController {
             @RequestParam(required = false) String rangeTimeframe,
             @RequestParam(required = false) String scanTimeframe,
             @RequestParam(required = false) String stSlopeTimeframe,
+            @RequestParam(required = false) Boolean emaSlopeEnabled,
+            @RequestParam(required = false) Integer emaPeriod,
+            @RequestParam(required = false) Integer emaSlopeLookback,
             @RequestParam(required = false) String sessions,
             @RequestParam(required = false) Integer count,
             @RequestParam(required = false, defaultValue = "false") boolean debug) {
@@ -370,8 +373,12 @@ public class BacktestController {
                     "timestamp", TimeFormat.nowEt()));
         }
 
-        int emaPeriod = orb.emaPeriod();
-        int warmupNeeded = emaPeriod + Math.max(orb.emaSlopeLookback(), supertrend.length()) + 10;
+        // EMA-slope gate knobs: optional query overrides, else the configured app.alerts.orb.* value.
+        boolean emaSlopeEnabledEff = emaSlopeEnabled != null ? emaSlopeEnabled : orb.emaSlopeEnabled();
+        int emaPeriodEff = (emaPeriod != null && emaPeriod > 0) ? emaPeriod : orb.emaPeriod();
+        int emaSlopeLookbackEff = (emaSlopeLookback != null && emaSlopeLookback > 0)
+                ? emaSlopeLookback : orb.emaSlopeLookback();
+        int warmupNeeded = emaPeriodEff + Math.max(emaSlopeLookbackEff, supertrend.length()) + 10;
         int scanFetch = (count != null && count > 0) ? count : autoCountOrb(scanTf, targetDate, warmupNeeded);
 
         List<Candle> scanBars, rangeBars, stBars = null;
@@ -402,7 +409,7 @@ public class BacktestController {
 
         OrbBacktester.Params params = new OrbBacktester.Params(
                 orb.rangeMinutes(), orb.requireBreakoutCandleColor(),
-                emaPeriod, orb.emaSlopeLookback(), orb.emaSlopeEnabled(),
+                emaPeriodEff, emaSlopeLookbackEff, emaSlopeEnabledEff,
                 orb.stSlopeConfirmEnabled(), orb.stSlopeLookback(), orb.stSlopeMinAtr(), orb.stSlopeBars(),
                 orb.up().enabled(), orb.down().enabled());
 
@@ -450,8 +457,9 @@ public class BacktestController {
 
         Map<String, Object> gates = new LinkedHashMap<>();
         gates.put("requireBreakoutCandleColor", orb.requireBreakoutCandleColor());
-        gates.put("emaSlopeEnabled", orb.emaSlopeEnabled());
-        gates.put("emaPeriod", emaPeriod);
+        gates.put("emaSlopeEnabled", emaSlopeEnabledEff);
+        gates.put("emaPeriod", emaPeriodEff);
+        gates.put("emaSlopeLookback", emaSlopeLookbackEff);
         gates.put("stSlopeConfirmEnabled", orb.stSlopeConfirmEnabled());
         body.put("gates", gates);
 
@@ -465,7 +473,7 @@ public class BacktestController {
         Map<String, Object> warmup = new LinkedHashMap<>();
         warmup.put("scanBarsFetched", scanBars.size());
         warmup.put("barsOnTargetDate", barsOnDate);
-        warmup.put("emaPeriod", emaPeriod);
+        warmup.put("emaPeriod", emaPeriodEff);
         body.put("warmup", warmup);
 
         if (!dateInRange) {

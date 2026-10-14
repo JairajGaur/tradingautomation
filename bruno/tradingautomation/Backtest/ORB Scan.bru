@@ -15,6 +15,9 @@ params:query {
   rangeTimeframe: M15
   scanTimeframe: M2
   ~stSlopeTimeframe: M5
+  ~emaSlopeEnabled: true
+  ~emaPeriod: 20
+  ~emaSlopeLookback: 3
   ~sessions: RTH,PRE,ATH
   ~count: 1200
   ~debug: true
@@ -49,6 +52,12 @@ docs {
                          (default: configured orb.up.scan-minutes → e.g. M5).
   - `stSlopeTimeframe` — Supertrend-slope gate timeframe (default: configured
                          orb.st-slope-timeframe); only used when that gate is on.
+  - `emaSlopeEnabled`  — override the EMA-slope confluence gate on/off
+                         (default: configured orb.ema-slope-enabled).
+  - `emaPeriod`        — override the EMA period for the slope gate
+                         (default: configured orb.ema-period).
+  - `emaSlopeLookback` — override the EMA-slope lookback in bars
+                         (default: configured orb.ema-slope-lookback).
   - `sessions`         — RTH, PRE, ATH, OVN (default: configured).
   - `count`            — scan bars to fetch back from NOW. Auto-sized by default to
                          reach the date with EMA(period) warm-up. Broker caps a
@@ -59,8 +68,9 @@ docs {
   
   The two timeframe params are the "any range timeframe + any alert timeframe"
   controls — change them to explore different ORB configurations for the day.
-  Gate on/off + lookbacks + thresholds always come from app.alerts.orb (so the
-  default run matches live exactly).
+  The emaSlope* params let you tune the EMA-slope confluence gate per request;
+  when omitted, every gate on/off + lookback + threshold comes from app.alerts.orb
+  (so the default run matches live exactly).
   
   ## Response (200)
   {
@@ -68,7 +78,7 @@ docs {
     openingRange: { high, low },
     signalCount, orbUpCount, orbDownCount,
     signals: [ "09:45 ET  🟢 UP  @ 139.96  (break > 139.46)", ... ],
-    gates: { emaSlopeEnabled, emaPeriod, stSlopeConfirmEnabled },
+    gates: { requireBreakoutCandleColor, emaSlopeEnabled, emaPeriod, emaSlopeLookback, stSlopeConfirmEnabled },
     warmup: { scanBarsFetched, barsOnTargetDate, emaPeriod }
   }
   
