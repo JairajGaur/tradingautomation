@@ -90,11 +90,24 @@ final class OrbSupport {
         return new LegResult(0, false);      // neither → no hit
     }
 
-    /** Rolls back a leg that {@link #advanceLeg} opened but whose gates then failed, so a later
-     *  qualifying break can still open it (keeps the "re-entered" arm set). */
+    /**
+     * Marks a leg that {@link #advanceLeg} opened but whose confluence gates then FAILED as
+     * consumed, so it is NOT re-attempted on later bars of the same breakout.
+     *
+     * <p>Critically it must NOT re-arm the leg ({@code reentered} stays {@code false}): price is
+     * still beyond the range, it has not closed back inside, so there is no fresh leg to start.
+     * {@code advanceLeg} already set {@code reentered = false} when it opened this leg, so the
+     * next still-broken-out bar is a continuation (same leg, no re-evaluation) — the gate is only
+     * ever evaluated ONCE per leg, on its opening break. The next leg opens only after a genuine
+     * {@code insideRange} close re-arms the state.</p>
+     *
+     * <p>Without this, a gate-failing break re-armed the leg every bar, so the gate was
+     * re-evaluated on every subsequent above-range bar and fired again as soon as it flickered to
+     * pass — which made enabling the gate <em>increase</em> alerts instead of narrowing them.</p>
+     */
     static void rollbackLeg(LegState state) {
-        if (state.leg > 0) state.leg--;
-        state.reentered = true;
+        // Intentionally a no-op on the arm: the opened-then-rejected leg stays "current" and
+        // NOT re-entered, so later bars of the same unbroken breakout are continuations.
     }
 
     /**
