@@ -143,6 +143,23 @@ public class SwiftTrendAlert implements Alert {
                 List<Candle> bars = barData.getBars(symbol, tf, warmup);
                 // Single source of truth: detection + cooldown both live in the scanner.
                 Decision d = scanner.evaluate(symbol, bars, now);
+                // Per-evaluation audit (DEBUG): logs the inputs + decision for EVERY scan,
+                // whether it fires or not, so a live run can be diffed against the swift-scan
+                // backtest trace bar-for-bar. This is the only way to see WHY live skipped a bar
+                // the backtest fired (the scanner otherwise just `continue`s silently). Fields:
+                //   bars   — size of the series fed to the detector (resolves "fed stale/short")
+                //   lastBar— the newest bar's ET time (the in-progress bar the detector drops)
+                //   swift/fire/reason/flip — the detector result + decide() outcome
+                // Enable with logging.level.com.trading.alert.SwiftTrendAlert: DEBUG.
+                if (log.isDebugEnabled()) {
+                    var r = d.result();
+                    Candle lastBar = bars.isEmpty() ? null : bars.get(bars.size() - 1);
+                    log.debug("[SwiftScanEval] {} tf={} bars={} lastBar={} swift={} dir={} fire={} flip={} reason=\"{}\"",
+                            symbol, tf, bars.size(),
+                            lastBar == null ? "?" : com.trading.api.TimeFormat.toEt(lastBar.timestamp()),
+                            r.swift(), r.direction(), d.fire(),
+                            r.flipTime() == null ? "?" : r.flipTime(), d.reason());
+                }
                 if (!d.fire()) continue;
 
                 String text = scanner.formatMessage(c, symbol, d.result());

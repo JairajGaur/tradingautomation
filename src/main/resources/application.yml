@@ -20,6 +20,11 @@ logging:
     # EMAs, not a strong green candle, ST not UP, cooldown, etc.). Noisy but essential for
     # answering "why didn't it take the trade?". Set back to INFO to quiet it.
     com.trading.strategy: DEBUG
+    # DEBUG here logs a per-evaluation [SwiftScanEval] line for EVERY swift scan (fired or
+    # not): bars fed, newest bar ET, swift/dir/fire/flip/reason. Use it to diff a LIVE swift
+    # run against the /api/swift-scan/backtest trace bar-for-bar and see exactly why live
+    # skipped a bar the backtest fired. Noisy (one line per symbol per minute) — INFO to quiet.
+    com.trading.alert.SwiftTrendAlert: DEBUG
   # Write logs to a rolling file (in addition to the console).
   file:
     name: logs/tradingautomation.log
