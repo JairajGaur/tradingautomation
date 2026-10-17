@@ -153,9 +153,21 @@ public class OptionVolumeStAlert implements Alert {
         Candle last = bars.get(bars.size() - 1);
         String state = "OPTST_" + day + "_" + occ;   // unique per day; engine dedupes same-state
         return new AlertHit(id(), occ, state,
-                AlertMessageFormat.line(messagePrefix(), occ,
-                        AlertMessageFormat.Dir.UP, last.close().toPlainString(), tf),
+                optionMessage(contract, last.close()),
                 AlertMessageFormat.Dir.UP, last.close(), tf);
+    }
+
+    /**
+     * Builds the option alert message: {@code <prefix><UNDERLYING> <TYPE> <STRIKE> <LAST_PRICE>}
+     * — e.g. {@code OPTION ST - TSLA PUT 450 1.43}.
+     */
+    private String optionMessage(OptionContract contract, BigDecimal lastPrice) {
+        String prefix = messagePrefix() == null ? "" : messagePrefix();
+        return prefix
+                + contract.underlying() + " "
+                + contract.type().name() + " "
+                + contract.strike().toPlainString() + " "
+                + lastPrice.toPlainString();
     }
 
     // -----------------------------------------------------------------------
