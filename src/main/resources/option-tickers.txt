@@ -2,13 +2,13 @@
 # classpath:option-tickers.txt). Loaded once by OptionUniverseLoader.
 #
 # This file lists UNDERLYING STOCK symbols (NOT OCC codes). For each underlying the
-# options service pulls the current spot price and GENERATES the nearest
-# `app.options.strikes-per-side` ITM + the same number of OTM strikes for each
-# configured side (CALL/PUT) at the chosen expiry, builds the OCC symbols, and loads
+# options service pulls the current spot price and GENERATES the ATM strike plus
+# `app.options.strikes-per-side` OTM strikes for each configured side (CALL/PUT) —
+# ITM strikes are EXCLUDED — at the chosen expiry, builds the OCC symbols, and loads
 # option bars for them.
 #
-# Example: with strikes-per-side=5 and sides=[CALL,PUT], "AAPL" expands to
-# 5 ITM + 5 OTM = 10 CALL strikes and 10 PUT strikes = 20 contracts.
+# Example: with strikes-per-side=5 and sides=[CALL,PUT], "AAPL" expands to up to
+# (ATM + 5 OTM) CALL strikes and (ATM + 5 OTM) PUT strikes.
 #
 # FORMAT (one underlying per line):
 #   SYMBOL                 → use the default strike increment (app.options.default-strike-increment)

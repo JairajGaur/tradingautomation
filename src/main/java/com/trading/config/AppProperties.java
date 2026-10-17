@@ -31,16 +31,16 @@ public record AppProperties(
     /**
      * Options data config ({@code app.options.*}). The {@code option-tickers.txt} file lists
      * UNDERLYING stocks (e.g. AAPL), optionally with a per-symbol strike increment; for each,
-     * the service pulls the current spot and generates the nearest {@code strikesPerSide} ITM +
-     * {@code strikesPerSide} OTM strikes for each {@code side} (CALL/PUT) at the DTE-derived
+     * the service pulls the current spot and generates the ATM strike plus {@code strikesPerSide}
+     * OTM strikes for each {@code side} (CALL/PUT) — ITM strikes are EXCLUDED — at the DTE-derived
      * expiry, builds the OCC symbols, and loads option bars for them.
      *
      * <p>Webull's v3 API exposes NO option-chain endpoint, so strikes are GENERATED from an
      * increment rather than discovered. A generated strike that isn't actually listed simply
      * returns no bars (logged per-symbol); it never fails the whole pull.</p>
      *
-     * @param strikesPerSide         how many ITM and how many OTM strikes to take per side
-     *                               (e.g. 5 → 5 ITM + 5 OTM = 10 strikes per CALL/PUT). Default 5.
+     * @param strikesPerSide         how many OTM strikes to take per side beyond ATM; ITM strikes
+     *                               are excluded (e.g. 5 → ATM + 5 OTM per CALL/PUT). Default 5.
      * @param sides                  option types to load (CALL and/or PUT). Default both.
      * @param dte                    days-to-expiry: the expiry is {@code today + dte} calendar
      *                               days. {@code 0} = today (0DTE), {@code 1} = tomorrow, etc.
@@ -185,6 +185,9 @@ public record AppProperties(
          *   <li><b>Above the EMA</b> — the option close is AT OR ABOVE its {@code emaPeriod}-EMA on
          *       each of the last {@code emaAboveCandles} completed bars (candle colour doesn't
          *       matter — just {@code close ≥ EMA}).</li>
+         *   <li><b>EMA stack</b> (optional, {@code emaStackEnabled}) — the option's fast EMA is
+         *       above its slow EMA ({@code EMA(emaStackFast) > EMA(emaStackSlow)}, default 20 > 100)
+         *       on the latest completed bar — an uptrend confirmation on the option itself.</li>
          *   <li><b>Good volume</b> (optional, {@code volumeEnabled}) — a two-part gate: cumulative
          *       session volume ≥ {@code minSessionVolume} (all-session liquidity floor) AND volume
          *       is INCREASING (recent-half average &gt; older-half average over {@code volumeLookback}
@@ -198,6 +201,9 @@ public record AppProperties(
          * @param emaPeriod       EMA period the option close must stay at/above (default 20)
          * @param emaAboveCandles how many of the last completed bars must have {@code close ≥ EMA}
          *                        (default 3)
+         * @param emaStackEnabled master on/off for the EMA-stack leg (default true)
+         * @param emaStackFast    fast EMA for the stack check (default 20)
+         * @param emaStackSlow    slow EMA for the stack check (default 100)
          * @param volumeEnabled   master on/off for the volume leg (default true)
          * @param minSessionVolume minimum cumulative session volume — liquidity floor (default 500;
          *                        0 disables just the floor). Only applies when {@code volumeEnabled}.
@@ -216,6 +222,9 @@ public record AppProperties(
                 @DefaultValue("3")     int stRisingCandles,
                 @DefaultValue("20")    int emaPeriod,
                 @DefaultValue("3")     int emaAboveCandles,
+                @DefaultValue("true")  boolean emaStackEnabled,
+                @DefaultValue("20")    int emaStackFast,
+                @DefaultValue("100")   int emaStackSlow,
                 @DefaultValue("true")  boolean volumeEnabled,
                 @DefaultValue("500")   long minSessionVolume,
                 @DefaultValue("10")    int volumeLookback,

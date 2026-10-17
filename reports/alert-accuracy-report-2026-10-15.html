@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Alert Accuracy — SwiftTrend, Oct 15 2026</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2330;--border:#30363d;--text:#e6edf3;
+    --muted:#8b949e;--up:#2ea043;--down:#f85149;--accent:#58a6ff;--flat:#6e7681;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5;padding:0 0 60px}
+  header{padding:28px 32px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#161b22,#0d1117)}
+  header h1{margin:0 0 6px;font-size:24px} header p{margin:0;color:var(--muted);font-size:14px}
+  .wrap{max-width:1200px;margin:0 auto;padding:0 32px} section{margin-top:34px}
+  h2{font-size:18px;border-left:3px solid var(--accent);padding-left:10px;margin-bottom:14px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .kpi .num{font-size:28px;font-weight:700} .kpi .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
+  .kpi.up .num{color:var(--up)}.kpi.down .num{color:var(--down)}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  th,td{text-align:left;padding:7px 12px;border-top:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;cursor:pointer;user-select:none} thead tr{border-top:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .pos{color:var(--up)}.neg{color:var(--down)}
+  .tag{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+  .tag.WIN{background:rgba(46,160,67,.18);color:var(--up)}.tag.LOSS{background:rgba(248,81,73,.18);color:var(--down)}.tag.FLAT{background:rgba(110,118,129,.25);color:var(--muted)}
+  .d.UP{color:var(--up);font-weight:600}.d.DOWN{color:var(--down);font-weight:600}
+  .cmp{display:grid;grid-template-columns:90px 1fr 60px;align-items:center;gap:12px;margin:8px 0}.cmp .lab{font-weight:600}
+  .bar{background:var(--panel2);border-radius:6px;height:22px;overflow:hidden}.bar>span{display:block;height:100%}
+  .bar.u>span{background:linear-gradient(90deg,#238636,#2ea043)}.bar.d>span{background:linear-gradient(90deg,#da3633,#f85149)}
+  .wlf{display:flex;height:28px;border-radius:8px;overflow:hidden;border:1px solid var(--border);margin-top:6px}
+  .wlf .seg{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff}
+  .wlf .w{background:var(--up)}.wlf .l{background:var(--down)}.wlf .f{background:var(--flat)}
+  .tl{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;overflow-x:auto}
+  .tl-h{display:flex;color:var(--muted);font-size:11px;margin-bottom:6px;min-width:800px}.tl-h span{flex:1;text-align:center}
+  .tl-t{position:relative;height:12px;background:var(--panel2);border-radius:6px;min-width:800px}
+  .dot{position:absolute;top:-2px;width:9px;height:9px;border-radius:50%;transform:translateX(-50%)}
+  .dot.WIN{background:var(--up)}.dot.LOSS{background:var(--down)}.dot.FLAT{background:var(--flat)}
+  .note{color:var(--muted);font-size:12px;margin-top:10px}
+  .controls{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:var(--panel);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:13px}
+  .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .caveat{background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:8px;padding:12px 14px;font-size:13px;color:#e8d6a8;margin-top:14px}
+  footer{color:var(--muted);font-size:12px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>🎯 Alert Accuracy — SwiftTrend</h1>
+  <p>2026-10-15 · M3 · target 0.5% / stop 0.3% · horizon = session · move verified from post-signal bar closes</p>
+</div></header>
+<div class="wrap">
+  <section><h2>Overview</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="num" id="k-total">0</div><div class="lbl">Signals</div></div>
+      <div class="kpi up"><div class="num" id="k-win">0</div><div class="lbl">Wins</div></div>
+      <div class="kpi down"><div class="num" id="k-loss">0</div><div class="lbl">Losses</div></div>
+      <div class="kpi"><div class="num" id="k-flat">0</div><div class="lbl">Flat</div></div>
+      <div class="kpi"><div class="num" id="k-wr">0%</div><div class="lbl">Win rate</div></div>
+    </div>
+    <div class="wlf" id="wlf"></div>
+  </section>
+  <section><h2>UP vs DOWN (did the predicted move happen?)</h2>
+    <div id="cmp"></div>
+    <div class="note">Win-rate per direction. UP outperformed DOWN again — shorting the up-biased tape mostly failed.</div>
+  </section>
+  <section><h2>Signal Timeline (by outcome)</h2>
+    <div class="tl">
+      <div class="tl-h"><span>09:30</span><span>10:30</span><span>11:30</span><span>12:30</span><span>13:30</span><span>14:30</span><span>15:30</span><span>16:00</span></div>
+      <div class="tl-t" id="track"></div>
+      <div class="note"><b style="color:var(--up)">green=win</b> · <b style="color:var(--down)">red=loss</b> · <b style="color:var(--flat)">grey=flat</b>. Hover for details. Note the losing cluster at the open.</div>
+    </div>
+  </section>
+  <section><h2>Per-signal detail</h2>
+    <div class="controls">
+      <button class="btn active" data-f="all">All</button><button class="btn" data-f="UP">UP</button>
+      <button class="btn" data-f="DOWN">DOWN</button><button class="btn" data-f="WIN">Wins</button><button class="btn" data-f="LOSS">Losses</button>
+    </div>
+    <table id="tbl"><thead><tr>
+      <th data-k="time">Time</th><th data-k="sym">Ticker</th><th data-k="dir">Dir</th>
+      <th class="num" data-k="price">Entry</th><th class="num" data-k="mfe">MFE%</th>
+      <th class="num" data-k="mae">MAE%</th><th class="num" data-k="end">End%</th>
+      <th class="num" data-k="ttt">T2T</th><th data-k="cls">Result</th>
+    </tr></thead><tbody id="tbody"></tbody></table>
+  </section>
+  <div class="caveat">⚠️ Close-based proxy — no fills/slippage/intrabar. SwiftTrend only (ORB/StAdx have no backtest endpoint). For comparing alert behaviour, not P&L.</div>
+  <footer>Generated per reports/ALERT-REPORT-GUIDE.md · data embedded inline.</footer>
+</div>
+<script>
+const D=[
+["09:30","SPY","DOWN",765.90,0.12,0.89,-0.69,null,"LOSS"],["09:33","TSLA","DOWN",358.49,0.78,1.43,-1.17,18,"LOSS"],
+["09:33","QQQ","DOWN",717.38,0.15,1.63,-1.17,null,"LOSS"],["09:33","UVXY","UP",17.25,0.38,5.74,-4.06,null,"LOSS"],
+["09:33","NVDA","DOWN",214.27,0.42,1.92,-1.30,null,"LOSS"],["09:33","HOOD","DOWN",94.87,0.00,9.81,-9.10,null,"LOSS"],
+["09:33","DELL","DOWN",462.56,1.80,3.10,-2.19,18,"LOSS"],["09:33","NFLX","UP",72.35,0.95,1.33,-0.37,69,"LOSS"],
+["09:33","SPCX","DOWN",144.15,2.06,3.55,-2.96,3,"WIN"],["09:36","MSFT","UP",539.20,0.34,1.15,-0.28,null,"LOSS"],
+["09:36","AMD","DOWN",537.79,1.13,5.55,-3.48,15,"LOSS"],["09:36","JPM","DOWN",333.65,0.33,0.66,-0.58,null,"LOSS"],
+["09:36","MU","DOWN",858.99,0.00,8.48,-7.70,null,"LOSS"],["09:42","GOOGL","UP",348.17,1.05,0.23,0.17,21,"WIN"],
+["09:45","GS","DOWN",863.60,0.38,3.28,-2.95,null,"LOSS"],["09:51","RKLB","DOWN",49.83,0.00,12.84,-10.88,null,"LOSS"],
+["10:06","IWM","UP",272.92,0.90,0.10,0.77,63,"WIN"],["10:06","ORCL","UP",131.23,2.68,0.84,1.96,3,"WIN"],
+["10:09","UVXY","DOWN",16.97,4.18,0.53,2.47,30,"LOSS"],["10:09","COIN","UP",171.34,8.12,0.64,6.51,30,"LOSS"],
+["10:09","MRNA","UP",232.01,4.25,0.87,1.57,21,"LOSS"],["10:09","SPCX","UP",145.30,2.73,0.72,2.14,24,"LOSS"],
+["10:15","HOOD","UP",98.14,6.15,0.05,5.46,24,"WIN"],["10:15","USO","UP",155.67,1.55,0.26,1.06,63,"WIN"],
+["10:33","BA","UP",186.66,1.11,0.23,0.99,36,"WIN"],["10:39","SLV","UP",51.57,0.68,0.48,0.22,303,"LOSS"],
+["10:39","RKLB","UP",53.32,5.46,1.61,3.62,30,"LOSS"],["10:42","SPY","UP",768.99,0.48,0.06,0.29,null,"FLAT"],
+["10:42","QQQ","UP",722.50,0.91,0.09,0.45,177,"WIN"],["10:42","MU","UP",903.70,3.12,0.31,2.37,3,"WIN"],
+["10:42","NFLX","UP",72.81,0.31,1.07,-1.00,null,"LOSS"],["10:51","TSLA","UP",361.46,0.59,0.58,0.34,42,"WIN"],
+["10:57","AMZN","UP",252.88,1.04,0.15,0.25,12,"WIN"],["10:57","GS","UP",875.84,1.84,0.00,1.51,18,"WIN"],
+["11:03","PLTR","UP",198.49,1.14,0.36,0.92,126,"LOSS"],["11:06","CVX","DOWN",221.05,1.30,0.16,0.63,99,"WIN"],
+["11:12","AAPL","DOWN",344.05,0.81,0.24,0.76,183,"WIN"],["11:12","AMD","UP",548.66,3.46,0.52,1.43,48,"LOSS"],
+["11:15","NVDA","UP",217.14,0.57,0.46,-0.04,240,"LOSS"],["12:00","BA","DOWN",186.49,0.14,1.20,-1.08,null,"LOSS"],
+["12:12","IWM","DOWN",273.16,0.08,0.81,-0.68,null,"LOSS"],["12:12","SLV","DOWN",51.35,0.06,1.11,-0.64,null,"LOSS"],
+["12:12","GLD","DOWN",379.82,0.00,0.76,-0.49,null,"LOSS"],["12:18","TSLA","DOWN",360.84,0.40,0.77,-0.51,null,"LOSS"],
+["12:18","GOOGL","DOWN",347.82,0.13,0.77,-0.27,null,"LOSS"],["12:21","SPCX","DOWN",146.03,0.54,2.22,-1.63,6,"WIN"],
+["12:24","RKLB","DOWN",52.55,0.17,7.00,-5.14,null,"LOSS"],["13:12","META","UP",737.16,0.85,0.82,-0.33,18,"WIN"],
+["13:15","AMZN","UP",254.04,0.58,0.27,-0.21,120,"WIN"],["13:15","GOOGL","UP",349.39,0.32,0.40,-0.18,null,"LOSS"],
+["13:15","SPCX","UP",146.83,1.66,0.48,1.08,105,"LOSS"],["13:33","IWM","UP",273.67,0.62,0.09,0.49,126,"WIN"],
+["13:33","BA","UP",187.15,0.84,0.24,0.72,126,"WIN"],["13:33","NVDA","UP",217.66,0.33,0.48,-0.28,null,"LOSS"],
+["13:36","SPY","UP",771.11,0.20,0.22,0.01,null,"FLAT"],["13:36","QQQ","UP",725.90,0.44,0.33,-0.02,null,"LOSS"],
+["13:36","UVXY","DOWN",16.42,0.97,0.97,-0.79,96,"LOSS"],["13:36","AMD","UP",552.14,2.81,0.27,0.79,81,"WIN"],
+["13:36","ORCL","UP",134.50,0.18,0.77,-0.52,null,"LOSS"],["13:36","RKLB","UP",53.34,5.42,0.30,3.58,60,"WIN"],
+["13:42","GLD","UP",380.66,0.54,0.01,0.27,135,"WIN"],["14:00","AAPL","DOWN",343.31,0.60,0.00,0.55,276,"WIN"],
+["14:06","UVXY","UP",16.49,0.55,1.39,0.36,177,"LOSS"],["14:06","COIN","DOWN",179.21,0.26,3.37,-1.84,null,"LOSS"],
+["14:06","DELL","DOWN",461.54,0.88,3.33,-2.41,12,"WIN"],["14:09","SPY","DOWN",769.92,0.07,0.36,-0.17,null,"LOSS"],
+["14:09","QQQ","DOWN",724.16,0.09,0.68,-0.22,null,"LOSS"],["14:12","NVDA","DOWN",217.00,0.17,0.63,-0.03,null,"LOSS"],
+["14:12","MU","DOWN",904.42,0.03,3.04,-2.29,null,"LOSS"],["14:15","AMZN","DOWN",253.61,0.10,0.75,0.04,null,"LOSS"],
+["14:18","JPM","DOWN",333.64,0.00,0.66,-0.58,null,"LOSS"],["14:27","CVX","DOWN",219.24,0.48,0.30,-0.19,null,"LOSS"],
+["14:48","HOOD","UP",102.90,1.24,0.12,0.58,30,"WIN"],["14:48","ORCL","UP",134.45,0.22,0.71,-0.48,null,"LOSS"],
+["14:54","SLV","UP",51.54,0.74,0.00,0.27,48,"WIN"],["14:57","MSFT","UP",540.52,0.09,0.64,-0.52,null,"LOSS"],
+["14:57","SPY","UP",770.63,0.27,0.00,0.08,null,"FLAT"],["14:57","QQQ","UP",725.47,0.50,0.14,0.04,null,"FLAT"],
+["14:57","UVXY","DOWN",16.43,1.03,0.91,-0.73,12,"WIN"],["15:00","AMZN","UP",254.64,0.34,0.48,-0.45,null,"LOSS"],
+["15:00","TSLA","UP",361.86,0.48,0.15,0.23,null,"FLAT"],["15:00","IWM","UP",273.98,0.51,0.00,0.38,186,"WIN"],
+["15:00","AMD","UP",557.84,1.76,0.46,-0.24,9,"WIN"],["15:03","MU","UP",914.30,1.92,0.00,1.18,6,"WIN"],
+["15:03","MRNA","UP",240.01,0.00,2.16,-1.81,null,"LOSS"],["15:06","SPCX","UP",147.95,0.89,0.11,0.31,9,"WIN"],
+["15:09","BA","UP",187.36,0.73,0.00,0.61,45,"WIN"],["15:09","GS","UP",888.47,0.39,0.33,0.07,null,"LOSS"],
+["15:12","NVDA","UP",218.21,0.08,0.73,-0.53,null,"LOSS"],["15:12","JPM","UP",335.17,0.20,0.09,0.12,null,"FLAT"],
+["15:12","DELL","UP",465.09,2.54,0.23,1.63,12,"WIN"],["15:15","PLTR","UP",200.40,0.17,0.27,-0.04,null,"FLAT"],
+["15:15","COIN","UP",182.79,1.35,0.81,-0.16,9,"WIN"],["15:18","META","DOWN",736.56,0.74,0.29,0.25,72,"WIN"],
+["15:18","USO","DOWN",157.20,0.25,0.18,-0.08,null,"FLAT"],["15:27","GOOGL","DOWN",348.67,0.19,0.23,-0.02,null,"FLAT"],
+["15:42","SLV","UP",51.87,0.10,0.39,-0.36,null,"LOSS"],["15:51","UVXY","UP",16.43,0.91,0.01,0.73,66,"WIN"],
+["15:54","MRNA","DOWN",236.28,0.62,0.09,0.26,15,"WIN"]
+].map(r=>({time:r[0],sym:r[1],dir:r[2],price:r[3],mfe:r[4],mae:r[5],end:r[6],ttt:r[7],cls:r[8]}));
+const g=id=>document.getElementById(id);
+const n=D.length,win=D.filter(d=>d.cls==="WIN").length,loss=D.filter(d=>d.cls==="LOSS").length,flat=D.filter(d=>d.cls==="FLAT").length;
+g("k-total").textContent=n;g("k-win").textContent=win;g("k-loss").textContent=loss;g("k-flat").textContent=flat;g("k-wr").textContent=Math.round(100*win/n)+"%";
+g("wlf").innerHTML=`<div class="seg w" style="width:${100*win/n}%">${win} win</div><div class="seg l" style="width:${100*loss/n}%">${loss} loss</div><div class="seg f" style="width:${100*flat/n}%">${flat} flat</div>`;
+function wr(dir){const s=D.filter(d=>d.dir===dir);const w=s.filter(d=>d.cls==="WIN").length;return{n:s.length,pct:s.length?Math.round(100*w/s.length):0};}
+const up=wr("UP"),dn=wr("DOWN");
+g("cmp").innerHTML=`<div class="cmp"><div class="lab" style="color:var(--up)">UP (${up.n})</div><div class="bar u"><span style="width:${up.pct}%"></span></div><div>${up.pct}%</div></div>`+
+ `<div class="cmp"><div class="lab" style="color:var(--down)">DOWN (${dn.n})</div><div class="bar d"><span style="width:${dn.pct}%"></span></div><div>${dn.pct}%</div></div>`;
+const toMin=t=>{const[h,m]=t.split(":").map(Number);return h*60+m;};const S=9*60+30,E=16*60,SP=E-S;
+g("track").innerHTML=D.map(d=>`<div class="dot ${d.cls}" style="left:${(toMin(d.time)-S)/SP*100}%" title="${d.time} ${d.sym} ${d.dir} → ${d.cls} (MFE ${d.mfe}% / MAE ${d.mae}%)"></div>`).join("");
+let filter="all",sortK="time",sortAsc=true;
+function render(){
+  let rows=D.filter(d=>filter==="all"||d.dir===filter||d.cls===filter);
+  rows.sort((a,b)=>{let x=a[sortK],y=b[sortK];if(x===null)x=-1;if(y===null)y=-1;if(typeof x==="string")return sortAsc?x.localeCompare(y):y.localeCompare(x);return sortAsc?x-y:y-x;});
+  g("tbody").innerHTML=rows.map(d=>{const sg=v=>(v>0?"pos":v<0?"neg":"");
+    return `<tr><td>${d.time}</td><td>${d.sym}</td><td class="d ${d.dir}">${d.dir}</td><td class="num">${d.price.toFixed(2)}</td>`+
+      `<td class="num pos">${d.mfe.toFixed(2)}</td><td class="num neg">${d.mae.toFixed(2)}</td>`+
+      `<td class="num ${sg(d.end)}">${d.end>0?'+':''}${d.end.toFixed(2)}</td><td class="num">${d.ttt===null?'–':d.ttt}</td>`+
+      `<td><span class="tag ${d.cls}">${d.cls}</span></td></tr>`;}).join("");
+}
+document.querySelectorAll(".btn").forEach(b=>b.onclick=()=>{document.querySelectorAll(".btn").forEach(x=>x.classList.remove("active"));b.classList.add("active");filter=b.dataset.f;render();});
+document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortAsc=!sortAsc;else{sortK=k;sortAsc=true;}render();});
+render();
+</script>
+</body>
+</html>

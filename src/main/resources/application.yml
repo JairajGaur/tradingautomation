@@ -125,11 +125,11 @@ app:
   # ── Options data ─────────────────────────────────────────────────────────
   # option-tickers.txt lists UNDERLYING stocks (e.g. AAPL), optionally with a
   # per-symbol strike increment (e.g. "TSLA,2.5"). For each underlying the service
-  # pulls spot and GENERATES the nearest N ITM + N OTM strikes per side (CALL/PUT)
-  # at the DTE-derived expiry, builds OCC symbols, and loads option bars.
+  # pulls spot and GENERATES the ATM strike + N OTM strikes per side (CALL/PUT) —
+  # ITM strikes are EXCLUDED — at the DTE-derived expiry, builds OCC symbols, loads bars.
   # Webull has no option-chain endpoint, so strikes are generated from an increment.
   options:
-    strikes-per-side: 5              # 5 ITM + 5 OTM per side (CALL & PUT)
+    strikes-per-side: 5              # N OTM strikes per side beyond ATM (ITM excluded)
     sides: [CALL, PUT]               # option types to load
     dte: 0                           # days-to-expiry: 0=today (0DTE), 1=tomorrow, ...
     default-strike-increment: 1.0    # strike spacing when a symbol has no override in the file
@@ -339,13 +339,13 @@ app:
       st-slope-accept-flip: true    # false = pure slope-only (original behaviour)
       st-slope-flip-bars: 2         # scan the last N completed ST bars for an in-direction flip
       up:
-        enabled: true
+        enabled: false
         scan-minutes: 2        # break + EMA on M5 (poll every 5 min)
         message-prefix: "ORB UP - "
         # Optional: own channel for UP breaks. Blank → inherits orb.telegram-chat-id above.
         telegram-chat-id: "${TELEGRAM_ORB_UP_CHAT_ID:}"
       down:
-        enabled: true
+        enabled: false
         scan-minutes: 2
         message-prefix: "ORB DOWN - "
         # Optional: own channel for DOWN breaks. Blank → inherits orb.telegram-chat-id above.
@@ -362,11 +362,11 @@ app:
     # Message: "<prefix><DIR-emoji> <SYMBOL> <DIRECTION> @ <price>".
     # All *-atr thresholds are in ATR units (price-agnostic). timeframe is configurable.
     swift-scan:
-      enabled: true
+      enabled: false
       timeframe: "M2"                # Supertrend + candle timeframe (M1/M5/M15/M30/M60)
       scan-minutes: 1                # poll cadence (every minute by default)
       message-prefix: "SWIFT TREND - "
-      cooldown-minutes: 30           # per symbol+direction, suppress repeats for 30 min
+      cooldown-minutes: 15           # per symbol+direction, suppress repeats for 30 min
       # SEPARATE channel for swift alerts. @channelname (public) or -100... (private, bot
       # must be admin). Defaults to the swift channel; override via TELEGRAM_SWIFT_CHAT_ID.
       telegram-chat-id: "${TELEGRAM_SWIFT_CHAT_ID}"
@@ -399,7 +399,9 @@ app:
     #   1. Supertrend LINE rising for `st-rising-candles` completed bars;
     #   2. option close >= its `ema-period`-EMA on each of the last `ema-above-candles` bars
     #      (candle colour irrelevant — just at/above the EMA);
-    #   3. good volume (optional, `volume-enabled`): session volume >= `min-session-volume` AND
+    #   3. EMA stack (optional, `ema-stack-enabled`): fast EMA > slow EMA on the option
+    #      (`ema-stack-fast` > `ema-stack-slow`, default 20 > 100 = option in its own uptrend);
+    #   4. good volume (optional, `volume-enabled`): session volume >= `min-session-volume` AND
     #      volume INCREASING (recent-half avg > older-half avg over `volume-lookback` bars).
     # Fires a single UP signal per qualifying OCC. Polled every minute.
     option-vol-st:
@@ -408,11 +410,14 @@ app:
       st-rising-candles: 3           # option ST line must rise this many completed bars
       ema-period: 20                 # EMA the option close must stay at/above
       ema-above-candles: 3           # close >= EMA required on this many of the last bars
+      ema-stack-enabled: true        # require fast EMA above slow EMA on the option
+      ema-stack-fast: 9             # fast EMA for the stack check
+      ema-stack-slow: 20             # slow EMA for the stack check (20 > 45 = option uptrend)
       volume-enabled: true           # master on/off for the volume leg
       min-session-volume: 500        # cumulative session volume floor per contract (0 = off)
       volume-lookback: 10            # rising-volume window; recent half vs older half (<2 = off)
-      cooldown-minutes: 15           # after a fire, suppress re-fires on that OCC this long
-      message-prefix: "OPTION ST - "
+      cooldown-minutes: 30           # after a fire, suppress re-fires on that OCC this long
+      message-prefix: "OPTION - "
       # SEPARATE channel. Blank → the alert is skipped (no fallback).
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
 
@@ -448,7 +453,7 @@ app:
     # after-hours-close = 16:00 makes the after-hours window empty, so entries
     # run 07:30–16:00 ET (late pre-market + regular), stopping at 4 PM.
     extended-hours-enabled: true
-    pre-market-open: "09:00"
+    pre-market-open: "09:10"
     after-hours-close: "15:30"
 
   # ── Local-LLM advisory analyst (broker-neutral) ──────────────────────────

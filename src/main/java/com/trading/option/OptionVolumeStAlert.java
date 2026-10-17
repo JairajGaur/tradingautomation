@@ -145,10 +145,12 @@ public class OptionVolumeStAlert implements Alert {
 
         boolean stRising = stRisingStreak(bars) >= Math.max(1, c.stRisingCandles());
         boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
+        boolean emaStack = !c.emaStackEnabled()
+                || emaStackUp(bars, c.emaStackFast(), c.emaStackSlow());
         boolean volOk = !c.volumeEnabled()
                 || goodVolume(bars, c.minSessionVolume(), c.volumeLookback(), day);
 
-        if (!(stRising && aboveEma && volOk)) return null;
+        if (!(stRising && aboveEma && emaStack && volOk)) return null;
 
         Candle last = bars.get(bars.size() - 1);
         String state = "OPTST_" + day + "_" + occ;   // unique per day; engine dedupes same-state
@@ -197,6 +199,22 @@ public class OptionVolumeStAlert implements Alert {
             if (close.compareTo(ema) < 0) return false;   // below EMA on this bar
         }
         return true;
+    }
+
+    /**
+     * True when the option's fast EMA is above its slow EMA on the latest COMPLETED bar
+     * ({@code EMA(fast) > EMA(slow)}) — an uptrend confirmation on the option itself.
+     */
+    private boolean emaStackUp(List<Candle> bars, int fast, int slow) {
+        int f = Math.max(1, fast), s = Math.max(1, slow);
+        if (bars == null || bars.size() < 2) return false;
+        List<Candle> completed = bars.subList(0, bars.size() - 1);   // drop in-progress bar
+        if (completed.size() < s) return false;                      // need warm-up for the slow EMA
+        List<BigDecimal> closes = new ArrayList<>(completed.size());
+        for (Candle b : completed) closes.add(b.close());
+        BigDecimal emaFast = EmaCalculator.calculate(closes, f);
+        BigDecimal emaSlow = EmaCalculator.calculate(closes, s);
+        return emaFast.compareTo(emaSlow) > 0;
     }
 
     /**
@@ -261,8 +279,8 @@ public class OptionVolumeStAlert implements Alert {
     public record LegEval(
             String occSymbol, String type, String strike, String moneyness,
             int barsUsed, boolean stDirectionUp, boolean stRising, int stRisingStreak,
-            boolean aboveEma, boolean volumeOk, long sessionVolume, double recentAvgVol, double olderAvgVol,
-            boolean qualifies, String note) {}
+            boolean aboveEma, boolean emaStackUp, boolean volumeOk, long sessionVolume,
+            double recentAvgVol, double olderAvgVol, boolean qualifies, String note) {}
 
     /** The configured option timeframe (normalised). */
     public String optionTimeframe() {
@@ -283,13 +301,14 @@ public class OptionVolumeStAlert implements Alert {
 
         if (bars == null || bars.isEmpty()) {
             return new LegEval(occ, type, strike, moneyness, 0, false, false, 0,
-                    false, false, 0, 0, 0, false, "no option bars");
+                    false, false, false, 0, 0, 0, false, "no option bars");
         }
 
         boolean stDirUp = stDirectionUp(bars);
         int streak = stRisingStreak(bars);
         boolean stRising = streak >= Math.max(1, c.stRisingCandles());
         boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
+        boolean emaStack = !c.emaStackEnabled() || emaStackUp(bars, c.emaStackFast(), c.emaStackSlow());
 
         VolumeStat vs = volumeStat(bars, day, c.volumeLookback());
         boolean volOk;
@@ -301,9 +320,9 @@ public class OptionVolumeStAlert implements Alert {
             volOk = floorOk && risingOk;
         }
 
-        boolean qualifies = stDirUp && stRising && aboveEma && volOk;
+        boolean qualifies = stDirUp && stRising && aboveEma && emaStack && volOk;
         return new LegEval(occ, type, strike, moneyness, bars.size(), stDirUp, stRising, streak,
-                aboveEma, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, null);
+                aboveEma, emaStack, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, null);
     }
 
     // =======================================================================
@@ -313,7 +332,8 @@ public class OptionVolumeStAlert implements Alert {
     /** One fired signal in a replay: the completed-bar time it fired on + the leg metrics then. */
     public record ReplaySignal(
             String occSymbol, String type, String strike, String moneyness,
-            String firedAtEt, String optionClose, int stRisingStreak, boolean aboveEma, boolean volumeOk) {}
+            String firedAtEt, String optionClose, int stRisingStreak,
+            boolean aboveEma, boolean emaStackUp, boolean volumeOk) {}
 
     /** The replay outcome for one contract: fired signals (cooldown-deduped) + bars examined. */
     public record ContractReplay(
@@ -367,15 +387,16 @@ public class OptionVolumeStAlert implements Alert {
             if (!stDirectionUp(upTo)) continue;
             boolean stRising = stRisingStreak(upTo) >= Math.max(1, c.stRisingCandles());
             boolean aboveEma = closeAboveEma(upTo, c.emaPeriod(), c.emaAboveCandles());
+            boolean emaStack = !c.emaStackEnabled() || emaStackUp(upTo, c.emaStackFast(), c.emaStackSlow());
             boolean volOk = !c.volumeEnabled()
                     || goodVolume(upTo, c.minSessionVolume(), c.volumeLookback(), date.toString());
-            if (!(stRising && aboveEma && volOk)) continue;
+            if (!(stRising && aboveEma && emaStack && volOk)) continue;
 
             // Fire — record the signal at the last COMPLETED bar (i-1), apply cooldown.
             Candle completed = allBars.get(i - 1);
             signals.add(new ReplaySignal(occ, type, strike, moneyness,
                     com.trading.api.TimeFormat.toEt(completed.timestamp()),
-                    completed.close().toPlainString(), stRisingStreak(upTo), aboveEma, volOk));
+                    completed.close().toPlainString(), stRisingStreak(upTo), aboveEma, emaStack, volOk));
             cooldownUntil = bar.timestamp().plusSeconds(cooldownSec);
         }
         return new ContractReplay(occ, type, strike, moneyness, rthBars, signals);

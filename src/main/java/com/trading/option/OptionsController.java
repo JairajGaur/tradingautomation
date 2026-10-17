@@ -206,6 +206,9 @@ public class OptionsController {
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
+        body.put("emaStackEnabled", c.emaStackEnabled());
+        body.put("emaStackFast", c.emaStackFast());
+        body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
         body.put("minSessionVolume", c.minSessionVolume());
         body.put("volumeLookback", c.volumeLookback());
@@ -289,6 +292,9 @@ public class OptionsController {
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
+        body.put("emaStackEnabled", c.emaStackEnabled());
+        body.put("emaStackFast", c.emaStackFast());
+        body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
         body.put("cooldownMinutes", c.cooldownMinutes());
         body.put("totalSignals", totalSignals);
@@ -331,6 +337,7 @@ public class OptionsController {
             sm.put("optionClose", s.optionClose());
             sm.put("stRisingStreak", s.stRisingStreak());
             sm.put("aboveEma", s.aboveEma());
+            sm.put("emaStackUp", s.emaStackUp());
             sm.put("volumeOk", s.volumeOk());
             sigs.add(sm);
         }
@@ -349,6 +356,7 @@ public class OptionsController {
         m.put("stRising", e.stRising());
         m.put("stRisingStreak", e.stRisingStreak());
         m.put("aboveEma", e.aboveEma());
+        m.put("emaStackUp", e.emaStackUp());
         m.put("volumeOk", e.volumeOk());
         m.put("sessionVolume", e.sessionVolume());
         m.put("recentAvgVol", round1(e.recentAvgVol()));

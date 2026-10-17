@@ -51,45 +51,48 @@ class OccSymbolGeneratorTest {
     // ── Strike ladder: CALL ITM below spot, OTM above ─────────────────────
 
     @Test
-    void callItmBelowSpotOtmAbove() {
-        // spot 302.3, $1 increment → anchor 302. 5 per side.
+    void callAtmOtmOnly_noItm() {
+        // spot 302.3, $1 increment → anchor 302 (which is BELOW spot → ITM for a call, so
+        // excluded). Result: 5 OTM strikes 303..307, no ITM, no strike at/below spot.
         List<OptionContract> calls = OccSymbolGenerator.generate(
                 "AAPL", new BigDecimal("302.3"), EXP, Type.CALL, BigDecimal.ONE, 5);
 
-        assertEquals(10, calls.size());
-        long itm = calls.stream().filter(c -> c.moneyness() == Moneyness.ITM).count();
-        long otm = calls.stream().filter(c -> c.moneyness() == Moneyness.OTM).count();
-        assertEquals(5, itm);
-        assertEquals(5, otm);
-
-        // Every ITM call strike is below the anchor (302); every OTM strike above.
+        assertTrue(calls.stream().noneMatch(c -> c.moneyness() == Moneyness.ITM), "no ITM calls");
+        // Every call strike is strictly above spot (OTM) — the ITM anchor 302 was dropped.
         for (OptionContract c : calls) {
-            if (c.moneyness() == Moneyness.ITM) {
-                assertTrue(c.strike().compareTo(new BigDecimal("302")) < 0, "ITM call strike below anchor");
-            } else {
-                assertTrue(c.strike().compareTo(new BigDecimal("302")) > 0, "OTM call strike above anchor");
-            }
+            assertTrue(c.strike().compareTo(new BigDecimal("302.3")) > 0, "call strike above spot (OTM)");
         }
-        // Nearest ITM is 301, nearest OTM is 303.
-        assertTrue(calls.stream().anyMatch(c -> c.strike().compareTo(new BigDecimal("301")) == 0));
+        assertEquals(5, calls.size());
         assertTrue(calls.stream().anyMatch(c -> c.strike().compareTo(new BigDecimal("303")) == 0));
+        assertTrue(calls.stream().anyMatch(c -> c.strike().compareTo(new BigDecimal("307")) == 0));
     }
 
-    // ── Strike ladder: PUT inverted (ITM above spot, OTM below) ───────────
+    @Test
+    void callAtmIncludedWhenAnchorEqualsSpot() {
+        // spot exactly on the ladder → anchor == spot → ATM (included) + 5 OTM above = 6.
+        List<OptionContract> calls = OccSymbolGenerator.generate(
+                "AAPL", new BigDecimal("300"), EXP, Type.CALL, BigDecimal.ONE, 5);
+        assertEquals(6, calls.size());
+        assertEquals(1, calls.stream().filter(c -> c.moneyness() == Moneyness.ATM).count());
+        assertTrue(calls.stream().noneMatch(c -> c.moneyness() == Moneyness.ITM));
+        assertTrue(calls.stream().anyMatch(c -> c.strike().compareTo(new BigDecimal("300")) == 0 && c.moneyness() == Moneyness.ATM));
+    }
+
+    // ── Strike ladder: PUT — ATM + OTM below spot, no ITM ─────────────────
 
     @Test
-    void putItmAboveSpotOtmBelow() {
+    void putAtmOtmOnly_noItm() {
+        // spot 302.0 on the ladder → anchor 302 == spot → ATM (included) + 5 OTM below.
         List<OptionContract> puts = OccSymbolGenerator.generate(
                 "AAPL", new BigDecimal("302.0"), EXP, Type.PUT, BigDecimal.ONE, 5);
 
-        assertEquals(10, puts.size());
+        assertTrue(puts.stream().noneMatch(c -> c.moneyness() == Moneyness.ITM), "no ITM puts");
+        assertEquals(6, puts.size());   // 1 ATM + 5 OTM
         for (OptionContract c : puts) {
-            if (c.moneyness() == Moneyness.ITM) {
-                assertTrue(c.strike().compareTo(new BigDecimal("302")) > 0, "ITM put strike above anchor");
-            } else {
-                assertTrue(c.strike().compareTo(new BigDecimal("302")) < 0, "OTM put strike below anchor");
-            }
+            // ATM at 302, OTM strictly below.
+            assertTrue(c.strike().compareTo(new BigDecimal("302")) <= 0, "put strike at/below spot");
         }
+        assertEquals(1, puts.stream().filter(c -> c.moneyness() == Moneyness.ATM).count());
     }
 
     @Test
