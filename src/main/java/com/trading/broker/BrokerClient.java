@@ -98,6 +98,29 @@ public interface BrokerClient {
     List<Candle> fetchRecentBars(String symbol, int count);
 
     /**
+     * Fetches {@code count} historical bars for one OPTION contract, identified by its
+     * {@code optionSymbol} (an OCC code, e.g. {@code AAPL260522C00300000}), returned as
+     * neutral {@link Candle}s in broker order (typically newest-first — the caller
+     * re-orders as needed). The options mirror of {@link #fetchBars}.
+     *
+     * <p>Options have no trading-sessions filter at the broker, so no {@code sessions}
+     * argument is accepted. The adapter owns the broker's option category + JSON shape.</p>
+     *
+     * @throws com.trading.broker.BrokerException on a failed broker call
+     */
+    List<Candle> fetchOptionBars(String optionSymbol, int count, String timespan);
+
+    /**
+     * Fetches bars for MANY option contracts in a single request (rate-limit friendly),
+     * returned as a map of OCC symbol → neutral candles in broker order. Contracts with
+     * no data (e.g. expired) are simply absent from the map. The options mirror of
+     * {@link #fetchBarsBatch}.
+     *
+     * @throws com.trading.broker.BrokerException on a failed broker call
+     */
+    Map<String, List<Candle>> fetchOptionBarsBatch(List<String> optionSymbols, int count, String timespan);
+
+    /**
      * Fetches a real-time {@link Quote} (bid/ask/last) for {@code symbol}. Returns
      * {@link Quote#EMPTY} (all-null fields) on any failure — never {@code null}.
      */

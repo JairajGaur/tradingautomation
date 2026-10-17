@@ -1,0 +1,47 @@
+meta {
+  name: Get Supertrend
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/options/supertrend/TSLA261016C00360000?timespan=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M5
+  ~count: 200
+  ~bars: 50
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Supertrend on an Option Contract
+
+  Computes the Supertrend indicator per bar for ONE option contract, reusing the
+  SAME SupertrendService (and app.supertrend length/factor) the stock endpoint uses.
+  Inspection/validation only — no orders.
+
+  ## Path
+  - `{occSymbol}` — OCC option code, e.g. TSLA261016C00360000.
+
+  ## Query
+  - `timespan` — bar granularity (default M5). Native only (M1/M5/.../Y).
+  - `count`    — bars to fetch (default = app.options.bar-count; option max 1200).
+  - `bars`     — how many most-recent points to return (default 50; 0 = all).
+
+  ## Response (200)
+  { optionSymbol, length, factor, timespan, barsFetched,
+    latestSupertrend, latestDirection (UP|DOWN), latestClose, returned,
+    series: [ { timestamp, timestampEt, close, atr, supertrend, direction, flip } ] }
+
+  ## Errors
+  - `400` — invalid timespan, or not enough bars for the ATR length.
+  - `502` — Webull market-data error (e.g. 403 if US_OPTION not subscribed).
+  - `503` — no bars for the contract.
+}

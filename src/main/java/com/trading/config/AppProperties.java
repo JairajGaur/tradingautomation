@@ -24,8 +24,41 @@ public record AppProperties(
         @DefaultValue Notifications notifications,
         @DefaultValue Alerts alerts,
         @DefaultValue Llm llm,
-        @DefaultValue AlertReview alertReview
+        @DefaultValue AlertReview alertReview,
+        @DefaultValue Options options
 ) {
+
+    /**
+     * Options data config ({@code app.options.*}). The {@code option-tickers.txt} file lists
+     * UNDERLYING stocks (e.g. AAPL), optionally with a per-symbol strike increment; for each,
+     * the service pulls the current spot and generates the nearest {@code strikesPerSide} ITM +
+     * {@code strikesPerSide} OTM strikes for each {@code side} (CALL/PUT) at the DTE-derived
+     * expiry, builds the OCC symbols, and loads option bars for them.
+     *
+     * <p>Webull's v3 API exposes NO option-chain endpoint, so strikes are GENERATED from an
+     * increment rather than discovered. A generated strike that isn't actually listed simply
+     * returns no bars (logged per-symbol); it never fails the whole pull.</p>
+     *
+     * @param strikesPerSide         how many ITM and how many OTM strikes to take per side
+     *                               (e.g. 5 → 5 ITM + 5 OTM = 10 strikes per CALL/PUT). Default 5.
+     * @param sides                  option types to load (CALL and/or PUT). Default both.
+     * @param dte                    days-to-expiry: the expiry is {@code today + dte} calendar
+     *                               days. {@code 0} = today (0DTE), {@code 1} = tomorrow, etc.
+     *                               A date with no listed contracts just returns no bars (logged).
+     *                               Default 0.
+     * @param defaultStrikeIncrement strike spacing used when a symbol has no per-symbol increment
+     *                               in {@code option-tickers.txt}. Default 1.0.
+     * @param barCount               bars to load per contract. Default 200.
+     * @param timespan               bar granularity for option loads (native only). Default M5.
+     */
+    public record Options(
+            @DefaultValue("5")   int strikesPerSide,
+            @DefaultValue({"CALL", "PUT"}) java.util.List<String> sides,
+            @DefaultValue("0")   int dte,
+            @DefaultValue("1.0") java.math.BigDecimal defaultStrikeIncrement,
+            @DefaultValue("200") int barCount,
+            @DefaultValue("M5")  String timespan
+    ) {}
 
     public enum Mode { PAPER, LIVE }
 
@@ -67,7 +100,8 @@ public record AppProperties(
             @DefaultValue("false") boolean enabled,
             @DefaultValue StAdxAlertCfg stAdx,
             @DefaultValue Orb orb,
-            @DefaultValue SwiftScanCfg swiftScan
+            @DefaultValue SwiftScanCfg swiftScan,
+            @DefaultValue OptionVolStCfg optionVolSt
     ) {
         /**
          * All Opening-Range-Breakout config under one parent ({@code alerts.orb}).
@@ -133,6 +167,61 @@ public record AppProperties(
                 @DefaultValue("")     String telegramChatId,
                 @DefaultValue OrbAlertCfg up,
                 @DefaultValue OrbAlertCfg down
+        ) {}
+
+        /**
+         * OPTIONS Supertrend alert ({@code app.alerts.option-vol-st}). Pure Supertrend-driven —
+         * no ORB, no stock side gate, no latch.
+         *
+         * <p>This alert DRIVES option loading (there is no scheduler). Each run, for every
+         * configured underlying, it generates the near-the-money contracts (CALL and PUT) off the
+         * current stock price and loads their {@code timeframe} bars, then KEEPS only the OCCs
+         * whose Supertrend direction is UP. For every ST-up contract it evaluates three legs on the
+         * OPTION's own {@code timeframe} bars:</p>
+         * <ol>
+         *   <li><b>Supertrend rising</b> — the option's Supertrend LINE is UP and has risen on each
+         *       of the last {@code stRisingCandles} completed bars. (ST up works for either side: a
+         *       CALL rises as the stock rises, a PUT as it falls.)</li>
+         *   <li><b>Above the EMA</b> — the option close is AT OR ABOVE its {@code emaPeriod}-EMA on
+         *       each of the last {@code emaAboveCandles} completed bars (candle colour doesn't
+         *       matter — just {@code close ≥ EMA}).</li>
+         *   <li><b>Good volume</b> (optional, {@code volumeEnabled}) — a two-part gate: cumulative
+         *       session volume ≥ {@code minSessionVolume} (all-session liquidity floor) AND volume
+         *       is INCREASING (recent-half average &gt; older-half average over {@code volumeLookback}
+         *       bars). When {@code volumeEnabled=false} this leg is skipped entirely.</li>
+         * </ol>
+         * A contract fires a single UP signal when all enabled legs pass (polled every minute).
+         *
+         * @param enabled         enable the alert (default false)
+         * @param timeframe       OPTION bar timeframe for ST + EMA + volume (native only; default M1)
+         * @param stRisingCandles consecutive completed bars the option ST line must rise (default 3)
+         * @param emaPeriod       EMA period the option close must stay at/above (default 20)
+         * @param emaAboveCandles how many of the last completed bars must have {@code close ≥ EMA}
+         *                        (default 3)
+         * @param volumeEnabled   master on/off for the volume leg (default true)
+         * @param minSessionVolume minimum cumulative session volume — liquidity floor (default 500;
+         *                        0 disables just the floor). Only applies when {@code volumeEnabled}.
+         * @param volumeLookback  bars for the rising-volume check; recent half vs older half
+         *                        (default 10; &lt; 2 disables just the rising check). Only applies
+         *                        when {@code volumeEnabled}.
+         * @param cooldownMinutes after a contract fires, suppress further fires on that same OCC
+         *                        for this many minutes (default 15). Applies to the live alert's
+         *                        re-fire dedupe and to the per-contract replay.
+         * @param messagePrefix   text prepended to each message (default "OPTION ST - ")
+         * @param telegramChatId  separate Telegram channel; blank → the alert is skipped
+         */
+        public record OptionVolStCfg(
+                @DefaultValue("false") boolean enabled,
+                @DefaultValue("M1")    String timeframe,
+                @DefaultValue("3")     int stRisingCandles,
+                @DefaultValue("20")    int emaPeriod,
+                @DefaultValue("3")     int emaAboveCandles,
+                @DefaultValue("true")  boolean volumeEnabled,
+                @DefaultValue("500")   long minSessionVolume,
+                @DefaultValue("10")    int volumeLookback,
+                @DefaultValue("15")    int cooldownMinutes,
+                @DefaultValue("OPTION ST - ") String messagePrefix,
+                @DefaultValue("")      String telegramChatId
         ) {}
 
         /**
@@ -263,6 +352,14 @@ public record AppProperties(
              * passed. NOT the trading watchlist. Any Spring resource path.
              */
             @DefaultValue("classpath:universe.txt") String universePath,
+
+            /**
+             * Pool of OPTION contract symbols (OCC codes) pulled by the options
+             * market-data layer — the options mirror of {@code universePath}. Loaded
+             * by {@code OptionUniverseLoader}. Any Spring resource path. Default
+             * {@code classpath:option-tickers.txt}.
+             */
+            @DefaultValue("classpath:option-tickers.txt") String optionTickersPath,
 
             @DefaultValue("700") int warmupBars,
             @DefaultValue("600") int emaPeriod,

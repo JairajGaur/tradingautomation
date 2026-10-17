@@ -1,0 +1,54 @@
+meta {
+  name: Vol-ST Backtest
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/options/vol-st/backtest
+  body: none
+  auth: none
+}
+
+params:query {
+  ~underlying: AAPL
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Option ST Alert — Dry-Run Backtest
+
+  Dry-run of the option-vol-st Supertrend alert WITHOUT delivery. For each underlying it loads
+  the near-the-money contracts (both CALL and PUT) off the current stock price and evaluates
+  every contract's legs — reporting the metrics and whether each qualifies ("what would fire
+  right now"). Pure ST-driven: no ORB, no side gate, no latch.
+
+  ## Legs (all on the option's own `timeframe`, default M1)
+  - ST UP + rising: Supertrend direction UP and the line rising for `st-rising-candles` bars.
+  - Above EMA: option close >= its `ema-period`-EMA on each of the last `ema-above-candles` bars
+    (candle colour irrelevant).
+  - Volume (optional, `volume-enabled`): session volume >= `min-session-volume` AND rising
+    (recent-half avg > older-half avg over `volume-lookback`).
+  Only ST-up contracts can qualify; non-ST-up contracts are still listed (stDirectionUp=false).
+
+  ## Query
+  - `underlying` — optional; scope to one symbol (e.g. AAPL). Omit for all configured.
+
+  ## Response (200)
+  {
+    timeframe, stRisingCandles, emaPeriod, emaAboveCandles, volumeEnabled,
+    minSessionVolume, volumeLookback, totalQualifying,
+    results: [ { underlying, spot, contractsEvaluated, stUpContracts, qualifying,
+                 contracts: [ { occSymbol, type, strike, moneyness, barsUsed,
+                                stDirectionUp, stRising, stRisingStreak, aboveEma,
+                                volumeOk, sessionVolume, recentAvgVol, olderAvgVol,
+                                qualifies, note? } ] } ]
+  }
+
+  ## Notes
+  - Options have no deep history via the API (most-recent-N only), so this is a LIVE dry-run
+    reflecting the latest bar boundary — not a historical replay.
+}

@@ -349,6 +349,43 @@ public class WebullV3Client implements BrokerClient {
     }
 
     /**
+     * GET historical OPTION bars for MULTIPLE contracts in a single request —
+     * {@code /market-data/options/bars/list}.
+     *
+     * <p>Unlike the stock {@code bars} call (a POST with a JSON body), the options
+     * endpoint is a GET with query params: {@code symbols} (comma-separated OCC codes,
+     * max 20), {@code category=US_OPTION}, {@code timespan}, {@code count} (broker cap
+     * 1200), and {@code real_time_required}. There is no trading-sessions filter for
+     * options. Response shape mirrors the stock batch:
+     * {@code {result:[{symbol, instrument_id, result:[{time,open,close,...}]}, ...]}}.</p>
+     */
+    public BrokerResponse optionBars(java.util.List<String> symbols, String category, String timespan, int count) {
+        TreeMap<String, String> q = new TreeMap<>();
+        q.put("symbols", String.join(",", symbols));
+        q.put("category", category);
+        q.put("timespan", timespan);
+        q.put("count", String.valueOf(count));
+        q.put("real_time_required", "true");
+        return get(props.endpoints().optionBars(), q);
+    }
+
+    /** Single-contract convenience overload of {@link #optionBars(java.util.List, String, String, int)}. */
+    public BrokerResponse optionBars(String symbol, String category, String timespan, int count) {
+        return optionBars(java.util.List.of(symbol), category, timespan, count);
+    }
+
+    /**
+     * GET real-time OPTION snapshot — {@code /market-data/options/snapshots/list?symbols=&category=}.
+     * Returns a rich per-contract snapshot (price, bid/ask, volume, greeks). US options only.
+     */
+    public BrokerResponse optionSnapshot(java.util.List<String> symbols, String category) {
+        TreeMap<String, String> q = new TreeMap<>();
+        q.put("symbols", String.join(",", symbols));
+        q.put("category", category);
+        return get(props.endpoints().optionSnapshot(), q);
+    }
+
+    /**
      * POST place order — {@code /trading/orders/place}.
      *
      * <p>Webull expects the request body to wrap the order(s) in a {@code new_orders}
@@ -497,7 +534,17 @@ public class WebullV3Client implements BrokerClient {
                     resp.statusCode());
         }
 
-        JsonNode root = resp.body();
+        return parseBarsBatch(resp.body());
+    }
+
+    /**
+     * Parses the shared batch-bars JSON shape into a symbol → candles map (candles in
+     * broker order — newest-first). The v3 stock bars and option bars endpoints return
+     * the SAME envelope: {@code {result:[{symbol, result:[{bar}...]}, ...]}} (option
+     * entries additionally carry {@code instrument_id}, which is not needed here).
+     */
+    private Map<String, List<Candle>> parseBarsBatch(JsonNode root) {
+        Map<String, List<Candle>> out = new java.util.LinkedHashMap<>();
         JsonNode result = root == null ? null
                 : (root.has("result") ? root.get("result")
                 : (root.has("data") ? root.get("data") : root));
@@ -514,16 +561,46 @@ public class WebullV3Client implements BrokerClient {
                     : (entry.has("bars") ? entry.get("bars") : null);
             if (barsArr == null || !barsArr.isArray()) continue;
 
+            String key = sym.trim().toUpperCase();
             List<Candle> candles = new java.util.ArrayList<>(barsArr.size());
             for (JsonNode bar : barsArr) {
-                Candle c = mapBar(sym.trim().toUpperCase(), bar);
+                Candle c = mapBar(key, bar);
                 if (c != null) candles.add(c);
             }
             if (!candles.isEmpty()) {
-                out.put(sym.trim().toUpperCase(), candles);
+                out.put(key, candles);
             }
         }
         return out;
+    }
+
+    /** Webull market category for US options. */
+    private static final String CATEGORY_US_OPTION = "US_OPTION";
+
+    @Override
+    public List<Candle> fetchOptionBars(String optionSymbol, int count, String timespan) {
+        BrokerResponse resp = optionBars(optionSymbol, CATEGORY_US_OPTION, timespan, count);
+        if (!resp.success()) {
+            throw new BrokerException(
+                    "option bars request failed for " + optionSymbol + " timespan=" + timespan
+                    + " (status=" + resp.statusCode() + ", body=" + resp.rawBody() + ")", resp.statusCode());
+        }
+        return parseBars(optionSymbol, resp.body());
+    }
+
+    @Override
+    public Map<String, List<Candle>> fetchOptionBarsBatch(List<String> optionSymbols, int count, String timespan) {
+        Map<String, List<Candle>> out = new java.util.LinkedHashMap<>();
+        if (optionSymbols == null || optionSymbols.isEmpty()) return out;
+
+        BrokerResponse resp = optionBars(optionSymbols, CATEGORY_US_OPTION, timespan, count);
+        if (!resp.success()) {
+            throw new BrokerException(
+                    "batch option bars request failed timespan=" + timespan
+                    + " symbols=" + optionSymbols + " (status=" + resp.statusCode() + ", body=" + resp.rawBody() + ")",
+                    resp.statusCode());
+        }
+        return parseBarsBatch(resp.body());
     }
 
     @Override

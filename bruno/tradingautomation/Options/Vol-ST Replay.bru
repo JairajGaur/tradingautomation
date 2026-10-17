@@ -1,0 +1,49 @@
+meta {
+  name: Vol-ST Replay
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/options/vol-st/replay
+  body: none
+  auth: none
+}
+
+params:query {
+  ~underlying: AAPL
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Option ST Alert — Intraday Replay (today's RTH)
+
+  TRUE bar-by-bar replay of the option-vol-st Supertrend alert over TODAY's RTH session
+  (09:30–16:00 ET). For each underlying it takes the stock's OPEN price (today's 09:30 bar),
+  generates the near-the-money contracts (both sides) off that open, fetches each contract's
+  max M1 bars, and walks them bar-by-bar — evaluating the legs on only the data up to each bar
+  (no lookahead) and recording every fired signal with its timestamp. A `cooldown-minutes`
+  period suppresses re-fires on the same contract after a fire.
+
+  ## Query
+  - `underlying` — optional; scope to one symbol. Omit for all configured underlyings.
+
+  ## Response (200)
+  {
+    date, session, timeframe, stRisingCandles, emaPeriod, emaAboveCandles, volumeEnabled,
+    cooldownMinutes, totalSignals,
+    results: [ { underlying, stockOpen, contractsWithSignals, signalCount,
+                 contracts: [ { occSymbol, type, strike, moneyness, rthBars,
+                                signals: [ { firedAtEt, optionClose, stRisingStreak,
+                                             aboveEma, volumeOk } ] } ] } ]
+  }
+
+  ## Notes
+  - Strikes are picked off the stock's OPEN price (what was ATM at the open), not the current
+    price. Only contracts that fired at least once are listed.
+  - Options have no deep dated history (most-recent-N bars), so ONLY today's RTH session is
+    replayable; older dates can't be reconstructed.
+}

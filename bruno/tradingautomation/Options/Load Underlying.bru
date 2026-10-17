@@ -1,0 +1,39 @@
+meta {
+  name: Load Underlying
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/options/load/AAPL
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Load Options — One Underlying
+
+  Generates + loads option contracts for a SINGLE underlying and stores the result.
+  Same logic as "Load All" but scoped to one symbol — handy for iterating on a
+  symbol's strike increment or DTE without reloading everything.
+
+  ## Path
+  - `/{underlying}` — the underlying stock symbol (e.g. AAPL). It should be present
+    in `option-tickers.txt` so its per-symbol increment is picked up; if not, the
+    default increment is used.
+
+  ## Response (200) — full per-contract detail
+  {
+    underlying, spot, expiry, strikeIncrement, contracts, loaded, error?, loadedAt,
+    contractDetail: [ { occSymbol, type, strike, moneyness (ITM|OTM), expiry,
+                        barCount, loaded, error? } ]
+  }
+
+  ## Notes
+  - Never throws — a missing spot or an unlisted strike is captured in `error`
+    (top-level for the underlying, or per-contract in `contractDetail`).
+}

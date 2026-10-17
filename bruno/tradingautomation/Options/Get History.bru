@@ -1,0 +1,44 @@
+meta {
+  name: Get History
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/options/history/TSLA261016C00360000?count=200&timespan=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  count: 200
+  timespan: M5
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Get Option Historical Bars
+
+  Returns historical OHLCV bars for a single option contract (the options mirror
+  of /api/history/{ticker}). Backed by the Webull v3 Data API endpoint
+  GET /market-data/options/bars/list (category=US_OPTION).
+
+  ## Path
+  - `{occSymbol}` — the OCC option code, e.g. TSLA261016C00360000
+    (= TSLA, exp 2026-10-16, CALL, strike 360). You can get valid OCC codes from
+    the "Get Contracts" response after loading.
+
+  ## Query
+  - `count`    — number of bars (default = app.options.bar-count; option max 1200).
+  - `timespan` — bar granularity (default M5). Native only: M1, M5, M15, M30, M60,
+    M120, M240, D, W, M, Y (no synthetic M2/M3 for options).
+
+  ## Responses
+  - `200` — { optionSymbol, timespan, count, bars: [ {timestamp, timestampEt, open,
+             high, low, close, volume} ] }
+  - `400` — invalid timespan
+  - `502` — Webull error (includes `webullError`); e.g. 403 if US_OPTION is not subscribed
+}

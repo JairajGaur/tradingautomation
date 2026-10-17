@@ -243,6 +243,93 @@ public class MarketDataService {
     }
 
     // -----------------------------------------------------------------------
+    // Historical OPTION bars — the options mirror of the stock methods above
+    // -----------------------------------------------------------------------
+
+    /**
+     * Fetches {@code count} historical bars for one OPTION contract (OCC symbol, e.g.
+     * {@code AAPL260522C00300000}) at {@code timespan}. Returns oldest-first.
+     *
+     * <p>Options carry no trading-sessions filter, so there is no {@code sessions}
+     * argument. Only native broker timespans are supported for options in this phase
+     * (no synthetic M2/M3 resampling). The broker caps option bars at 1200 per request.</p>
+     *
+     * @throws IllegalArgumentException if {@code timespan} is unsupported (or synthetic)
+     * @throws MarketDataException      if the broker call fails
+     */
+    public List<Candle> fetchOptionBars(String optionSymbol, int count, String timespan) {
+        String ts = normaliseOptionTimespan(timespan);
+
+        log.info("[MarketDataService] Fetching {} {} option bars for symbol={}", count, ts, optionSymbol);
+
+        List<Candle> candles;
+        try {
+            // Adapter returns broker-order (newest-first) neutral candles.
+            candles = new ArrayList<>(client.fetchOptionBars(optionSymbol, count, ts));
+        } catch (BrokerException e) {
+            throw new MarketDataException(e.getMessage());
+        }
+
+        if (candles.isEmpty()) {
+            log.warn("[MarketDataService] No option bars parsed for symbol={} timespan={}", optionSymbol, ts);
+            return Collections.emptyList();
+        }
+        Collections.reverse(candles); // oldest-first
+        log.info("[MarketDataService] Fetched {} {} option candles for symbol={}", candles.size(), ts, optionSymbol);
+        return Collections.unmodifiableList(candles);
+    }
+
+    /**
+     * Fetches bars for MANY option contracts in a single broker request. Returns a map
+     * of OCC symbol → oldest-first candles. Contracts with no data (e.g. expired) are
+     * simply absent from the map. The options mirror of {@link #fetchHistoricalBarsBatch}.
+     *
+     * @throws IllegalArgumentException if {@code timespan} is unsupported (or synthetic)
+     * @throws MarketDataException      on a failed broker call
+     */
+    public Map<String, List<Candle>> fetchOptionBarsBatch(List<String> optionSymbols, int count, String timespan) {
+        Map<String, List<Candle>> out = new java.util.LinkedHashMap<>();
+        if (optionSymbols == null || optionSymbols.isEmpty()) return out;
+
+        String ts = normaliseOptionTimespan(timespan);
+
+        log.info("[MarketDataService] Batch-fetching {} {} option bars for {} symbols {}",
+                count, ts, optionSymbols.size(), optionSymbols);
+
+        Map<String, List<Candle>> bySymbol;
+        try {
+            bySymbol = client.fetchOptionBarsBatch(optionSymbols, count, ts);
+        } catch (BrokerException e) {
+            throw new MarketDataException(e.getMessage());
+        }
+
+        for (Map.Entry<String, List<Candle>> e : bySymbol.entrySet()) {
+            List<Candle> candles = new ArrayList<>(e.getValue());
+            if (candles.isEmpty()) continue;
+            Collections.reverse(candles);   // oldest-first
+            out.put(e.getKey(), Collections.unmodifiableList(candles));
+        }
+        log.info("[MarketDataService] Batch fetched {} of {} option symbols ({} {})",
+                out.size(), optionSymbols.size(), ts, count);
+        return out;
+    }
+
+    /**
+     * Validates a timespan for OPTION bars: only native broker timespans are allowed
+     * (no synthetic M2/M3 — the broker serves options natively and we don't resample
+     * them in this phase).
+     */
+    private static String normaliseOptionTimespan(String timespan) {
+        String ts = normaliseTimespan(timespan);
+        if (TimeframeSupport.isSynthetic(ts)) {
+            throw new IllegalArgumentException(
+                    "Synthetic timeframe '" + ts + "' is not supported for options. Use a native timespan: "
+                    + SUPPORTED_TIMESPANS);
+        }
+        return ts;
+    }
+
+    // -----------------------------------------------------------------------
     // Latest bar — live polling
     // -----------------------------------------------------------------------
 

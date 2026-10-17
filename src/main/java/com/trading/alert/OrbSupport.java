@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * cached once per ticker per day. Breakouts are then checked on the {@code scan-minutes}
  * timeframe close, with an EMA-slope confirmation.</p>
  */
-final class OrbSupport {
+public final class OrbSupport {
 
     static final ZoneId ET = ZoneId.of("America/New_York");
     static final LocalTime OPEN = LocalTime.of(9, 30);
@@ -30,13 +30,13 @@ final class OrbSupport {
     private OrbSupport() {}
 
     /** Cached opening range for a ticker on a given day. */
-    record Range(BigDecimal high, BigDecimal low) {}
+    public record Range(BigDecimal high, BigDecimal low) {}
 
     // Cache key = "ticker|yyyy-MM-dd" → the day's opening range.
     private static final Map<String, Range> RANGE_CACHE = new ConcurrentHashMap<>();
 
     /** Today's date key in ET (for per-day cache / dedupe / re-arm). */
-    static String todayKey() {
+    public static String todayKey() {
         return LocalDate.now(ET).toString();
     }
 
@@ -129,7 +129,7 @@ final class OrbSupport {
      * market-data layer (see {@code TimeframeSupport} / {@code BarResampler}) — so ORB supports
      * M2/M3 just like the swift scan. Throws if {@code minutes < 1} or not a valid minute form.
      */
-    static String timeframeForMinutes(int minutes) {
+    public static String timeframeForMinutes(int minutes) {
         if (minutes < 1) {
             throw new IllegalArgumentException("Unsupported ORB timeframe minutes=" + minutes + " (must be >= 1)");
         }
@@ -147,7 +147,7 @@ final class OrbSupport {
      * @param ticker       symbol (cache key)
      * @param rangeTfBars  the ticker's series on the orb-range-minutes timeframe
      */
-    static Range openingRange(String ticker, List<Candle> rangeTfBars) {
+    public static Range openingRange(String ticker, List<Candle> rangeTfBars) {
         String key = ticker + "|" + todayKey();
         Range cached = RANGE_CACHE.get(key);
         if (cached != null) return cached;
@@ -182,7 +182,7 @@ final class OrbSupport {
     }
 
     /** Latest COMPLETED candle in a series (drops the last, possibly in-progress, bar). */
-    static Candle latestCompleted(List<Candle> bars) {
+    public static Candle latestCompleted(List<Candle> bars) {
         if (bars == null || bars.size() < 2) return null;
         return bars.get(bars.size() - 2);
     }

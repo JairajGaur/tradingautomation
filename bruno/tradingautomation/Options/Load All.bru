@@ -1,0 +1,42 @@
+meta {
+  name: Load All
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/options/load
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Load Options — All Configured Underlyings
+
+  Generates OCC option contracts for EVERY underlying in `option-tickers.txt` and
+  loads their bars, replacing the in-memory store. For each underlying it pulls the
+  current spot, resolves the expiry from `app.options.dte` (0 = today, 1 = tomorrow,
+  ...), and generates the nearest `strikes-per-side` ITM + the same number of OTM
+  strikes for each configured side (CALL/PUT). Strike spacing comes from the per-symbol
+  increment in `option-tickers.txt` (e.g. `TSLA,2.5`), else `app.options.default-strike-increment`.
+
+  Webull has no option-chain endpoint, so strikes are GENERATED. A generated strike
+  that isn't actually listed returns no bars — it's logged per-contract and reported
+  as `loaded:false`, but never fails the rest of the load.
+
+  ## Response (200)
+  {
+    underlyings, totalContracts, totalLoaded,
+    results: [ { underlying, spot, expiry, strikeIncrement, contracts, loaded,
+                 occSymbols: [...], error?, loadedAt } ]
+  }
+
+  ## Notes
+  - Option market data requires a paid Webull US_OPTION subscription (LIVE) or the
+    sandbox environment. Without it the broker returns 401/403.
+  - If a symbol's contracts all come back empty, its strike increment is probably wrong.
+}

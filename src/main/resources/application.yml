@@ -71,6 +71,11 @@ broker:
       open-orders: "/trading/orders/open-orders/list"
       bars: "/market-data/stocks/bars/list"
       snapshot: "/market-data/stocks/snapshots/list"
+      # Options market data (v3). Unlike the stock bars (POST), the option endpoints
+      # are GET with query params: symbols (OCC codes, max 20), category=US_OPTION.
+      # NOTE: option market data requires a paid Webull market-data subscription.
+      option-bars: "/market-data/options/bars/list"
+      option-snapshot: "/market-data/options/snapshots/list"
 
 # ── App (broker-neutral domain config) ─────────────────────────────────────
 app:
@@ -85,6 +90,9 @@ app:
     trading-enabled: false
     ticker: AAPL                              # fallback when tickers.txt is absent
     watchlist-path: "classpath:tickers.txt"
+    # Configured option-contract universe (OCC codes), pulled by the options
+    # market-data layer. Mirror of universe.txt for stocks.
+    option-tickers-path: "classpath:option-tickers.txt"
     warmup-bars: 700
     ema-period: 600
     # ── Position sizing ──────────────────────────────────────────────────
@@ -112,6 +120,23 @@ app:
     # (ask-bid)/mid must be <= this or no trade is placed in any session (buy or exit).
     # 0.003 = 0.30% of price. Also blocks when bid/ask are unavailable. 0 = disable width check.
     max-spread-pct: 0.003
+
+
+  # ── Options data ─────────────────────────────────────────────────────────
+  # option-tickers.txt lists UNDERLYING stocks (e.g. AAPL), optionally with a
+  # per-symbol strike increment (e.g. "TSLA,2.5"). For each underlying the service
+  # pulls spot and GENERATES the nearest N ITM + N OTM strikes per side (CALL/PUT)
+  # at the DTE-derived expiry, builds OCC symbols, and loads option bars.
+  # Webull has no option-chain endpoint, so strikes are generated from an increment.
+  options:
+    strikes-per-side: 5              # 5 ITM + 5 OTM per side (CALL & PUT)
+    sides: [CALL, PUT]               # option types to load
+    dte: 0                           # days-to-expiry: 0=today (0DTE), 1=tomorrow, ...
+    default-strike-increment: 1.0    # strike spacing when a symbol has no override in the file
+    bar-count: 1200                  # bars loaded per contract
+    timespan: M5                     # bar granularity (native timespans only)
+    # NOTE: there is no automatic option loader. Loading is driven by the option-vol-st alert
+    # (which loads only the stock-gate-eligible side) and by the manual POST /api/options/load.
 
 
   # ── Strategy enable / disable ────────────────────────────────────────────
@@ -366,6 +391,30 @@ app:
       # abnormally large (a blow-off bar that already made the move). Lower = stricter
       # (filters more big candles). 0 or less disables the cap.
       max-candle-atr: 3.0            # reject if signal bar range > 3x ATR
+
+    # OPTIONS Supertrend alert — pure ST-driven (no ORB, no side gate, no latch). This alert
+    # DRIVES option loading (there is no scheduler): per underlying it generates the near-the-money
+    # contracts (CALL + PUT) off the current stock price, loads their `timeframe` bars, KEEPS only
+    # the OCCs whose Supertrend is UP, and for each checks (all on the OPTION's own `timeframe`):
+    #   1. Supertrend LINE rising for `st-rising-candles` completed bars;
+    #   2. option close >= its `ema-period`-EMA on each of the last `ema-above-candles` bars
+    #      (candle colour irrelevant — just at/above the EMA);
+    #   3. good volume (optional, `volume-enabled`): session volume >= `min-session-volume` AND
+    #      volume INCREASING (recent-half avg > older-half avg over `volume-lookback` bars).
+    # Fires a single UP signal per qualifying OCC. Polled every minute.
+    option-vol-st:
+      enabled: true
+      timeframe: "M1"                # option ST + EMA + volume timeframe (native: M1/M5/M15/...)
+      st-rising-candles: 3           # option ST line must rise this many completed bars
+      ema-period: 20                 # EMA the option close must stay at/above
+      ema-above-candles: 3           # close >= EMA required on this many of the last bars
+      volume-enabled: true           # master on/off for the volume leg
+      min-session-volume: 500        # cumulative session volume floor per contract (0 = off)
+      volume-lookback: 10            # rising-volume window; recent half vs older half (<2 = off)
+      cooldown-minutes: 15           # after a fire, suppress re-fires on that OCC this long
+      message-prefix: "OPTION ST - "
+      # SEPARATE channel. Blank → the alert is skipped (no fallback).
+      telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

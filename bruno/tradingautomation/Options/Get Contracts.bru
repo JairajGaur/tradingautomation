@@ -1,0 +1,38 @@
+meta {
+  name: Get Contracts
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/options/contracts/AAPL
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Inspect Loaded Contracts — One Underlying
+
+  Full per-contract detail for one underlying held in memory: each generated OCC
+  symbol, its type (CALL/PUT), strike, moneyness (ITM/OTM), expiry, the number of
+  bars loaded, and any per-contract error.
+
+  Inspection only — run POST /api/options/load (or /load/{underlying}) first.
+
+  ## Path
+  - `/{underlying}` — the underlying stock symbol (e.g. AAPL).
+
+  ## Response (200)
+  {
+    underlying, spot, expiry, strikeIncrement, contracts, loaded, error?, loadedAt,
+    contractDetail: [ { occSymbol, type, strike, moneyness, expiry, barCount,
+                        loaded, error? } ]
+  }
+
+  ## Errors
+  - `404` — nothing loaded for that underlying yet (POST /api/options/load/{underlying} first).
+}

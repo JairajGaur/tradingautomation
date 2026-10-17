@@ -1,0 +1,45 @@
+meta {
+  name: Get EMA
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/options/ema/TSLA261016C00360000?timespan=M5
+  body: none
+  auth: none
+}
+
+params:query {
+  timespan: M5
+  ~count: 200
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # EMA on an Option Contract
+
+  Computes the configured EMA periods (app.engine.ema-periods, default
+  8/20/50/100/200/600) over an option contract's closes, reusing the SAME
+  EmaCalculator the stock endpoint uses. Inspection only.
+
+  ## Path
+  - `{occSymbol}` — OCC option code, e.g. TSLA261016C00360000.
+
+  ## Query
+  - `timespan` — bar granularity (default M5). Native only (M1/M5/.../Y).
+  - `count`    — bars to fetch (default = app.options.bar-count; option max 1200).
+
+  ## Response (200)
+  { optionSymbol, timespan, barsUsed, lastClose,
+    emaValues: { "8": ..., "20": ..., ... },   // "INSUFFICIENT_DATA" if too few bars
+    periods: [ ... ] }
+
+  ## Errors
+  - `400` — invalid timespan.
+  - `502` — Webull market-data error (e.g. 403 if US_OPTION not subscribed).
+  - `503` — no bars for the contract.
+}

@@ -1,0 +1,31 @@
+meta {
+  name: List Contracts
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/options/contracts
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Inspect Loaded Contracts — All Underlyings
+
+  Lists the OCC contracts currently held in memory for every underlying (summary
+  form). Inspection only — this does NOT load or refresh anything; run POST
+  /api/options/load first.
+
+  ## Response (200)
+  {
+    underlyings,
+    results: [ { underlying, spot, expiry, strikeIncrement, contracts, loaded,
+                 occSymbols: [...], error?, loadedAt } ],
+    hint   // set when nothing has been loaded yet
+  }
+}
