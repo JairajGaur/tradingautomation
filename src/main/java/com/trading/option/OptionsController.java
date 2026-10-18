@@ -219,7 +219,7 @@ public class OptionsController {
     }
 
     /**
-     * TRUE INTRADAY REPLAY of the option-vol-st alert over TODAY's RTH session (09:30–16:00 ET).
+     * INTRADAY REPLAY of the option-vol-st alert over the latest available RTH session (09:30–16:00 ET).
      * For each underlying it finds the stock's OPEN price (today's 09:30 bar), generates the
      * near-the-money contracts (both sides) off that open, fetches each contract's max M1 bars,
      * and walks them bar-by-bar — evaluating the legs on only the data up to each bar (no
@@ -227,8 +227,8 @@ public class OptionsController {
      * {@code cooldown-minutes} between fires on the same contract.
      *
      * <p>{@code GET /api/options/vol-st/replay} (all underlyings) or {@code ?underlying=AAPL}.
-     * Restricted to today's last RTH session — options have no deep dated history, so older
-     * sessions can't be replayed.</p>
+     * Uses the latest session with an opening bar in the returned stock history, including
+     * the previous open session on weekends, holidays, and before today's open.</p>
      */
     @GetMapping("/vol-st/replay")
     public ResponseEntity<Map<String, Object>> volStReplay(
@@ -244,6 +244,18 @@ public class OptionsController {
         java.util.Set<OptionContract.Type> bothSides =
                 java.util.EnumSet.of(OptionContract.Type.CALL, OptionContract.Type.PUT);
 
+        // Resolve from actual opening bars: this handles weekends and holidays without
+        // guessing a calendar date. Use one date across the entire response.
+        Map<String, List<Candle>> stockBars = new LinkedHashMap<>();
+        Map<String, String> stockErrors = new LinkedHashMap<>();
+        for (String u : syms) {
+            try {
+                stockBars.put(u, marketDataService.fetchHistoricalBars(u, 1650, "M1", "RTH"));
+            } catch (Exception e) {
+                stockErrors.put(u, "stock history unavailable — cannot resolve replay session");
+            }
+        }
+        java.time.LocalDate sessionDate = latestReplaySession(stockBars, today);
         List<Map<String, Object>> rows = new ArrayList<>();
         int totalSignals = 0;
 
@@ -251,10 +263,11 @@ public class OptionsController {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("underlying", u);
 
-            // 1. Stock OPEN price = today's 09:30 ET M1 bar close.
-            java.math.BigDecimal open = stockOpenPrice(u, today);
+            // 1. Pick strikes from the resolved session's actual opening price.
+            java.math.BigDecimal open = stockOpenPrice(stockBars.get(u), sessionDate);
             if (open == null) {
-                row.put("note", "no 09:30 ET stock bar for today — cannot pick open-based strikes");
+                row.put("note", stockErrors.getOrDefault(u,
+                        "no 09:30 ET stock bar for the selected session in available history"));
                 row.put("signals", List.of());
                 rows.add(row);
                 continue;
@@ -262,9 +275,10 @@ public class OptionsController {
             row.put("stockOpen", open.toPlainString());
 
             // 2. Generate contracts off the OPEN, fetch each contract's max bars, replay.
-            List<OptionContract> generated = optionContractService.generateContracts(u, open, bothSides);
+            List<OptionContract> generated = optionContractService.generateContracts(u, open, bothSides, sessionDate);
             List<Map<String, Object>> contractRows = new ArrayList<>();
             int sigCount = 0;
+            int contractsWithSessionData = 0;
             for (OptionContract oc : generated) {
                 List<Candle> bars;
                 try {
@@ -273,21 +287,28 @@ public class OptionsController {
                     continue;   // unlisted/empty contract — skip (logged by the service)
                 }
                 if (bars == null || bars.isEmpty()) continue;
-                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayContract(oc, bars, today);
+                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayContract(oc, bars, sessionDate);
+                if (rep.rthBars() > 0) contractsWithSessionData++;
                 if (rep.signals().isEmpty()) continue;   // only report contracts that fired
                 sigCount += rep.signals().size();
                 contractRows.add(replayMap(rep));
             }
             totalSignals += sigCount;
             row.put("contractsWithSignals", contractRows.size());
+            row.put("contractsWithSessionData", contractsWithSessionData);
+            if (contractsWithSessionData == 0) {
+                row.put("note", "no usable option bars for the selected session — signals could not be evaluated");
+            }
             row.put("signalCount", sigCount);
             row.put("contracts", contractRows);
             rows.add(row);
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("date", today.toString());
-        body.put("session", "RTH 09:30–16:00 ET (today only)");
+        body.put("date", sessionDate == null ? null : sessionDate.toString());
+        body.put("requestDate", today.toString());
+        body.put("previousSession", sessionDate != null && sessionDate.isBefore(today));
+        body.put("session", "RTH 09:30–16:00 ET (latest available session)");
         body.put("timeframe", tf);
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
@@ -296,29 +317,47 @@ public class OptionsController {
         body.put("emaStackFast", c.emaStackFast());
         body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
+        body.put("threeMinStEnabled", c.threeMinStEnabled());
+        body.put("threeMinStTimeframe", c.threeMinStTimeframe());
         body.put("cooldownMinutes", c.cooldownMinutes());
         body.put("totalSignals", totalSignals);
         body.put("results", rows);
         body.put("note", "Strikes picked off the stock's OPEN price. Options have no deep dated "
-                + "history (most-recent-N bars), so only today's RTH session is replayable.");
+                + "history (most-recent-N bars); replay uses the latest available stock opening session. "
+                + "Option bars, including expired contracts, may be unavailable or incomplete. "
+                + "Replay reports qualifying signals on a cooldown; live delivery dedupes "
+                + "continuous matches until the condition clears. Strikes are fixed at the open "
+                + "for replay, while live selection follows the current stock price.");
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }
 
-    /** Today's stock OPEN = close of the 09:30 ET M1 bar (or null if not present). */
-    private java.math.BigDecimal stockOpenPrice(String underlying, java.time.LocalDate today) {
-        List<Candle> m1;
-        try {
-            m1 = marketDataService.fetchHistoricalBars(underlying, 1200, "M1", "RTH");
-        } catch (Exception e) {
-            return null;
-        }
+    /** Latest actual opening session across the requested symbols; no calendar guessing. */
+    static java.time.LocalDate latestReplaySession(Map<String, List<Candle>> histories,
+                                                   java.time.LocalDate today) {
+        java.time.LocalDate latest = null;
         java.time.ZoneId et = java.time.ZoneId.of("America/New_York");
-        for (Candle b : m1) {
-            java.time.ZonedDateTime zt = b.timestamp().atZone(et);
-            if (zt.toLocalDate().equals(today) && zt.toLocalTime().equals(java.time.LocalTime.of(9, 30))) {
-                return b.open();   // the 09:30 bar's OPEN is the session open
+        for (List<Candle> bars : histories.values()) {
+            if (bars == null) continue;
+            for (Candle bar : bars) {
+                var time = bar.timestamp().atZone(et);
+                var date = time.toLocalDate();
+                if (time.toLocalTime().equals(java.time.LocalTime.of(9, 30))
+                        && !date.isAfter(today) && (latest == null || date.isAfter(latest))) {
+                    latest = date;
+                }
             }
+        }
+        return latest;
+    }
+
+    private static BigDecimal stockOpenPrice(List<Candle> bars, java.time.LocalDate sessionDate) {
+        if (bars == null || sessionDate == null) return null;
+        java.time.ZoneId et = java.time.ZoneId.of("America/New_York");
+        for (Candle bar : bars) {
+            var time = bar.timestamp().atZone(et);
+            if (time.toLocalDate().equals(sessionDate)
+                    && time.toLocalTime().equals(java.time.LocalTime.of(9, 30))) return bar.open();
         }
         return null;
     }

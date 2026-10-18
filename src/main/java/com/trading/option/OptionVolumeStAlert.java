@@ -6,6 +6,7 @@ import com.trading.alert.AlertMessageFormat;
 import com.trading.alert.OrbSupport;
 import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
+import com.trading.indicator.SupertrendCalculator;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.indicator.SupertrendService;
@@ -14,6 +15,8 @@ import com.trading.option.OptionContract.Type;
 import com.trading.option.OptionContractService.LoadedContract;
 import com.trading.option.OptionContractService.UnderlyingContracts;
 import com.trading.service.MarketDataService;
+import com.trading.service.BarResampler;
+import com.trading.service.TimeframeSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -39,6 +42,8 @@ import java.util.Set;
  *   <li>option close ≥ its {@code emaPeriod}-EMA on each of the last {@code emaAboveCandles} bars
  *       (colour-agnostic);</li>
  *   <li>good volume (optional) — session floor + rising, two-part.</li>
+ *   <li>3-minute Supertrend (optional) — when enabled, requires that the 3-minute supertrend is also UP.
+ *       This adds an additional filter to ensure the option contract meets a more stringent trend condition.</li>
  * </ol>
  * Fires a single UP signal per qualifying OCC. The {@link com.trading.alert.AlertEngine} discovers
  * it via {@code List<Alert>}, polls it every minute, and gates it to market hours. The stock
@@ -143,6 +148,9 @@ public class OptionVolumeStAlert implements Alert {
         // Gate 0: only ST-UP contracts are considered at all.
         if (!stDirectionUp(bars)) return null;
 
+        // New gate: check that the supertrend on configured timeframe is also UP (if enabled)
+        if (c.threeMinStEnabled() && !threeMinStDirectionUp(bars, c.threeMinStTimeframe())) return null;
+
         boolean stRising = stRisingStreak(bars) >= Math.max(1, c.stRisingCandles());
         boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
         boolean emaStack = !c.emaStackEnabled()
@@ -226,7 +234,7 @@ public class OptionVolumeStAlert implements Alert {
         if (minSessionVolume > 0) {
             LocalDate today = LocalDate.parse(day);
             long session = 0L;
-            for (Candle c : bars) {
+            for (Candle c : bars.subList(0, Math.max(0, bars.size() - 1))) {
                 if (c.timestamp().atZone(ET).toLocalDate().equals(today)) session += c.volume();
             }
             if (session < minSessionVolume) return false;
@@ -262,6 +270,50 @@ public class OptionVolumeStAlert implements Alert {
         return !withLine.isEmpty() && withLine.get(withLine.size() - 1).direction() == Direction.UP;
     }
 
+    /**
+     * Whether the 3-minute supertrend direction is in the UP direction.
+     * This method calculates the supertrend for the given timeframe and checks if it's currently UP.
+     */
+    private boolean threeMinStDirectionUp(List<Candle> bars, String timeframe) {
+        // We need to calculate a supertrend with the specified timeframe
+        int length = 3;
+        BigDecimal factor = BigDecimal.valueOf(3);
+
+        try {
+            // Normalize the timeframe to make sure it's valid
+            timeframe = MarketDataService.normaliseTimespan(timeframe);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid timeframe '{}' for 3-minute supertrend calculation: {}", timeframe, e.getMessage());
+            return false;
+        }
+
+        int sourceMinutes = TimeframeSupport.minutesOf(optionTimeframe());
+        int targetMinutes = TimeframeSupport.minutesOf(timeframe);
+        // A higher timeframe must contain whole source candles. Never relabel
+        // M1 prices as M3, or invent finer bars from a coarser source.
+        if (sourceMinutes <= 0 || targetMinutes < sourceMinutes
+                || targetMinutes % sourceMinutes != 0) return false;
+        List<Candle> recentBars = targetMinutes == sourceMinutes
+                ? bars : BarResampler.resample(bars, targetMinutes);
+
+        try {
+            // Calculate the supertrend with a 3-bar length and factor of 3.0
+            List<Point> points = SupertrendCalculator.calculate(recentBars, length, factor);
+
+            // Get the last completed point (drop in-progress bar)
+            int lastCompletedIndex = points.size() - 2;
+            if (lastCompletedIndex >= 0 && points.get(lastCompletedIndex) != null) {
+                Point lastPoint = points.get(lastCompletedIndex);
+                return lastPoint.supertrend() != null && lastPoint.direction() == Direction.UP;
+            }
+        } catch (Exception e) {
+            // If there's any error in calculation, return false to be conservative
+            log.warn("Error calculating {} supertrend for option contract: {}", timeframe, e.getMessage());
+        }
+
+        return false;
+    }
+
     private List<Point> completedStPoints(List<Candle> bars) {
         List<Point> pts = supertrend.calculate(bars);
         List<Point> withLine = new ArrayList<>();
@@ -280,7 +332,7 @@ public class OptionVolumeStAlert implements Alert {
             String occSymbol, String type, String strike, String moneyness,
             int barsUsed, boolean stDirectionUp, boolean stRising, int stRisingStreak,
             boolean aboveEma, boolean emaStackUp, boolean volumeOk, long sessionVolume,
-            double recentAvgVol, double olderAvgVol, boolean qualifies, String note) {}
+            double recentAvgVol, double olderAvgVol, boolean qualifies, boolean threeMinStUp, String note) {}
 
     /** The configured option timeframe (normalised). */
     public String optionTimeframe() {
@@ -301,7 +353,7 @@ public class OptionVolumeStAlert implements Alert {
 
         if (bars == null || bars.isEmpty()) {
             return new LegEval(occ, type, strike, moneyness, 0, false, false, 0,
-                    false, false, false, 0, 0, 0, false, "no option bars");
+                    false, false, false, 0, 0, 0, false, false, "no option bars");
         }
 
         boolean stDirUp = stDirectionUp(bars);
@@ -320,9 +372,12 @@ public class OptionVolumeStAlert implements Alert {
             volOk = floorOk && risingOk;
         }
 
-        boolean qualifies = stDirUp && stRising && aboveEma && emaStack && volOk;
+        // Add check for 3-minute supertrend (if enabled)
+        boolean threeMinStUp = !c.threeMinStEnabled() || threeMinStDirectionUp(bars, c.threeMinStTimeframe());
+
+        boolean qualifies = stDirUp && stRising && aboveEma && emaStack && volOk && threeMinStUp;
         return new LegEval(occ, type, strike, moneyness, bars.size(), stDirUp, stRising, streak,
-                aboveEma, emaStack, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, null);
+                aboveEma, emaStack, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, threeMinStUp, null);
     }
 
     // =======================================================================
@@ -372,19 +427,27 @@ public class OptionVolumeStAlert implements Alert {
 
         // Walk each bar; a bar at index i is treated as the "just-formed current bar", so the
         // leg methods (which drop the last element) evaluate completed data through i-1 — the
-        // same view the live alert has on the tick right after bar i closes.
+        // same view the live alert has on the tick when bar i opens.
         for (int i = 1; i < allBars.size(); i++) {
             Candle bar = allBars.get(i);
             java.time.ZonedDateTime zt = bar.timestamp().atZone(RZONE);
             if (!zt.toLocalDate().equals(date)) continue;
             java.time.LocalTime t = zt.toLocalTime();
-            if (t.isBefore(RTH_OPEN) || t.isAfter(RTH_CLOSE)) continue;
+            if (t.isBefore(RTH_OPEN) || !t.isBefore(RTH_CLOSE)) continue;
+            Candle previous = allBars.get(i - 1);
+            java.time.ZonedDateTime previousEt = previous.timestamp().atZone(RZONE);
+            if (!previousEt.toLocalDate().equals(date)
+                    || previousEt.toLocalTime().isBefore(RTH_OPEN)) continue;
             rthBars++;
 
-            if (cooldownUntil != null && !bar.timestamp().isAfter(cooldownUntil)) continue;  // in cooldown
+            if (cooldownUntil != null && bar.timestamp().isBefore(cooldownUntil)) continue;
 
             List<Candle> upTo = allBars.subList(0, i + 1);   // includes bar i as the "forming" bar
             if (!stDirectionUp(upTo)) continue;
+
+            // Add check for supertrend on configured timeframe in replay too (if enabled)
+            if (c.threeMinStEnabled() && !threeMinStDirectionUp(upTo, c.threeMinStTimeframe())) continue;
+
             boolean stRising = stRisingStreak(upTo) >= Math.max(1, c.stRisingCandles());
             boolean aboveEma = closeAboveEma(upTo, c.emaPeriod(), c.emaAboveCandles());
             boolean emaStack = !c.emaStackEnabled() || emaStackUp(upTo, c.emaStackFast(), c.emaStackSlow());
@@ -407,7 +470,7 @@ public class OptionVolumeStAlert implements Alert {
     private VolumeStat volumeStat(List<Candle> bars, String day, int lookback) {
         LocalDate today = LocalDate.parse(day);
         long session = 0L;
-        for (Candle cnd : bars) {
+        for (Candle cnd : bars.subList(0, Math.max(0, bars.size() - 1))) {
             if (cnd.timestamp().atZone(ET).toLocalDate().equals(today)) session += cnd.volume();
         }
         double recentAvg = 0, olderAvg = 0;

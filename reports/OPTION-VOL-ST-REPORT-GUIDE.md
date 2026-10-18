@@ -5,22 +5,24 @@ This mirrors the other `*-REPORT-GUIDE.md` docs: it is the reusable spec/templat
 the report whenever the alert config changes or a new session needs reviewing.
 
 ## What the report shows
-A bar-by-bar replay of the `option-vol-st` alert over **today's RTH session (09:30–16:00 ET)**:
+A bar-by-bar replay of the `option-vol-st` alert over **the latest available RTH session (09:30–16:00 ET)**:
 for each configured underlying it picks ATM/OTM contracts off the stock's OPEN price, walks each
 contract's M1 bars, and records every bar where ALL enabled legs pass (no lookahead), with a
 per-contract cooldown. It is **detection only** — no orders, no fills/slippage.
 
 ## Source
-Single endpoint, no params needed (defaults to all configured underlyings, today):
+Single endpoint, no params needed (defaults to all configured underlyings, latest available session):
 
 ```
 GET /api/options/vol-st/replay            # all underlyings
 GET /api/options/vol-st/replay?underlying=AAPL   # one
 ```
 
-The server must be running (`./scripts/start.sh`) during or after an RTH session. Options have no
-deep dated history (most-recent-N bars only), so **only today's session is replayable** — older
-dates cannot be reconstructed.
+The running server chooses the latest date with an actual 09:30 ET stock opening bar in returned
+history. Weekends, holidays, and premarket requests fall back to the previous available session.
+`date` is the replay date; `requestDate` is today in ET; `previousSession` identifies fallback.
+Expiry is resolved from the replay date. Options use most-recent-N history, so missing or expired
+contract data is reported explicitly via row notes and `contractsWithSessionData`.
 
 ## Alert rules reflected (config: `app.alerts.option-vol-st`)
 All legs are evaluated on the option's own `timeframe` bars; a contract fires only when every
@@ -53,25 +55,25 @@ After a fire, re-fires on the same contract are suppressed for `cooldown-minutes
 - `busiest` = OCC with the most signals.
 
 ## How to regenerate
-1. Start the app during/after an RTH session.
+1. Start the app. Closed-market requests automatically select the latest available session.
 2. `curl -s http://localhost:8080/api/options/vol-st/replay -o /tmp/replay.json`
 3. Run the report generator (same transform documented here) → `reports/option-vol-st-replay-<date>.html`.
 4. Stop the app.
 
 The JSON shape the generator consumes:
 ```
-{ date, session, timeframe, stRisingCandles, emaPeriod, emaAboveCandles,
+{ date, requestDate, previousSession, session, timeframe, stRisingCandles, emaPeriod, emaAboveCandles,
   emaStackEnabled, emaStackFast, emaStackSlow, volumeEnabled, minSessionVolume,
-  volumeLookback, cooldownMinutes, totalSignals,
-  results: [ { underlying, stockOpen, contractsWithSignals, signalCount,
+  volumeLookback, threeMinStEnabled, threeMinStTimeframe, cooldownMinutes, totalSignals,
+  results: [ { underlying, stockOpen, contractsWithSessionData, contractsWithSignals, signalCount,
                contracts: [ { occSymbol, type, strike, moneyness, rthBars,
                               signals: [ { firedAtEt, optionClose, stRisingStreak,
                                            aboveEma, emaStackUp, volumeOk } ] } ] } ] }
 ```
 
 ## Caveats (always state in the report)
-- Not an intraday *live* log — a replay over today's most-recent bars (walk + cooldown reproduce
-  what the live alert would have fired, but latches/engine delivery are not involved here).
-- Options API returns most-recent-N bars only → **today's RTH session only**.
+- Replay uses cooldown reporting; live delivery dedupes continuous matches until they clear.
+- Options API returns most-recent-N bars only. Selected-session history can be incomplete or
+  unavailable, especially for expired contracts. Zero signals with no session data is not a strategy result.
 - Strikes are picked off the stock OPEN, not reconstructed from an option chain at each minute.
 - Detection/analysis only — no fills, slippage, or P&L.

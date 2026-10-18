@@ -215,6 +215,9 @@ public record AppProperties(
          *                        re-fire dedupe and to the per-contract replay.
          * @param messagePrefix   text prepended to each message (default "OPTION ST - ")
          * @param telegramChatId  separate Telegram channel; blank → the alert is skipped
+         * @param threeMinStEnabled when true, also require that the 3-minute supertrend is UP
+         *                          in addition to the regular supertrend being UP (default false)
+         * @param threeMinStTimeframe timeframe for the 3-minute supertrend check (default "M3")
          */
         public record OptionVolStCfg(
                 @DefaultValue("false") boolean enabled,
@@ -230,7 +233,12 @@ public record AppProperties(
                 @DefaultValue("10")    int volumeLookback,
                 @DefaultValue("15")    int cooldownMinutes,
                 @DefaultValue("OPTION ST - ") String messagePrefix,
-                @DefaultValue("")      String telegramChatId
+                @DefaultValue("")      String telegramChatId,
+                @DefaultValue("false") boolean threeMinStEnabled,
+                /**
+                 * Timeframe for the 3-minute supertrend check (default "M3").
+                 */
+                @DefaultValue("M3")    String threeMinStTimeframe
         ) {}
 
         /**

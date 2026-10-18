@@ -216,13 +216,20 @@ public class OptionContractService {
      */
     public List<OptionContract> generateContracts(String underlyingRaw, BigDecimal spot,
                                                   java.util.Set<Type> sides) {
+        return generateContracts(underlyingRaw, spot, sides,
+                LocalDate.now(java.time.ZoneId.of("America/New_York")));
+    }
+
+    /** Replay expiry must be resolved relative to the session, not the request date. */
+    public List<OptionContract> generateContracts(String underlyingRaw, BigDecimal spot,
+                                                  java.util.Set<Type> sides, LocalDate sessionDate) {
         String underlying = underlyingRaw == null ? "" : underlyingRaw.trim().toUpperCase();
         List<OptionContract> out = new ArrayList<>();
         if (spot == null || spot.compareTo(BigDecimal.ZERO) <= 0 || sides == null || sides.isEmpty()) {
             return out;
         }
         AppProperties.Options cfg = props.options();
-        LocalDate expiry = OccSymbolGenerator.resolveExpiry(cfg.dte(), LocalDate.now());
+        LocalDate expiry = OccSymbolGenerator.resolveExpiry(cfg.dte(), sessionDate);
         BigDecimal increment = strikeIncrementFor(underlying, cfg);
         for (Type type : sides) {
             try {

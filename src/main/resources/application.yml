@@ -420,6 +420,12 @@ app:
       message-prefix: "OPTION - "
       # SEPARATE channel. Blank → the alert is skipped (no fallback).
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
+      # Optional 3-minute supertrend check. When true, also require that the 3-minute supertrend
+      # is UP in addition to the regular supertrend being UP. Default false (backward compatible).
+      three-min-st-enabled: true
+      # Timeframe for the 3-minute supertrend check. Default "M3" (3-minute bars). This can be
+      # changed to other timeframes like "M15" for a 15-minute supertrend check if desired.
+      three-min-st-timeframe: "M3"
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:
