@@ -21,12 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code option-tickers.txt}) into a set of generated OCC contracts, loading their bars,
  * and holding the result in memory for inspection and for the ST/EMA endpoints.
  *
- * <p>Per underlying it: (1) reads the current spot via the broker's price snapshot
- * (same source the stock price endpoint uses); (2) resolves the expiry
- * ({@code app.options.expiry-date} else the nearest Friday ≥ {@code target-dte} days out);
- * (3) generates the nearest {@code strikes-per-side} ITM + {@code strikes-per-side} OTM
- * strikes for every configured side (CALL/PUT) via {@link OccSymbolGenerator}; (4) loads
- * option bars for the generated OCC symbols in batched requests.</p>
+ * <p>Both live and replay resolve the nearest actual listed expiry on or after their
+ * reference session date through the same broker metadata resolver. Strikes remain ATM + OTM
+ * using the configured spacing; bars and all existing signal gates are unchanged.</p>
  *
  * <p><b>Error isolation:</b> a problem with ONE underlying or ONE contract (bad OCC,
  * no spot, no bars) is logged against that symbol and recorded in the result — it never
@@ -127,8 +124,17 @@ public class OptionContractService {
             return uc;
         }
 
-        // 2. Expiry (today + dte) + strike increment (per-symbol from the file, else default).
-        LocalDate expiry = OccSymbolGenerator.resolveExpiry(cfg.dte(), LocalDate.now());
+        // 2. Same metadata resolver as replay, relative to today's ET session.
+        LocalDate expiry;
+        try {
+            expiry = resolveExpiry(underlying, LocalDate.now(java.time.ZoneId.of("America/New_York")));
+        } catch (RuntimeException e) {
+            String error = "Expiration discovery unavailable for " + underlying + ": " + e.getMessage();
+            log.warn("[OptionContractService] {}", error);
+            var result = new UnderlyingContracts(underlying, spot, null, null, List.of(), error, java.time.Instant.now());
+            store.put(underlying, result);
+            return result;
+        }
         BigDecimal increment = strikeIncrementFor(underlying, cfg);
 
         // 3. Generate contracts for the requested side(s). A bad OCC for one side/strike
@@ -211,8 +217,8 @@ public class OptionContractService {
     /**
      * Generates (but does NOT load bars for) the near-the-money contracts for {@code underlying}
      * off an EXPLICIT {@code spot} price and the given {@code sides}. Used by the replay, which
-     * must pick strikes off the session OPEN price rather than the current spot. Never throws —
-     * a bad strike is logged and skipped.
+     * must pick strikes off the session OPEN price rather than the current spot. Strike errors are
+     * isolated; unavailable expiry discovery throws so replay can report the affected underlying.
      */
     public List<OptionContract> generateContracts(String underlyingRaw, BigDecimal spot,
                                                   java.util.Set<Type> sides) {
@@ -229,7 +235,7 @@ public class OptionContractService {
             return out;
         }
         AppProperties.Options cfg = props.options();
-        LocalDate expiry = OccSymbolGenerator.resolveExpiry(cfg.dte(), sessionDate);
+        LocalDate expiry = resolveExpiry(underlying, sessionDate);
         BigDecimal increment = strikeIncrementFor(underlying, cfg);
         for (Type type : sides) {
             try {
@@ -240,6 +246,34 @@ public class OptionContractService {
             }
         }
         return out;
+    }
+
+    private record ExpiryLookup(LocalDate expiry, String error, java.time.Instant retryAt) {}
+    private final Map<String, ExpiryLookup> expiryCache = new ConcurrentHashMap<>();
+
+    /** Nearest actual expiry on/after the reference session. Success cached for this ET day;
+     * failures retry after one minute. No guessed calendar dates or bar-based expiry fallback. */
+    public LocalDate resolveExpiry(String underlyingRaw, LocalDate sessionDate) {
+        if (sessionDate == null) throw new IllegalArgumentException("Reference session date is required");
+        String underlying = underlyingRaw.trim().toUpperCase(java.util.Locale.ROOT);
+        var now = java.time.Instant.now();
+        var today = now.atZone(java.time.ZoneId.of("America/New_York")).toLocalDate();
+        String key = underlying + "|" + sessionDate + "|" + today;
+        // Keep daily metadata bounded, including historical replay session keys.
+        expiryCache.keySet().removeIf(k -> !k.endsWith("|" + today));
+        ExpiryLookup lookup = expiryCache.compute(key, (ignored, prior) -> {
+            if (prior != null && now.isBefore(prior.retryAt())) return prior;
+            try {
+                var dates = brokerClient.fetchOptionExpirations(underlying, sessionDate);
+                var expiry = dates.stream().filter(d -> !d.isBefore(sessionDate)).min(LocalDate::compareTo)
+                        .orElseThrow(() -> new IllegalStateException("No listed expiration on/after " + sessionDate));
+                return new ExpiryLookup(expiry, null, today.plusDays(1).atStartOfDay(java.time.ZoneId.of("America/New_York")).toInstant());
+            } catch (RuntimeException ex) {
+                return new ExpiryLookup(null, ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage(), now.plusSeconds(60));
+            }
+        });
+        if (lookup.error() != null) throw new IllegalStateException(lookup.error());
+        return lookup.expiry();
     }
 
     /** Parses {@code app.options.sides} into a set of {@link Type} (invalid tokens logged + skipped). */

@@ -14,15 +14,40 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class OptionVolumeStAlertTest {
+    @Test
+    void liveLoadingSelectsOnlyHaSideAndSkipsUnavailableDirection() {
+        AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
+        when(props.alerts().optionVolSt().timeframe()).thenReturn("M1");
+        when(props.alerts().optionVolSt().haDirectionEnabled()).thenReturn(true);
+        var universe = mock(OptionUniverseLoader.class);
+        when(universe.getUnderlyings()).thenReturn(List.of("AAPL"));
+        var contracts = mock(OptionContractService.class);
+        var filter = mock(OptionHaDirectionFilter.class);
+        var series = mock(OptionHaDirectionFilter.Series.class);
+        when(filter.load("AAPL")).thenReturn(series);
+        var alert = new OptionVolumeStAlert(props, universe, contracts, null, null, filter);
+        for (var side : OptionContract.Type.values()) {
+            when(filter.current(eq("AAPL"), any())).thenReturn(new OptionHaDirectionFilter.Direction(
+                    side == OptionContract.Type.CALL ? "GREEN" : "RED", null, side));
+            alert.evaluate(List.of());
+            verify(contracts).loadUnderlying("AAPL", java.util.EnumSet.of(side));
+        }
+        clearInvocations(contracts);
+        when(filter.current(eq("AAPL"), any())).thenReturn(new OptionHaDirectionFilter.Direction("DOJI", null, null));
+        alert.evaluate(List.of());
+        verifyNoInteractions(contracts);
+    }
+
     private OptionVolumeStAlert alert(String sourceTimeframe) {
         AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
         when(props.alerts().optionVolSt().timeframe()).thenReturn(sourceTimeframe);
-        return new OptionVolumeStAlert(props, null, null, null, null);
+        return new OptionVolumeStAlert(props, null, null, null, null, null);
     }
 
     private boolean gate(String source, String target, List<Candle> bars) {
         return Boolean.TRUE.equals(ReflectionTestUtils.invokeMethod(
-                alert(source), "threeMinStDirectionUp", bars, target));
+                alert(source), "threeMinStDirectionUp", bars.subList(0, Math.max(0, bars.size() - 1)), target,
+                bars.isEmpty() ? Instant.parse("2026-10-16T13:30:00Z") : bars.get(bars.size() - 1).timestamp()));
     }
 
     private List<Candle> risingBars(int count) {

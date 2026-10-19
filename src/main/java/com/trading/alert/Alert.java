@@ -50,6 +50,12 @@ public interface Alert {
      */
     default boolean latched() { return false; }
 
+    /** Stable delivery identity; option groups use stock + side instead of a single OCC. */
+    default String dedupeKey(AlertHit hit) { return hit.ticker(); }
+
+    /** Called after the sender accepts a delivery attempt; evaluation alone must not consume cooldown. */
+    default void onDeliveryAttempted(AlertHit hit) {}
+
     /** Timeframes this alert reads, so the engine can batch-prefetch them once. */
     List<String> timeframesNeeded();
 

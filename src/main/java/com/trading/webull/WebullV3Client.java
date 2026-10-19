@@ -374,6 +374,67 @@ public class WebullV3Client implements BrokerClient {
         return optionBars(java.util.List.of(symbol), category, timespan, count);
     }
 
+    /** Same resolver input for live and last-session replay. Exact-date queries also return
+     * expired contracts that the general status listing omits (verified against the broker). */
+    @Override
+    public List<java.time.LocalDate> fetchOptionExpirations(String underlying, java.time.LocalDate referenceDate) {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("America/New_York"));
+        if (referenceDate.isBefore(today.minusDays(31))) {
+            throw new IllegalArgumentException("Expiration discovery supports live and recent last-session replay only");
+        }
+        // Check the reference day first. For a closed-market replay, check intervening
+        // calendar days in order; an exact metadata match, never a guessed date, is required.
+        for (var day = referenceDate; !day.isAfter(today); day = day.plusDays(1)) {
+            var dates = optionExpirationPages(underlying, referenceDate, day, today);
+            if (!dates.isEmpty()) return dates;
+        }
+        return optionExpirationPages(underlying, referenceDate, null, today);
+    }
+
+    private List<java.time.LocalDate> optionExpirationPages(String underlying, java.time.LocalDate referenceDate,
+                                                           java.time.LocalDate exactDate, java.time.LocalDate today) {
+        var dates = new java.util.TreeSet<java.time.LocalDate>();
+        String cursor = "";
+        var seen = new java.util.HashSet<String>();
+        for (int page = 0; ; page++) {
+            if (page >= 100) throw new IllegalStateException("Option expiration discovery exceeded page limit");
+            var query = new TreeMap<String, String>();
+            query.put("category", "US_OPTION");
+            query.put("underlying_symbols", underlying);
+            query.put("status", "LISTING");
+            // Documentation labels are ambiguous. Actual broker checks established end_date
+            // is an exact-expiry lookup, while start_date alone lists upcoming expirations.
+            if (exactDate != null) query.put("end_date", exactDate.toString());
+            else query.put("start_date", referenceDate.toString());
+            if (!cursor.isBlank()) query.put("pagination_key", cursor);
+            BrokerResponse response = get(props.endpoints().optionContracts(), query);
+            if (!response.success() || response.body() == null || response.body().hasNonNull("error_code")) {
+                throw new IllegalStateException("Option expiration discovery failed (HTTP " + response.statusCode() + ")");
+            }
+            JsonNode body = response.body();
+            JsonNode data = body.path("data");
+            if (!data.isArray()) throw new IllegalStateException("Invalid option contract metadata response");
+            for (JsonNode item : data) {
+                if (!underlying.equals(item.path("underlying_symbol").asText())) continue;
+                if (!underlying.equals(item.path("root_symbol").asText(underlying))) continue;
+                if (!"STANDARD".equals(item.path("def_type").asText("STANDARD"))) continue;
+                try {
+                    var expiry = java.time.LocalDate.parse(item.path("expiration_date").asText());
+                    if (expiry.isBefore(referenceDate) || (exactDate != null && !expiry.equals(exactDate))) continue;
+                    // Current restrictions do not reconstruct historical trading restrictions.
+                    if (!referenceDate.isBefore(today) && !"OC".equals(item.path("tradable_status").asText("OC"))) continue;
+                    dates.add(expiry);
+                } catch (java.time.format.DateTimeParseException ex) {
+                    throw new IllegalStateException("Invalid expiration date in option contract metadata");
+                }
+            }
+            cursor = body.path("pagination_key").asText("");
+            if (cursor.isBlank()) break;
+            if (!seen.add(cursor)) throw new IllegalStateException("Repeated option contract pagination key");
+        }
+        return List.copyOf(dates);
+    }
+
     /**
      * GET real-time OPTION snapshot — {@code /market-data/options/snapshots/list?symbols=&category=}.
      * Returns a rich per-contract snapshot (price, bid/ask, volume, greeks). US options only.

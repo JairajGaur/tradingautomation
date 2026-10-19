@@ -63,14 +63,23 @@ class OptionsReplaySessionTest {
                 .thenReturn(List.of(contract));
         var optionBars = List.of(opening(friday));
         when(data.fetchOptionBars(contract.occSymbol(), 1200, "M1")).thenReturn(optionBars);
-        when(alert.replayContract(contract, optionBars, friday)).thenReturn(
+        when(alert.replayCandidates(contract, optionBars, friday)).thenReturn(
                 new OptionVolumeStAlert.ContractReplay(contract.occSymbol(), "CALL", "10", "ATM", 1, List.of()));
         var controller = new OptionsController(props, null, null, contracts, null, alert, data, null);
         var body = controller.volStReplay("AAPL").getBody();
         assertNotNull(body);
         assertEquals(friday.toString(), body.get("date"));
         verify(contracts).generateContracts(eq("AAPL"), eq(BigDecimal.TEN), anySet(), eq(friday));
-        verify(alert).replayContract(contract, optionBars, friday);
+        verify(alert).replayCandidates(contract, optionBars, friday);
+    }
+
+    @Test
+    void intradayReplayUsesPreviousCompletedSessionAndSwitchesAtClose() {
+        var history = Map.of("AAPL", List.of(opening(friday.minusDays(1)), opening(friday)));
+        assertEquals(friday.minusDays(1), OptionsController.latestReplaySession(history,
+                friday.atTime(12,0).atZone(ZoneId.of("America/New_York")).toInstant()));
+        assertEquals(friday, OptionsController.latestReplaySession(history,
+                friday.atTime(16,0).atZone(ZoneId.of("America/New_York")).toInstant()));
     }
 
     @Test
@@ -95,10 +104,11 @@ class OptionsReplaySessionTest {
     void replayGeneratesFridayExpiryInsteadOfRequestWeekExpiry() {
         var props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
         var universe = mock(OptionUniverseLoader.class);
-        when(props.options().dte()).thenReturn(0);
         when(props.options().defaultStrikeIncrement()).thenReturn(BigDecimal.ONE);
         when(props.options().strikesPerSide()).thenReturn(1);
-        var service = new OptionContractService(props, universe, null, null);
+        var broker = mock(com.trading.broker.BrokerClient.class);
+        when(broker.fetchOptionExpirations("AAPL", friday)).thenReturn(List.of(friday, friday.plusDays(7)));
+        var service = new OptionContractService(props, universe, null, broker);
         var generated = service.generateContracts("AAPL", BigDecimal.TEN,
                 Set.of(OptionContract.Type.CALL), friday);
         assertFalse(generated.isEmpty());

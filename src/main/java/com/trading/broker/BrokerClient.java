@@ -97,6 +97,12 @@ public interface BrokerClient {
      */
     List<Candle> fetchRecentBars(String symbol, int count);
 
+    /** Actual listed expiration dates on/after the reference session, including expired metadata for replay.
+     * Throws when discovery is unavailable; callers must not guess an expiration. */
+    default List<java.time.LocalDate> fetchOptionExpirations(String underlying, java.time.LocalDate referenceDate) {
+        throw new UnsupportedOperationException("Option expiration discovery unavailable for this broker");
+    }
+
     /**
      * Fetches {@code count} historical bars for one OPTION contract, identified by its
      * {@code optionSymbol} (an OCC code, e.g. {@code AAPL260522C00300000}), returned as

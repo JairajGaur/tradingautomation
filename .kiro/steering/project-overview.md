@@ -123,3 +123,15 @@ config is backtested and proven.
 - Keep changes config-driven and default to current behavior unless a change is explicitly a bug fix.
 - Confirm before destructive git ops; prefer feature branches over committing to `main`.
 - When documentation (javadoc/yaml comments) contradicts code, treat the CODE as truth and fix the docs.
+
+## Option expiry discovery (2026-10-18)
+
+`app.options.dte` was removed. Live and replay share `OptionContractService.resolveExpiry`, selecting
+nearest actual broker-listed expiry on/after their reference ET session date. Broker-neutral
+`fetchOptionExpirations` is implemented in Webull using contract metadata, exact-date probes and
+pagination; `broker.webull.endpoints.option-contracts` defaults to the official contract-list path.
+Replay runs only the last completed RTH session (preceding session intraday), never arbitrary dates.
+Daily per-stock/session metadata cache; failed lookups throttle for a minute and fail explicitly.
+General listings omit some expired metadata: exact `end_date` queries recovered actual last-session
+contracts. Missing bars must not trigger expiry rollover. Existing strike spacing and all signal
+filters/cooldown remain. See reports/OPTION-VOL-ST-REPORT-GUIDE.md for verified behavior and tests.

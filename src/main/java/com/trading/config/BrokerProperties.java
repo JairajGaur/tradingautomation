@@ -62,6 +62,7 @@ public record BrokerProperties(
             @DefaultValue("/market-data/stocks/bars/list")             String bars,
             @DefaultValue("/market-data/stocks/snapshots/list")        String snapshot,
             @DefaultValue("/market-data/options/bars/list")            String optionBars,
-            @DefaultValue("/market-data/options/snapshots/list")       String optionSnapshot
+            @DefaultValue("/market-data/options/snapshots/list")       String optionSnapshot,
+            @DefaultValue("/trading/instruments/options/contracts/list") String optionContracts
     ) {}
 }

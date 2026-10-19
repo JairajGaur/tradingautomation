@@ -126,12 +126,11 @@ app:
   # option-tickers.txt lists UNDERLYING stocks (e.g. AAPL), optionally with a
   # per-symbol strike increment (e.g. "TSLA,2.5"). For each underlying the service
   # pulls spot and GENERATES the ATM strike + N OTM strikes per side (CALL/PUT) —
-  # ITM strikes are EXCLUDED — at the DTE-derived expiry, builds OCC symbols, loads bars.
-  # Webull has no option-chain endpoint, so strikes are generated from an increment.
+  # ITM strikes are EXCLUDED — at the nearest listed expiry, builds OCC symbols, loads bars.
+  # Expiry is discovered per underlying from broker contract metadata; strike spacing uses an increment.
   options:
     strikes-per-side: 5              # N OTM strikes per side beyond ATM (ITM excluded)
     sides: [CALL, PUT]               # option types to load
-    dte: 0                           # days-to-expiry: 0=today (0DTE), 1=tomorrow, ...
     default-strike-increment: 1.0    # strike spacing when a symbol has no override in the file
     bar-count: 1200                  # bars loaded per contract
     timespan: M5                     # bar granularity (native timespans only)
@@ -339,13 +338,13 @@ app:
       st-slope-accept-flip: true    # false = pure slope-only (original behaviour)
       st-slope-flip-bars: 2         # scan the last N completed ST bars for an in-direction flip
       up:
-        enabled: false
+        enabled: true
         scan-minutes: 2        # break + EMA on M5 (poll every 5 min)
         message-prefix: "ORB UP - "
         # Optional: own channel for UP breaks. Blank → inherits orb.telegram-chat-id above.
         telegram-chat-id: "${TELEGRAM_ORB_UP_CHAT_ID:}"
       down:
-        enabled: false
+        enabled: true
         scan-minutes: 2
         message-prefix: "ORB DOWN - "
         # Optional: own channel for DOWN breaks. Blank → inherits orb.telegram-chat-id above.
@@ -392,7 +391,7 @@ app:
       # (filters more big candles). 0 or less disables the cap.
       max-candle-atr: 3.0            # reject if signal bar range > 3x ATR
 
-    # OPTIONS Supertrend alert — pure ST-driven (no ORB, no side gate, no latch). This alert
+    # OPTIONS Supertrend alert — ST-driven with optional underlying HA side confirmation. This alert
     # DRIVES option loading (there is no scheduler): per underlying it generates the near-the-money
     # contracts (CALL + PUT) off the current stock price, loads their `timeframe` bars, KEEPS only
     # the OCCs whose Supertrend is UP, and for each checks (all on the OPTION's own `timeframe`):
@@ -416,7 +415,7 @@ app:
       volume-enabled: true           # master on/off for the volume leg
       min-session-volume: 500        # cumulative session volume floor per contract (0 = off)
       volume-lookback: 10            # rising-volume window; recent half vs older half (<2 = off)
-      cooldown-minutes: 30           # after a fire, suppress re-fires on that OCC this long
+      cooldown-minutes: 10           # shared cooldown across all strikes of the same stock + CALL/PUT side
       message-prefix: "OPTION - "
       # SEPARATE channel. Blank → the alert is skipped (no fallback).
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
@@ -426,6 +425,20 @@ app:
       # Timeframe for the 3-minute supertrend check. Default "M3" (3-minute bars). This can be
       # changed to other timeframes like "M15" for a 15-minute supertrend check if desired.
       three-min-st-timeframe: "M3"
+      # Underlying stock's latest COMPLETED HA candle: green -> CALL, red -> PUT.
+      # Doji, missing or stale data blocks both sides. Existing option legs still apply.
+      ha-direction-enabled: true
+      ha-timeframe: "M15"            # configurable minute timeframe, e.g. M5/M15/M30
+      # Same range/ATR cap as Swift Trend, applied to the OPTION's completed signal candle.
+      large-candle-filter-enabled: true
+      max-candle-atr: 3.0           # reject range > 3x current Wilder ATR; <=0 also disables
+      bar-quality:
+        max-age-bars: 1             # age since close, in timeframe intervals
+        freshness-grace-seconds: 2 # small boundary/publication allowance
+        gap-window: 20             # recent completed bars checked within each session
+        max-missing-bars: 1         # total missing intervals allowed in that window
+        min-warmup-bars: 0          # 0 = derive minimum from enabled indicators
+        ha-warmup-bars: 20          # completed stock candles required to seed HA
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

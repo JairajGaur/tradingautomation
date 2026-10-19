@@ -65,6 +65,36 @@ public class OptionBarDataManager {
     private record Cached(List<Candle> bars, int count, long boundary) {}
 
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    private final Map<String, Long> recoveryBoundary = new ConcurrentHashMap<>();
+
+    /** One additional throttled fetch per key/minute, bypassing an unsuitable cache. */
+    public List<Candle> refreshBars(String symbol, String timeframe, int minCount) {
+        String tf = MarketDataService.normaliseTimespan(timeframe);
+        String occ = symbol.trim().toUpperCase();
+        String key = occ + "|" + tf;
+        synchronized (key.intern()) {
+            long boundary = currentBoundary(tf);
+            long recoverySlot = Instant.now().getEpochSecond() / 60L;
+            Cached old = cache.get(key);
+            if (java.util.Objects.equals(recoveryBoundary.get(key), recoverySlot)) {
+                return old == null ? List.of() : tail(old.bars(), minCount);
+            }
+            recoveryBoundary.put(key, recoverySlot);
+            int count = Math.min(OPTION_BARS_MAX, Math.max(minCount, standardBarCount()));
+            try {
+                throttle();
+                List<Candle> fresh = marketDataService.fetchOptionBars(occ, count, tf);
+                if (fresh != null && !fresh.isEmpty()) {
+                    cache.put(key, new Cached(fresh, count, boundary));
+                    return tail(fresh, minCount);
+                }
+            } catch (Exception e) {
+                log.warn("[OptionBarDataManager] Recovery failed for {} {}: {}", occ, tf, e.getMessage());
+            }
+            // Retain old history for diagnostics; signal consumers must validate timestamps.
+            return old == null ? List.of() : tail(old.bars(), minCount);
+        }
+    }
 
     /**
      * Blocks until this thread is allowed to make a Webull fetch, spacing calls to at
@@ -185,6 +215,7 @@ public class OptionBarDataManager {
     /** Clears the entire option-bar cache (e.g. daily reset). */
     public void clear() {
         cache.clear();
+        recoveryBoundary.clear();
     }
 
     /** The standard series size fetched/cached per contract — the configured option bar count. */

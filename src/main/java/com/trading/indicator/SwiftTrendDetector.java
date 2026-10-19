@@ -189,13 +189,11 @@ public final class SwiftTrendDetector {
         //    large (> maxCandleAtr × ATR) — a blow-off bar that has likely already made the
         //    move and is too extended to enter on. (<= 0 disables the cap.)
         if (t.maxCandleAtr() != null && t.maxCandleAtr().signum() > 0) {
-            Candle c0 = curPt.candle();
-            BigDecimal range = c0.high().subtract(c0.low(), MC);
-            BigDecimal rangeAtr = range.divide(atr, MC).setScale(METRIC_SCALE, RoundingMode.HALF_UP);
-            if (rangeAtr.compareTo(t.maxCandleAtr()) > 0) {
+            var candleSize = CandleRangeAtrFilter.evaluate(curPt.candle(), atr, t.maxCandleAtr());
+            if (!candleSize.passes()) {
                 Direction d0 = curPt.direction();
                 return new Result(false, d0, -1, null, barTime, null, null, 0, 0,
-                        close, st, "climax bar: range " + rangeAtr + "×ATR > " + t.maxCandleAtr());
+                        close, st, candleSize.reason());
             }
         }
 

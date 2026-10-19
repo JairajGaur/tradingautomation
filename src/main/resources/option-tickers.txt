@@ -1,31 +1,22 @@
-# Configured OPTION UNDERLYINGS (app.engine.option-tickers-path, default
-# classpath:option-tickers.txt). Loaded once by OptionUniverseLoader.
-#
-# This file lists UNDERLYING STOCK symbols (NOT OCC codes). For each underlying the
-# options service pulls the current spot price and GENERATES the ATM strike plus
-# `app.options.strikes-per-side` OTM strikes for each configured side (CALL/PUT) —
-# ITM strikes are EXCLUDED — at the chosen expiry, builds the OCC symbols, and loads
-# option bars for them.
-#
-# Example: with strikes-per-side=5 and sides=[CALL,PUT], "AAPL" expands to up to
-# (ATM + 5 OTM) CALL strikes and (ATM + 5 OTM) PUT strikes.
-#
-# FORMAT (one underlying per line):
-#   SYMBOL                 → use the default strike increment (app.options.default-strike-increment)
-#   SYMBOL,<increment>     → override the strike spacing for THIS symbol only
-#
-# The optional increment lives here (not in application.yml) so each symbol is
-# configured in exactly one place. '#' comments and blank lines are ignored;
-# symbols are upper-cased and de-duplicated.
-#
-# NOTE: Webull's v3 API has no option-chain endpoint, so strikes are generated from
-# the increment. A generated strike that isn't actually listed just returns no bars
-# (logged per-contract) — it never fails the whole pull. If a symbol's strikes keep
-# coming back empty, its increment here is probably wrong.
-#
-# Expiry is driven by app.options.dte (e.g. 0DTE = today, 1DTE = today+1, ...).
+# Option underlyings — one symbol per line; no trailing comma needed.
+# A section shares its strike-price gap across all symbols below it.
+# [default] uses app.options.default-strike-increment (currently 1.0).
+# Optional per-symbol override: SYMBOL,2.5. Inline # comments are supported.
+# List each symbol once; duplicate entries are ignored (first entry wins).
+# Strike gaps generate candidate contracts; unavailable strikes return no bars.
+# Expiry and number of OTM strikes are configured under app.options.
 
-AAPL,2.5
-TSLA,2.5
-NVDA,2.5
-SPY,1.0
+[strike-gap=2.5]
+AAPL
+TSLA
+NVDA
+AMZN
+MSFT
+META
+AMD
+PLTR
+
+[default]
+SPY
+QQQ
+IWM

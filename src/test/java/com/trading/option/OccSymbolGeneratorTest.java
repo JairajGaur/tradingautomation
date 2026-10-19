@@ -122,26 +122,4 @@ class OccSymbolGeneratorTest {
                 "AAPL", new BigDecimal("300"), EXP, Type.CALL, BigDecimal.ZERO, 5));
     }
 
-    // ── Expiry resolution (DTE-based) ─────────────────────────────────────
-
-    @Test
-    void zeroDteIsToday() {
-        LocalDate today = LocalDate.of(2026, 10, 15);
-        assertEquals(today, OccSymbolGenerator.resolveExpiry(0, today));
-    }
-
-    @Test
-    void dteAddsCalendarDays() {
-        LocalDate today = LocalDate.of(2026, 10, 15);
-        assertEquals(LocalDate.of(2026, 10, 16), OccSymbolGenerator.resolveExpiry(1, today));
-        assertEquals(LocalDate.of(2026, 10, 17), OccSymbolGenerator.resolveExpiry(2, today));
-        // No weekend snapping — 3 DTE from Thu 10-15 is Sun 10-18, used literally.
-        assertEquals(LocalDate.of(2026, 10, 18), OccSymbolGenerator.resolveExpiry(3, today));
-    }
-
-    @Test
-    void negativeDteClampsToToday() {
-        LocalDate today = LocalDate.of(2026, 10, 15);
-        assertEquals(today, OccSymbolGenerator.resolveExpiry(-5, today));
-    }
 }

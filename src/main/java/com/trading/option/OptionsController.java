@@ -210,6 +210,11 @@ public class OptionsController {
         body.put("emaStackFast", c.emaStackFast());
         body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
+        body.put("haDirectionEnabled", c.haDirectionEnabled());
+        body.put("haTimeframe", c.haTimeframe());
+        body.put("largeCandleFilterEnabled", c.largeCandleFilterEnabled());
+        body.put("maxCandleAtr", c.maxCandleAtr());
+        body.put("barQuality", c.barQuality());
         body.put("minSessionVolume", c.minSessionVolume());
         body.put("volumeLookback", c.volumeLookback());
         body.put("totalQualifying", totalQualifying);
@@ -224,7 +229,7 @@ public class OptionsController {
      * near-the-money contracts (both sides) off that open, fetches each contract's max M1 bars,
      * and walks them bar-by-bar — evaluating the legs on only the data up to each bar (no
      * lookahead), recording every fired signal with its timestamp and applying the configured
-     * {@code cooldown-minutes} between fires on the same contract.
+     * {@code cooldown-minutes} between stock/side alert groups.
      *
      * <p>{@code GET /api/options/vol-st/replay} (all underlyings) or {@code ?underlying=AAPL}.
      * Uses the latest session with an opening bar in the returned stock history, including
@@ -255,9 +260,10 @@ public class OptionsController {
                 stockErrors.put(u, "stock history unavailable — cannot resolve replay session");
             }
         }
-        java.time.LocalDate sessionDate = latestReplaySession(stockBars, today);
+        java.time.LocalDate sessionDate = latestReplaySession(stockBars, java.time.Instant.now());
         List<Map<String, Object>> rows = new ArrayList<>();
         int totalSignals = 0;
+        int totalContractSignals = 0;
 
         for (String u : syms) {
             Map<String, Object> row = new LinkedHashMap<>();
@@ -275,10 +281,24 @@ public class OptionsController {
             row.put("stockOpen", open.toPlainString());
 
             // 2. Generate contracts off the OPEN, fetch each contract's max bars, replay.
-            List<OptionContract> generated = optionContractService.generateContracts(u, open, bothSides, sessionDate);
+            List<OptionContract> generated;
+            try {
+                generated = optionContractService.generateContracts(u, open, bothSides, sessionDate);
+                if (!generated.isEmpty()) row.put("expiry", generated.get(0).expiry().toString());
+                row.put("expirySelection", "NEAREST_LISTED");
+            } catch (RuntimeException ex) {
+                row.put("note", "Expiration discovery unavailable: " + ex.getMessage());
+                row.put("signals", List.of());
+                row.put("contracts", List.of());
+                row.put("expirySelection", "UNAVAILABLE");
+                rows.add(row);
+                continue;
+            }
             List<Map<String, Object>> contractRows = new ArrayList<>();
-            int sigCount = 0;
+            List<OptionVolumeStAlert.ContractReplay> rawCandidates = new ArrayList<>();
             int contractsWithSessionData = 0;
+            int largeCandleRejections = 0;
+            Map<String, Integer> dataQualityRejections = new LinkedHashMap<>();
             for (OptionContract oc : generated) {
                 List<Candle> bars;
                 try {
@@ -287,15 +307,27 @@ public class OptionsController {
                     continue;   // unlisted/empty contract — skip (logged by the service)
                 }
                 if (bars == null || bars.isEmpty()) continue;
-                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayContract(oc, bars, sessionDate);
+                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayCandidates(oc, bars, sessionDate);
                 if (rep.rthBars() > 0) contractsWithSessionData++;
-                if (rep.signals().isEmpty()) continue;   // only report contracts that fired
-                sigCount += rep.signals().size();
-                contractRows.add(replayMap(rep));
+                largeCandleRejections += rep.largeCandleRejections();
+                rep.dataQualityRejections().forEach((reason, count) -> dataQualityRejections.merge(reason, count, Integer::sum));
+                rawCandidates.add(rep);
             }
+            var grouped = OptionSignalGrouping.replay(u, rawCandidates, c.cooldownMinutes());
+            grouped.contracts().forEach(rep -> contractRows.add(replayMap(rep)));
+            int sigCount = grouped.groups().size();
+            int contractSignals = grouped.contracts().stream().mapToInt(rep -> rep.signals().size()).sum();
             totalSignals += sigCount;
+            totalContractSignals += contractSignals;
+            row.put("groupedSignals", grouped.groups());
+            row.put("contractSignalCount", contractSignals);
+            row.put("rawQualifyingContractSignals", grouped.rawContractSignals());
+            row.put("simultaneousGroupsBeforeCooldown", grouped.simultaneousGroups());
+            row.put("cooldownSuppressedGroups", grouped.cooldownSuppressedGroups());
             row.put("contractsWithSignals", contractRows.size());
             row.put("contractsWithSessionData", contractsWithSessionData);
+            row.put("dataQualityRejections", dataQualityRejections);
+            row.put("largeCandleRejections", largeCandleRejections);
             if (contractsWithSessionData == 0) {
                 row.put("note", "no usable option bars for the selected session — signals could not be evaluated");
             }
@@ -307,8 +339,9 @@ public class OptionsController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("date", sessionDate == null ? null : sessionDate.toString());
         body.put("requestDate", today.toString());
+        body.put("replayScope", "LAST_COMPLETED_SESSION");
         body.put("previousSession", sessionDate != null && sessionDate.isBefore(today));
-        body.put("session", "RTH 09:30–16:00 ET (latest available session)");
+        body.put("session", "RTH 09:30–16:00 ET (last completed session)");
         body.put("timeframe", tf);
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
@@ -317,22 +350,40 @@ public class OptionsController {
         body.put("emaStackFast", c.emaStackFast());
         body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
+        body.put("haDirectionEnabled", c.haDirectionEnabled());
+        body.put("haTimeframe", c.haTimeframe());
+        body.put("largeCandleFilterEnabled", c.largeCandleFilterEnabled());
+        body.put("maxCandleAtr", c.maxCandleAtr());
+        body.put("barQuality", c.barQuality());
         body.put("threeMinStEnabled", c.threeMinStEnabled());
         body.put("threeMinStTimeframe", c.threeMinStTimeframe());
         body.put("cooldownMinutes", c.cooldownMinutes());
         body.put("totalSignals", totalSignals);
+        body.put("totalContractSignals", totalContractSignals);
+        body.put("signalCounting", "UNDERLYING_SIDE_GROUP");
+        body.put("cooldownScope", "UNDERLYING_SIDE");
+        body.put("expirySelection", "NEAREST_LISTED");
+        body.put("rankingApplied", false);
         body.put("results", rows);
         body.put("note", "Strikes picked off the stock's OPEN price. Options have no deep dated "
-                + "history (most-recent-N bars); replay uses the latest available stock opening session. "
+                + "history (most-recent-N bars); replay uses the last completed stock opening session. "
                 + "Option bars, including expired contracts, may be unavailable or incomplete. "
-                + "Replay reports qualifying signals on a cooldown; live delivery dedupes "
-                + "continuous matches until the condition clears. Strikes are fixed at the open "
+                + "Replay and live alerts group qualifying strikes by stock and side with a shared cooldown. "
+                + "All qualifying strikes are retained without ranking. Strikes are fixed at the open "
                 + "for replay, while live selection follows the current stock price.");
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
     }
 
     /** Latest actual opening session across the requested symbols; no calendar guessing. */
+    /** Last completed RTH session only: intraday requests replay the preceding session. */
+    static java.time.LocalDate latestReplaySession(Map<String, List<Candle>> histories, java.time.Instant asOf) {
+        var etNow = asOf.atZone(java.time.ZoneId.of("America/New_York"));
+        var cutoff = etNow.toLocalTime().isBefore(java.time.LocalTime.of(16, 0))
+                ? etNow.toLocalDate().minusDays(1) : etNow.toLocalDate();
+        return latestReplaySession(histories, cutoff);
+    }
+
     static java.time.LocalDate latestReplaySession(Map<String, List<Candle>> histories,
                                                    java.time.LocalDate today) {
         java.time.LocalDate latest = null;
@@ -362,6 +413,30 @@ public class OptionsController {
         return null;
     }
 
+    /** Read-only inspection of the same expiry resolver used by live and replay. */
+    @org.springframework.web.bind.annotation.GetMapping("/expiry")
+    public org.springframework.http.ResponseEntity<?> expiry(
+            @org.springframework.web.bind.annotation.RequestParam String symbol,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean replay) {
+        java.time.LocalDate reference;
+        try {
+            reference = replay ? latestReplaySession(Map.of(symbol,
+                    marketDataService.fetchHistoricalBars(symbol, 1650, "M1", "RTH")), java.time.Instant.now())
+                    : java.time.LocalDate.now(java.time.ZoneId.of("America/New_York"));
+        } catch (RuntimeException ex) {
+            return ResponseEntity.status(503).body(Map.of("error", "Last session stock history unavailable"));
+        }
+        if (reference == null) return ResponseEntity.status(503).body(Map.of("error", "No completed session in available stock history"));
+        try {
+            return org.springframework.http.ResponseEntity.ok(java.util.Map.of("underlying", symbol.toUpperCase(),
+                    "referenceDate", reference.toString(), "expiry", optionContractService.resolveExpiry(symbol, reference).toString(),
+                    "selection", "NEAREST_LISTED"));
+        } catch (RuntimeException ex) {
+            return org.springframework.http.ResponseEntity.status(503).body(java.util.Map.of("underlying", symbol,
+                    "referenceDate", reference.toString(), "error", "Expiration discovery unavailable: " + ex.getMessage()));
+        }
+    }
+
     private static Map<String, Object> replayMap(OptionVolumeStAlert.ContractReplay r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("occSymbol", r.occSymbol());
@@ -369,10 +444,13 @@ public class OptionsController {
         m.put("strike", r.strike());
         m.put("moneyness", r.moneyness());
         m.put("rthBars", r.rthBars());
+        m.put("dataQualityRejections", r.dataQualityRejections());
+        m.put("largeCandleRejections", r.largeCandleRejections());
         List<Map<String, Object>> sigs = new ArrayList<>();
         for (OptionVolumeStAlert.ReplaySignal s : r.signals()) {
             Map<String, Object> sm = new LinkedHashMap<>();
             sm.put("firedAtEt", s.firedAtEt());
+            sm.put("evaluatedAtEt", s.evaluatedAtEt());
             sm.put("optionClose", s.optionClose());
             sm.put("stRisingStreak", s.stRisingStreak());
             sm.put("aboveEma", s.aboveEma());
@@ -401,6 +479,11 @@ public class OptionsController {
         m.put("recentAvgVol", round1(e.recentAvgVol()));
         m.put("olderAvgVol", round1(e.olderAvgVol()));
         m.put("qualifies", e.qualifies());
+        m.put("threeMinStUp", e.threeMinStUp());
+        m.put("haDirectionOk", e.haDirectionOk());
+        m.put("haColor", e.haColor());
+        m.put("candleSizeOk", e.candleSizeOk());
+        m.put("candleRangeAtr", e.candleRangeAtr());
         if (e.note() != null) m.put("note", e.note());
         return m;
     }

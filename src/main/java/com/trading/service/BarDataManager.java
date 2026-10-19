@@ -52,6 +52,34 @@ public class BarDataManager {
     private record Cached(List<Candle> bars, int count, long boundary) {}
 
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    private final Map<String, Long> recoveryBoundary = new ConcurrentHashMap<>();
+
+    /** Targeted recovery used by HA; existing consumers retain their normal cache behavior. */
+    public List<Candle> refreshBars(String ticker, String timeframe, int minCount) {
+        String tf = MarketDataService.normaliseTimespan(timeframe);
+        String key = ticker + "|" + tf;
+        synchronized (key.intern()) {
+            long boundary = currentBoundary(tf);
+            long recoverySlot = Instant.now().getEpochSecond() / 60L;
+            Cached old = cache.get(key);
+            if (java.util.Objects.equals(recoveryBoundary.get(key), recoverySlot)) {
+                return old == null ? List.of() : tail(old.bars(), minCount);
+            }
+            recoveryBoundary.put(key, recoverySlot);
+            cache.remove(key);
+            String sourceKey = ticker + "|M1";
+            Cached oldSource = TimeframeSupport.isSynthetic(tf) ? cache.remove(sourceKey) : null;
+            List<Candle> fresh = getBars(ticker, tf, minCount);
+            if (oldSource != null) {
+                cache.compute(sourceKey, (ignored, current) -> current == null || current.bars().isEmpty() ? oldSource : current);
+            }
+            if ((fresh == null || fresh.isEmpty()) && old != null) {
+                cache.compute(key, (ignored, current) -> current == null || current.bars().isEmpty() ? old : current);
+                return tail(old.bars(), minCount);
+            }
+            return fresh;
+        }
+    }
 
     /**
      * Blocks until this thread is allowed to make a Webull fetch, spacing calls to at
@@ -285,6 +313,7 @@ public class BarDataManager {
     /** Clears the entire bar cache (e.g. daily reset). */
     public void clear() {
         cache.clear();
+        recoveryBoundary.clear();
     }
 
     /**

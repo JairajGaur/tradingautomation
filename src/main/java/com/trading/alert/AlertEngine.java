@@ -143,15 +143,16 @@ public class AlertEngine {
                 }
                 Set<String> matchedKeys = new LinkedHashSet<>();
                 for (AlertHit hit : hits) {
-                    String key = hit.alertId() + "|" + hit.ticker();
+                    String key = hit.alertId() + "|" + a.dedupeKey(hit);
                     matchedKeys.add(key);
                     String prev = lastState.get(key);
                     if (hit.state().equals(prev)) continue;   // unchanged → skip (dedupe)
-                    lastState.put(key, hit.state());
                     if (!hasChannel) continue;   // nowhere to send (already warned above)
                     // hit.message() is the fully-formatted uniform single line
                     // (AlertMessageFormat) — send it as-is to the alert's own channel.
-                    telegram.send(channel, hit.message());
+                    if (!telegram.send(channel, hit.message())) continue;
+                    lastState.put(key, hit.state());
+                    a.onDeliveryAttempted(hit);
                     // Uniform, machine-parseable fired-alert line (same shape for every alert).
                     AlertLog.fired(hit.alertId(), hit.ticker(), hit.direction(), hit.price(),
                             null, hit.state(), "channel=" + channel);

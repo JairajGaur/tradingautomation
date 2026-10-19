@@ -1,5 +1,7 @@
 # Alert Day-Report & Accuracy Playbook
 
+[Report knowledge graph](KNOWLEDGE-GRAPH.md) — report families, source code, configuration and validation links.
+
 How any session/LLM regenerates the daily alert report **with move-verification statistics**
 and **per-alert-type comparison**. The goal: for every alert that fired, measure whether the
 move it predicted actually happened, and roll that up per alert type so they can be compared.

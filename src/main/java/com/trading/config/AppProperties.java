@@ -1,5 +1,6 @@
 package com.trading.config;
 
+import java.math.BigDecimal;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -32,20 +33,16 @@ public record AppProperties(
      * Options data config ({@code app.options.*}). The {@code option-tickers.txt} file lists
      * UNDERLYING stocks (e.g. AAPL), optionally with a per-symbol strike increment; for each,
      * the service pulls the current spot and generates the ATM strike plus {@code strikesPerSide}
-     * OTM strikes for each {@code side} (CALL/PUT) — ITM strikes are EXCLUDED — at the DTE-derived
+     * OTM strikes for each {@code side} (CALL/PUT) — ITM strikes are EXCLUDED — at the nearest actual listed
      * expiry, builds the OCC symbols, and loads option bars for them.
      *
-     * <p>Webull's v3 API exposes NO option-chain endpoint, so strikes are GENERATED from an
-     * increment rather than discovered. A generated strike that isn't actually listed simply
+     * <p>Expiration dates are discovered from broker contract metadata. Strikes are generated from
+     * the configured increment. A generated strike that isn't actually listed simply
      * returns no bars (logged per-symbol); it never fails the whole pull.</p>
      *
      * @param strikesPerSide         how many OTM strikes to take per side beyond ATM; ITM strikes
      *                               are excluded (e.g. 5 → ATM + 5 OTM per CALL/PUT). Default 5.
      * @param sides                  option types to load (CALL and/or PUT). Default both.
-     * @param dte                    days-to-expiry: the expiry is {@code today + dte} calendar
-     *                               days. {@code 0} = today (0DTE), {@code 1} = tomorrow, etc.
-     *                               A date with no listed contracts just returns no bars (logged).
-     *                               Default 0.
      * @param defaultStrikeIncrement strike spacing used when a symbol has no per-symbol increment
      *                               in {@code option-tickers.txt}. Default 1.0.
      * @param barCount               bars to load per contract. Default 200.
@@ -54,7 +51,6 @@ public record AppProperties(
     public record Options(
             @DefaultValue("5")   int strikesPerSide,
             @DefaultValue({"CALL", "PUT"}) java.util.List<String> sides,
-            @DefaultValue("0")   int dte,
             @DefaultValue("1.0") java.math.BigDecimal defaultStrikeIncrement,
             @DefaultValue("200") int barCount,
             @DefaultValue("M5")  String timespan
@@ -210,14 +206,17 @@ public record AppProperties(
          * @param volumeLookback  bars for the rising-volume check; recent half vs older half
          *                        (default 10; &lt; 2 disables just the rising check). Only applies
          *                        when {@code volumeEnabled}.
-         * @param cooldownMinutes after a contract fires, suppress further fires on that same OCC
-         *                        for this many minutes (default 15). Applies to the live alert's
-         *                        re-fire dedupe and to the per-contract replay.
+         * @param cooldownMinutes after a stock/side group fires, suppress all its strikes
+         *                        for this many minutes (default 15). Shared by live alerts and replay.
          * @param messagePrefix   text prepended to each message (default "OPTION ST - ")
          * @param telegramChatId  separate Telegram channel; blank → the alert is skipped
          * @param threeMinStEnabled when true, also require that the 3-minute supertrend is UP
          *                          in addition to the regular supertrend being UP (default false)
          * @param threeMinStTimeframe timeframe for the 3-minute supertrend check (default "M3")
+         * @param haDirectionEnabled filter option sides by completed underlying HA color
+         * @param haTimeframe underlying HA minute timeframe (default M15)
+         * @param largeCandleFilterEnabled apply Swift Trend's range/ATR cap to option candles
+         * @param maxCandleAtr largest allowed option candle range in ATR units; <=0 disables
          */
         public record OptionVolStCfg(
                 @DefaultValue("false") boolean enabled,
@@ -238,7 +237,21 @@ public record AppProperties(
                 /**
                  * Timeframe for the 3-minute supertrend check (default "M3").
                  */
-                @DefaultValue("M3")    String threeMinStTimeframe
+                @DefaultValue("M3")    String threeMinStTimeframe,
+                @DefaultValue("false") boolean haDirectionEnabled,
+                @DefaultValue("M15") String haTimeframe,
+                @DefaultValue BarQualityCfg barQuality,
+                @DefaultValue("false") boolean largeCandleFilterEnabled,
+                @DefaultValue("3.0") BigDecimal maxCandleAtr
+        ) {}
+
+        public record BarQualityCfg(
+                @DefaultValue("1") int maxAgeBars,
+                @DefaultValue("2") int freshnessGraceSeconds,
+                @DefaultValue("20") int gapWindow,
+                @DefaultValue("1") int maxMissingBars,
+                @DefaultValue("0") int minWarmupBars,
+                @DefaultValue("20") int haWarmupBars
         ) {}
 
         /**

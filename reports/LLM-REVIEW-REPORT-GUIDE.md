@@ -1,5 +1,7 @@
 # LLM Alert-Review Report
 
+[Report knowledge graph](KNOWLEDGE-GRAPH.md) — report families, source code, configuration and validation links.
+
 How to generate the HTML dashboard that compares the **deterministic alerts the code fired**
 against the **parallel LLM review verdicts** (AGREE / NEUTRAL / DISAGREE) and the **actual price
 outcome** — i.e. "where did the code's alerts fail, and did the LLM catch them?"

@@ -19,6 +19,7 @@ class OptionVolumeStReplayTest {
     private final OptionContract contract = OptionContract.of("AAPL", date,
             OptionContract.Type.CALL, BigDecimal.valueOf(250), OptionContract.Moneyness.ATM);
     private final AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
+    private final OptionHaDirectionFilter haFilter = mock(OptionHaDirectionFilter.class);
 
     private OptionVolumeStAlert alert(boolean m3, boolean volume, int cooldown) {
         var cfg = props.alerts().optionVolSt();
@@ -33,7 +34,7 @@ class OptionVolumeStReplayTest {
         when(cfg.cooldownMinutes()).thenReturn(cooldown);
         when(props.supertrend().length()).thenReturn(3);
         when(props.supertrend().factor()).thenReturn(BigDecimal.ONE);
-        return new OptionVolumeStAlert(props, null, null, null, new SupertrendService(props));
+        return new OptionVolumeStAlert(props, null, null, null, new SupertrendService(props), haFilter);
     }
 
     private List<Candle> bars(Instant start, int count) {
@@ -44,6 +45,79 @@ class OptionVolumeStReplayTest {
                     p, p.add(BigDecimal.ONE), p.subtract(BigDecimal.ONE), p, 100));
         }
         return out;
+    }
+
+    @Test
+    void replayRoutesCallsAndPutsByCompletedUnderlyingHaColor() {
+        var alert = alert(false, false, 0);
+        when(props.alerts().optionVolSt().haDirectionEnabled()).thenReturn(true);
+        Instant start = Instant.parse("2026-10-16T13:30:00Z");
+        Candle green = new Candle("AAPL", start, BigDecimal.TEN, BigDecimal.valueOf(16),
+                BigDecimal.TEN, BigDecimal.valueOf(12), 100);
+        Candle red = new Candle("AAPL", start.plusSeconds(900), BigDecimal.TEN, BigDecimal.TEN,
+                BigDecimal.ONE, BigDecimal.ONE, 100);
+        when(haFilter.load("AAPL")).thenReturn(new OptionHaDirectionFilter.Series(List.of(green, red), 15));
+        var optionBars = bars(start, 60);
+        var calls = alert.replayContract(contract, optionBars, date).signals();
+        var put = OptionContract.of("AAPL", date, OptionContract.Type.PUT,
+                BigDecimal.valueOf(250), OptionContract.Moneyness.ATM);
+        var puts = alert.replayContract(put, optionBars, date).signals();
+        assertEquals(15, calls.size());
+        assertEquals(15, puts.size());
+        assertEquals(com.trading.api.TimeFormat.toEt(start.plusSeconds(14 * 60)), calls.get(0).firedAtEt());
+        assertEquals(com.trading.api.TimeFormat.toEt(start.plusSeconds(29 * 60)), puts.get(0).firedAtEt());
+    }
+
+    @Test
+    void futureConflictingPrintCannotRemoveEarlierReplaySignals() {
+        var alert = alert(false, false, 0);
+        var start = Instant.parse("2026-10-16T13:30:00Z");
+        var complete = bars(start, 90);
+        var baseline = alert.replayContract(contract, complete, date);
+        var conflicted = new ArrayList<>(complete);
+        var future = complete.get(80);
+        conflicted.add(new Candle(future.ticker(), future.timestamp(), future.open(), future.high(),
+                future.low(), future.close(), 999));
+        var replay = alert.replayContract(contract, conflicted, date);
+        var cutoff = com.trading.api.TimeFormat.toEt(start.plusSeconds(80 * 60));
+        assertEquals(baseline.signals().stream().filter(s -> s.firedAtEt().compareTo(cutoff) < 0).toList(),
+                replay.signals().stream().filter(s -> s.firedAtEt().compareTo(cutoff) < 0).toList());
+        assertTrue(replay.dataQualityRejections().containsKey("CONFLICTING_DUPLICATE"));
+    }
+
+    @Test
+    void replayReportsHistoricalGapsWithoutChangingEarlierSignals() {
+        var alert = alert(false, false, 0);
+        when(props.alerts().optionVolSt().barQuality().gapWindow()).thenReturn(20);
+        var start = Instant.parse("2026-10-16T13:30:00Z");
+        var complete = bars(start, 90);
+        var baseline = alert.replayContract(contract, complete, date);
+        var missing = new ArrayList<>(complete);
+        missing.remove(50);
+        missing.remove(50);
+        var replay = alert.replayContract(contract, missing, date);
+        assertTrue(replay.dataQualityRejections().containsKey("EXCESSIVE_GAPS"));
+        var cutoff = com.trading.api.TimeFormat.toEt(start.plusSeconds(49 * 60));
+        assertEquals(baseline.signals().stream().filter(s -> s.firedAtEt().compareTo(cutoff) < 0).toList(),
+                replay.signals().stream().filter(s -> s.firedAtEt().compareTo(cutoff) < 0).toList());
+    }
+
+    @Test
+    void replayHonorsAtrCapAndDisableSwitch() {
+        var alert = alert(false, false, 0);
+        var source = bars(Instant.parse("2026-10-16T13:30:00Z"), 90);
+        var baseline = alert.replayContract(contract, source, date).signals();
+        assertFalse(baseline.isEmpty());
+        when(props.alerts().optionVolSt().largeCandleFilterEnabled()).thenReturn(true);
+        when(props.alerts().optionVolSt().maxCandleAtr()).thenReturn(new BigDecimal("0.5"));
+        var rejected = alert.replayContract(contract, source, date);
+        assertTrue(rejected.signals().isEmpty());
+        assertTrue(rejected.largeCandleRejections() > 0);
+        when(props.alerts().optionVolSt().maxCandleAtr()).thenReturn(new BigDecimal("3"));
+        assertEquals(baseline, alert.replayContract(contract, source, date).signals());
+        when(props.alerts().optionVolSt().largeCandleFilterEnabled()).thenReturn(false);
+        when(props.alerts().optionVolSt().maxCandleAtr()).thenReturn(new BigDecimal("0.5"));
+        assertEquals(baseline, alert.replayContract(contract, source, date).signals());
     }
 
     @Test

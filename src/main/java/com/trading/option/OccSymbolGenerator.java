@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * Pure (stateless) generator of option OCC symbols around the current spot price.
  *
- * <p>Webull's v3 API has NO option-chain endpoint, so the strike ladder is synthesised
+ * <p>The strike ladder is generated from configured spacing; expiry is discovered separately
  * from a configurable increment rather than discovered. We generate <b>ATM + OTM only</b>
  * (in-the-money strikes are intentionally excluded): the near-the-money anchor plus
  * {@code strikesPerSide} out-of-the-money strikes stepping outward.</p>
@@ -97,19 +97,4 @@ public final class OccSymbolGenerator {
         out.add(OptionContract.of(underlying, expiry, type, strike, moneyness));
     }
 
-    /**
-     * Resolves the expiry from a days-to-expiry count: {@code today + dte} calendar days.
-     * {@code 0DTE} → today, {@code 1DTE} → tomorrow, {@code 2DTE} → today+2, and so on.
-     *
-     * <p>No weekend/holiday snapping is applied — the literal date is used. If no contract
-     * is actually listed on that date (e.g. a non-expiry weekday for a given symbol), the
-     * generated OCC codes simply return no bars, which the caller logs per-contract. This
-     * keeps expiry selection predictable and avoids guessing the exchange calendar.</p>
-     *
-     * @param dte   days to expiry (clamped at 0; negative is treated as 0)
-     * @param today the reference date (normally {@code LocalDate.now()} in ET)
-     */
-    public static LocalDate resolveExpiry(int dte, LocalDate today) {
-        return today.plusDays(Math.max(0, dte));
-    }
 }

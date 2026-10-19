@@ -1,0 +1,35 @@
+{
+  "endpoint": "http://localhost:8080/api/options/vol-st/replay",
+  "mode": "LIVE",
+  "restartVerified": "scripts/stop.sh; ./gradlew clean build; scripts/start.sh confirmed app started on port 8080",
+  "runtimeOverrides": {
+    "app.engine.trading-enabled": false,
+    "app.alerts.enabled": false,
+    "app.alert-review.enabled": false,
+    "app.llm.enabled": false
+  },
+  "gitHead": "c94d155b80684b5f5fb790cc8cdd2e87075b56e1",
+  "workingTree": "Includes uncommitted strategy, data-quality, HA, ATR, ticker-format and report changes; source fingerprint captures current src/main contents.",
+  "sourceSha256": "37929ba066a8afd3d27e573ba2da01956be7eedc54b0add93e1877f5df74c1c6",
+  "buildValidation": "Clean build passed: 106 tests, zero failures before report application restart.",
+  "sourceConfigSupplement": {
+    "app.engine.trading-sessions": "RTH,PRE,ATH",
+    "app.options.strikes-per-side": "5",
+    "app.options.dte": "0",
+    "app.options.default-strike-increment": "1.0",
+    "app.supertrend.length": "7",
+    "app.supertrend.factor": "2",
+    "app.alerts.option-vol-st.min-session-volume": "500",
+    "app.alerts.option-vol-st.volume-lookback": "10",
+    "app.market-hours.core-open": "09:30",
+    "app.market-hours.core-close": "16:00",
+    "app.market-hours.extended-hours-enabled": "true",
+    "app.market-hours.pre-market-open": "09:10",
+    "app.market-hours.after-hours-close": "15:30"
+  },
+  "runtimeOverridesVerified": "All four JVM flags found in fresh startup log.",
+  "startupVerifiedAt": "2026-10-18T20:50:36-04:00",
+  "sourceUnchangedDuringCapture": true,
+  "captureSourceSha256": "37929ba066a8afd3d27e573ba2da01956be7eedc54b0add93e1877f5df74c1c6",
+  "reportGeneratedAt": "2026-10-18T20:54:07-04:00"
+}

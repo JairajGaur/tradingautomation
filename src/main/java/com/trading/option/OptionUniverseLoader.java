@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 /**
  * Loads the configured <b>option underlyings</b> from
@@ -31,9 +32,14 @@ import java.util.Map;
  * <pre>{@code
  *   SYMBOL                 # use the default increment (app.options.default-strike-increment)
  *   SYMBOL,<increment>     # override the strike spacing for THIS symbol only, e.g. TSLA,2.5
+ *   [strike-gap=2.5]       # following symbols share this increment
+ *   AAPL
+ *   TSLA
+ *   [default]              # following symbols use app.options.default-strike-increment
  * }</pre>
  * {@code #} comments and blank lines are ignored; symbols are upper-cased and de-duplicated.
- * A malformed increment is logged and the symbol falls back to the default.
+ * Inline comments are supported. Duplicate symbols are ignored (first occurrence wins).
+ * A malformed increment is logged and the symbol falls back to the section increment.
  *
  * <p>An empty/missing file returns an empty universe — callers simply have nothing to pull.</p>
  */
@@ -79,10 +85,35 @@ public class OptionUniverseLoader {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
+                BigDecimal sectionIncrement = null;
+                boolean validSection = true;
                 while ((line = reader.readLine()) != null) {
-                    String trimmed = line.trim();
-                    if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
-                    parseLine(trimmed, out);
+                    String trimmed = line.split("#", 2)[0].trim();
+                    if (trimmed.isEmpty()) continue;
+                    if (trimmed.startsWith("[")) {
+                        if (trimmed.equalsIgnoreCase("[default]")) {
+                            sectionIncrement = null;
+                            validSection = true;
+                        } else {
+                            validSection = false;
+                            if (trimmed.toLowerCase(Locale.ROOT).startsWith("[strike-gap=")
+                                    && trimmed.endsWith("]")) {
+                                try {
+                                    BigDecimal gap = new BigDecimal(trimmed.substring(12, trimmed.length() - 1).trim());
+                                    if (gap.signum() > 0) {
+                                        sectionIncrement = gap;
+                                        validSection = true;
+                                    }
+                                } catch (NumberFormatException ignored) {
+                                    // Log once below and skip this section instead of guessing a gap.
+                                }
+                            }
+                            if (!validSection) log.error(
+                                    "[OptionUniverseLoader] Invalid section '{}' — skipping until next valid section", trimmed);
+                        }
+                        continue;
+                    }
+                    if (validSection) parseLine(trimmed, sectionIncrement, out);
                 }
             }
             log.info("[OptionUniverseLoader] Loaded {} option underlyings: {}", out.size(), out);
@@ -93,24 +124,28 @@ public class OptionUniverseLoader {
         }
     }
 
-    /** Parses one {@code SYMBOL[,increment]} line into {@code out} (last wins on duplicates). */
-    private void parseLine(String trimmed, Map<String, BigDecimal> out) {
+    /** Parses a legacy or grouped symbol line; first occurrence wins on duplicates. */
+    private void parseLine(String trimmed, BigDecimal sectionIncrement, Map<String, BigDecimal> out) {
         String[] parts = trimmed.split(",", 2);
-        String symbol = parts[0].trim().toUpperCase();
+        String symbol = parts[0].trim().toUpperCase(Locale.ROOT);
         if (symbol.isEmpty()) return;
+        if (out.containsKey(symbol)) {
+            log.warn("[OptionUniverseLoader] Duplicate symbol '{}' ignored; keep one entry per symbol", symbol);
+            return;
+        }
 
-        BigDecimal increment = null;
+        BigDecimal increment = sectionIncrement;
         if (parts.length == 2 && !parts[1].isBlank()) {
             try {
                 BigDecimal inc = new BigDecimal(parts[1].trim());
                 if (inc.compareTo(BigDecimal.ZERO) > 0) {
                     increment = inc;
                 } else {
-                    log.error("[OptionUniverseLoader] {} increment '{}' is not positive — using default",
+                    log.error("[OptionUniverseLoader] {} increment '{}' is not positive — using section/default gap",
                             symbol, parts[1].trim());
                 }
             } catch (NumberFormatException e) {
-                log.error("[OptionUniverseLoader] {} has an invalid increment '{}' — using default",
+                log.error("[OptionUniverseLoader] {} has an invalid increment '{}' — using section/default gap",
                         symbol, parts[1].trim());
             }
         }
