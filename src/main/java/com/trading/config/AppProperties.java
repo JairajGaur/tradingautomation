@@ -197,6 +197,7 @@ public record AppProperties(
          * @param emaPeriod       EMA period the option close must stay at/above (default 20)
          * @param emaAboveCandles how many of the last completed bars must have {@code close ≥ EMA}
          *                        (default 3)
+         * @param emaStackTimeframe fast/slow EMA candle interval; blank inherits option timeframe
          * @param emaStackEnabled master on/off for the EMA-stack leg (default true)
          * @param emaStackFast    fast EMA for the stack check (default 20)
          * @param emaStackSlow    slow EMA for the stack check (default 100)
@@ -225,6 +226,7 @@ public record AppProperties(
                 @DefaultValue("20")    int emaPeriod,
                 @DefaultValue("3")     int emaAboveCandles,
                 @DefaultValue("true")  boolean emaStackEnabled,
+                @DefaultValue("") String emaStackTimeframe,
                 @DefaultValue("20")    int emaStackFast,
                 @DefaultValue("100")   int emaStackSlow,
                 @DefaultValue("true")  boolean volumeEnabled,

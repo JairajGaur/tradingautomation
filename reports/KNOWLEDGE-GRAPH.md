@@ -111,7 +111,7 @@ step. Missing or expired-contract history cannot be reconstructed by inventing c
 - [HA tests](../src/test/java/com/trading/option/OptionHaDirectionFilterTest.java): colors, closure, freshness, warmup and synthetic completeness.
 - [Quality tests](../src/test/java/com/trading/service/BarQualityTest.java) and [ATR-cap tests](../src/test/java/com/trading/indicator/CandleRangeAtrFilterTest.java): shared validation and threshold semantics.
 
-Latest recorded code validation on 2026-10-18: **116 passing tests**. This is regression evidence,
+Latest recorded code validation on 2026-10-18: **117 passing tests**. This is regression evidence,
 not broker-backed verification or proof of profitable signals. This documentation update does
 not regenerate reports or execute trading.
 
@@ -152,3 +152,36 @@ These counts differ from the older 30-minute per-contract snapshot and are not a
 - [Expiry tests](../src/test/java/com/trading/option/OptionExpiryDiscoveryTest.java), [metadata tests](../src/test/java/com/trading/webull/OptionExpirationMetadataTest.java), [session tests](../src/test/java/com/trading/option/OptionsReplaySessionTest.java): nearest actual dates, historical recovery, isolation/caching, pagination, failures and intraday last-completed-session cutoff.
 - Live broker checks: AAPL 2026-10-19 expiry, 11 contracts loaded. Last-session SPY reference/expiry both 2026-10-16. Full clean build: 116 tests pass. Earlier reports preserve pre-discovery behavior.
 - See [report guide](OPTION-VOL-ST-REPORT-GUIDE.md#dynamic-expiry-and-last-session-replay-2026-10-18) for exact-date API findings, failure behavior and scope. Ranking remains deferred and the user's 10-minute cooldown is preserved.
+
+## Latest dynamic-expiry report with contract volumes
+
+- [2026-10-16 expiry/volume analysis](option-vol-st-replay-2026-10-16-expiry-volume-2026-10-18.html), generated 2026-10-18 from a fresh latest-app capture with trading/delivery/review/LLM disabled.
+- [Exact JSON](option-vol-st-replay-2026-10-16-expiry-volume-2026-10-18.json), [101-candidate CSV](option-vol-st-replay-2026-10-16-expiry-volume-2026-10-18.csv), [metadata](option-vol-st-replay-2026-10-16-expiry-volume-2026-10-18.metadata.json).
+- 62 stock/side alert groups, 101 candidates across 40 contracts; all 11 underlying expiry choices resolved to 2026-10-16 from metadata. 121 contracts have session data, 10-minute cooldown, no ranking. Fresh results match prior grouped capture counts for this session.
+- Contract tables replace ST streak/Above EMA/EMA stack/boolean Volume columns with observed session, signal-bar and last-five-RTH-bar contract volumes. Those strategy gates remain unchanged; source JSON/CSV retain diagnostics.
+- All volumes are historical, measured at each signal using validated completed candles, exclude prior-session/future bars and can understate totals when history is missing. Report does not rank candidates or claim executable spreads/profitability.
+- Clean build passed 117 tests, including volume causality regression. Verified unchanged application source fingerprint during capture, exact JSON bytes, CSV totals/fields, links, and browser table layout. Older report snapshots remain intact.
+
+## Independent option EMA timeframe (2026-10-19)
+
+- `app.alerts.option-vol-st.ema-stack-timeframe` defaults to M1 in YAML; blank inherits the main option timeframe. Fast/slow periods remain 9/20, comparison remains EMA fast > slow (no fresh crossover requirement).
+- Live, inspection and replay share completed aggregated candle validation and EMA calculation. Same or higher whole-multiple timeframes supported; insufficient warmup, gaps, stale candles and incompatible/finer timeframes block the gate. Source warmup scales with aggregation plus alignment allowance. Close-above EMA and HA timeframes are independent.
+- Effective timeframe is exposed in replay/inspection JSON and future report settings. Historical snapshots are preserved. See [guide](OPTION-VOL-ST-REPORT-GUIDE.md#independent-fastslow-option-ema-timeframe-2026-10-19) and [tests](../src/test/java/com/trading/option/OptionEmaTimeframeTest.java).
+- Gradle permission review timed out before execution. Fallback compiled all main/test Java with Java 17 and cached dependencies into `/private/tmp`, then ran JUnit Platform: **121 tests passed**, including Spring wiring and four EMA timeframe tests. No global Gradle cache changes. Temporary test runner stopped. This is not a Gradle clean-build result.
+
+## Standard daily pivots and API (2026-10-19)
+
+- [Calculator](../src/main/java/com/trading/indicator/DailyPivotCalculator.java), [shared live context](../src/main/java/com/trading/service/StockPivotService.java), [endpoint](../src/main/java/com/trading/api/PivotController.java), [Bruno request](../bruno/tradingautomation/Pivots/Get%20Daily%20Stock%20Pivots.bru).
+- Any stock supported via GET /api/pivots/{ticker}. Previous complete RTH H/L/C produces P/S1/S2/R1/R2; live and replay share calculation. Levels/context are informational only. Replay context is historical, never current quotes.
+- 390-minute session completeness enforced; gaps/conflicts/early-close coverage produce unavailable. No fallback to older sessions, no invented volume or pivots. Context distances use fresh stock closes and stock-price dollar units.
+- 128 local JUnit tests passed after complete Java 17 compilation, including Spring wiring. Gradle and runtime health/capture commands were not executed: automatic approval reviewer model is at capacity. This is an infrastructure review failure, not a safety rejection.
+- [Pivot report preview](option-vol-st-replay-2026-10-16-pivots-preview-2026-10-19.html) reuses the saved October 18 replay and explicitly leaves pivot data unavailable; pending actual fresh capture once access works. Older reports are preserved. See report guide for limitations/procedure. Obsidian synchronization pending while approval review is unavailable.
+
+## Populated daily pivot report (2026-10-19)
+
+- User started the app and captured read-only endpoint/replay responses locally because automatic approval review was unavailable (selected model at capacity). Agent HTTP/browser commands did not execute; validation used user-provided local JSON.
+- [Populated pivot analysis](option-vol-st-replay-2026-10-16-pivots-2026-10-19.html), [exact replay JSON](option-vol-st-replay-2026-10-16-pivots-2026-10-19.json), [147-candidate CSV](option-vol-st-replay-2026-10-16-pivots-2026-10-19.csv), [metadata](option-vol-st-replay-2026-10-16-pivots-2026-10-19.metadata.json).
+- Replay session 2026-10-16: 88 grouped alerts (7 CALL/81 PUT), 147 candidates, 60 fired contracts, 129 with session data. All 12 stocks have valid previous-session pivots; all 88 groups have historical stock-price context/distances. Current universe adds SPCX and M3 ST confirmation is OFF, unlike the earlier 11-stock/M3-enabled capture. Count changes are not evidence of improvement from informational pivots.
+- [Live AAPL endpoint sample](stock-pivots-AAPL-2026-10-19.json): Monday 2026-10-19 levels use Friday 2026-10-16 H=347.82, L=340.46, C=343.46: P=343.9133, S1=340.0067, S2=336.5533, R1=347.3667, R2=351.2733. Off-hours stock context correctly reports stale; pivot levels remain available.
+- Verified Decimal formulas/rounding for all 12 sets, source dates precede replay date, all 88 distances, group/candidate totals, cooldown intervals, exact JSON preservation, 147 populated CSV rows and local links. Running source fingerprint/startup overrides were not independently captured. Browser verification remains blocked by approval-review capacity. Previous snapshots and clearly labeled preview preserved.
+- Repository knowledge updated; Obsidian synchronization remains pending while approval review is unavailable. See [pending vault update](OBSIDIAN-SYNC-PENDING.md).

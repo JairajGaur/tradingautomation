@@ -48,6 +48,25 @@ class OptionVolumeStReplayTest {
     }
 
     @Test
+    void reportVolumesUseCompletedSessionBarsWithoutFutureOrPriorSessionVolume() {
+        var alert = alert(false, false, 0);
+        var start = Instant.parse("2026-10-16T13:30:00Z");
+        var input = new ArrayList<>(bars(start.minusSeconds(86400), 30));
+        input.addAll(bars(start, 70));
+        var finalBar = input.get(input.size() - 1);
+        input.set(input.size() - 1, new Candle(finalBar.ticker(), finalBar.timestamp(), finalBar.open(),
+                finalBar.high(), finalBar.low(), finalBar.close(), 999999));
+        var signals = alert.replayCandidates(contract, input, date).signals();
+        assertFalse(signals.isEmpty());
+        for (var signal : signals) {
+            long count = java.time.Duration.between(start, OptionSignalGrouping.instant(signal.firedAtEt())).toMinutes() + 1;
+            assertEquals(count * 100, signal.sessionVolume());
+            assertEquals(100L, signal.signalBarVolume());
+            assertEquals(Math.min(5, count) * 100, signal.recentFiveBarVolume());
+        }
+    }
+
+    @Test
     void replayRoutesCallsAndPutsByCompletedUnderlyingHaColor() {
         var alert = alert(false, false, 0);
         when(props.alerts().optionVolSt().haDirectionEnabled()).thenReturn(true);

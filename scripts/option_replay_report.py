@@ -48,6 +48,16 @@ def render(source, output, metadata=None, template=None, replace=False):
     signals = [{**{key: c.get(key) for key in ('occSymbol', 'type', 'strike', 'moneyness')},
                 **s, 'underlying': u} for u, c in contracts for s in c.get('signals', [])]
     signals.sort(key=lambda s: (s.get('firedAtEt', ''), s.get('occSymbol', '')))
+    row_by_symbol = {row['underlying']: row for row in rows}
+    context_by_event = {(row['underlying'], g['evaluatedAtEt']): g.get('stockContext', {})
+                        for row in rows for g in row.get('groupedSignals', [])}
+    for signal in signals:
+        pivot = row_by_symbol[signal['underlying']].get('pivotPoints', {})
+        context = context_by_event.get((signal['underlying'], signal.get('evaluatedAtEt')), {})
+        signal.update({'pivotSourceSession': pivot.get('sourceSession'),
+                       'pivot': pivot.get('pivot'), 's1': pivot.get('s1'), 's2': pivot.get('s2'),
+                       'r1': pivot.get('r1'), 'r2': pivot.get('r2'), **context})
+
     grouped = data.get('signalCounting') == 'UNDERLYING_SIDE_GROUP'
     groups = sorted([g for row in rows for g in row.get('groupedSignals', [])],
                     key=lambda g: (g['evaluatedAtEt'], g['underlying'], g['type']))
@@ -72,6 +82,11 @@ def render(source, output, metadata=None, template=None, replace=False):
         warnings.append('API contract signal count differs from the number of returned strike rows.')
     if data.get('signalCounting') == 'UNDERLYING_SIDE_GROUP':
         warnings.append(f"Grouped alerts: {data.get('totalSignals', 0)}; retained contract candidates: {len(signals)}. Overview, side counts and hourly chart count grouped alerts; contract detail tables count retained candidates. Candidates are unranked.")
+    missing_pivots = [row['underlying'] for row in rows if not row.get('pivotPoints', {}).get('available')]
+    if missing_pivots:
+        warnings.append('Pivot data unavailable or absent for: ' + ', '.join(missing_pivots) + '. Levels and distances are not invented.')
+    if metadata.get('runtimeVerification'):
+        warnings.append(metadata['runtimeVerification'])
     if not data.get('date'):
         warnings.append('No opening session was resolved from the available stock history.')
     missing = [row['underlying'] for row in rows if row.get('contractsWithSessionData', 0) == 0]
@@ -107,7 +122,7 @@ nav{display:flex;gap:16px;flex-wrap:wrap;margin:1rem 0}a{color:#0969da}.tiny{fon
              f'<h1>{esc(title)}</h1>',
              '<p class="lead">Completed-candle replay with underlying Heikin Ashi direction, option ATR spike rejection, and data-quality diagnostics.</p>',
              f'<p class="meta">Request date {esc(data.get("requestDate"))} · API snapshot {esc(data.get("timestamp"))} · Generated {esc(generated)} · Broker mode {esc(metadata.get("mode"))}</p>',
-             '<nav><a href="#overview">Overview</a><a href="#rules">Active rules</a><a href="#coverage">Coverage</a><a href="#diagnostics">Rejections</a><a href="#signals">Signals</a><a href="#provenance">Provenance</a></nav>']
+             '<nav><a href="#overview">Overview</a><a href="#rules">Active rules</a><a href="#pivots">Stock pivots</a><a href="#coverage">Coverage</a><a href="#diagnostics">Rejections</a><a href="#groups">Groups</a><a href="#signals">Signals</a><a href="#provenance">Provenance</a></nav>']
     if grouped and groups:
         conclusion = f'{len(groups)} stock/direction alert groups containing {len(signals)} option candidates across {len(contracts)} contracts. Shared cooldown: {data.get("cooldownMinutes")} minutes; no ranking.'
     elif signals:
@@ -141,9 +156,9 @@ nav{display:flex;gap:16px;flex-wrap:wrap;margin:1rem 0}a{color:#0969da}.tiny{fon
         parts.append(f'<li>{esc(active["underlying"])} has the most returned signals ({active.get("signalCount", 0)}). Peak signal hour starts at {esc(peak_hour)} ET ({hours.get(peak_hour, 0)} signals).</li>')
         parts.append(f'<li>{sum(reasons.values())} historical evaluations failed data-quality checks and {atr_rejected} were rejected by the ATR cap. Session-data coverage means bars were present, not that every contract has complete uninterrupted coverage.</li></ul>')
     parts.append('<h2 id="rules">Runtime rules and new filters</h2>')
-    rules = [('Option timeframe', 'timeframe'), ('ST rising bars', 'stRisingCandles'),
+    rules = [('Replay scope', 'replayScope'), ('Expiry selection', 'expirySelection'), ('Option timeframe', 'timeframe'), ('ST rising bars', 'stRisingCandles'),
              ('Close-above EMA period', 'emaPeriod'), ('Above-EMA bars', 'emaAboveCandles'),
-             ('EMA stack enabled', 'emaStackEnabled'), ('Fast EMA', 'emaStackFast'), ('Slow EMA', 'emaStackSlow'),
+             ('EMA stack enabled', 'emaStackEnabled'), ('Fast/slow EMA timeframe', 'emaStackTimeframe'), ('Fast EMA', 'emaStackFast'), ('Slow EMA', 'emaStackSlow'),
              ('Volume gate', 'volumeEnabled'), ('M3 / higher-timeframe ST gate', 'threeMinStEnabled'),
              ('Higher ST timeframe', 'threeMinStTimeframe'), ('Underlying stock HA gate', 'haDirectionEnabled'),
              ('Stock HA timeframe', 'haTimeframe'), ('Option large-candle gate', 'largeCandleFilterEnabled'),
@@ -155,14 +170,20 @@ nav{display:flex;gap:16px;flex-wrap:wrap;margin:1rem 0}a{color:#0969da}.tiny{fon
         parts.append('<details><summary>Additional repository configuration</summary><p class="meta">Source YAML values for context. These fields are not returned by the replay API and are not independently verified against runtime overrides.</p>')
         parts.append(table(['Source configuration key', 'Repository value'], metadata['sourceConfigSupplement'].items()))
         parts.append('</details>')
+    parts.append('<h2 id="pivots">Daily stock pivot levels</h2><p class="meta">Standard pivots use the previous complete stock RTH session. P=(H+L+C)/3; R1=2P−L; S1=2P−H; R2=P+(H−L); S2=P−(H−L). Informational only: these levels do not filter or rank alerts.</p>')
+    parts.append(table(['Stock', 'Source session', 'Prior high', 'Prior low', 'Prior close', 'P', 'S1', 'S2', 'R1', 'R2', 'Coverage'],
+        [[row['underlying'], row.get('pivotPoints', {}).get('sourceSession'),
+          *[row.get('pivotPoints', {}).get(key) for key in ('previousHigh', 'previousLow', 'previousClose', 'pivot', 's1', 's2', 'r1', 'r2')],
+          row.get('pivotPoints', {}).get('note', 'Not returned by API')] for row in rows]))
+    parts.append('<p class="meta">Distances below use fresh completed underlying stock candles at each alert evaluation, in stock-price dollars. Outside the calculated levels or with missing/stale stock data, a nearest boundary can be unavailable. Complete normal 390-minute RTH history is required; early-close sessions currently report unavailable. Prior partial history is never silently replaced with an older session.</p>')
     parts.append('<h2 id="coverage">Per-underlying coverage</h2>')
     coverage_rows = []
     for row in rows:
         counts = Counter(g['type'] for g in row.get('groupedSignals', [])) if grouped else Counter(c.get('type') for c in row.get('contracts', []) for s in c.get('signals', []))
-        coverage_rows.append([row['underlying'], row.get('stockOpen'), row.get('contractsWithSessionData', 0),
+        coverage_rows.append([row['underlying'], row.get('stockOpen'), row.get('expiry', 'Not returned'), row.get('contractsWithSessionData', 0),
                               row.get('contractsWithSignals', 0), row.get('signalCount', 0), counts['CALL'], counts['PUT'],
                               row.get('largeCandleRejections', 0), sum(row.get('dataQualityRejections', {}).values()), row.get('note', '—')])
-    parts.append(table(['Underlying', 'Stock open', 'Contracts with data', 'Contracts fired', 'Signals', 'CALL', 'PUT', 'ATR rejects', 'Quality rejects', 'Coverage note'], coverage_rows))
+    parts.append(table(['Underlying', 'Stock open', 'Selected expiry', 'Contracts with data', 'Contracts fired', 'Signals', 'CALL', 'PUT', 'ATR rejects', 'Quality rejects', 'Coverage note'], coverage_rows))
     parts.append('<h2 id="diagnostics">Why evaluations were rejected</h2>')
     parts.append(table(['Quality reason', 'Rejected evaluations'], reasons.most_common()) if reasons else '<p>No data-quality rejection counts were returned.</p>')
     parts.append('<p class="meta">These are sequential evaluation counts, not unique contracts or a complete funnel. Cooldown and HA side checks can prevent later gates from running. ATR rejections are recorded before the remaining option conditions; they do not prove an otherwise qualifying trade was avoided. Full EMA/ST/volume/HA side-rejection counts are not exposed by this endpoint.</p>')
@@ -175,17 +196,21 @@ nav{display:flex;gap:16px;flex-wrap:wrap;margin:1rem 0}a{color:#0969da}.tiny{fon
         parts.append('<p>No signal timestamps to chart.</p>')
     if grouped:
         parts.append('<h2 id="groups">Stock/direction alert groups</h2><p class="meta">One row per alert event. All qualifying strikes are retained in numeric order; no preferred contract is selected. Times are historical evaluation times in ET.</p>')
-        parts.append(table(['Evaluation time (ET)', 'Stock', 'Side', 'Candidates', 'Strike @ option close (unranked)'],
-                           [[g['evaluatedAtEt'], g['underlying'], g['type'], len(g['candidates']),
-                             '; '.join(f"{c['strike']} @ {c['optionClose']}" for c in g['candidates'])] for g in groups]))
+        parts.append(table(['Evaluation time (ET)', 'Stock', 'Side', 'Stock close', 'Nearest lower / distance', 'Nearest upper / distance', 'Candidates', 'Strike @ close | contract volume (unranked)'],
+                           [[g['evaluatedAtEt'], g['underlying'], g['type'], g.get('stockContext', {}).get('stockPrice'),
+                             show(g.get('stockContext', {}).get('nearestLowerLevel')) + ' / ' + show(g.get('stockContext', {}).get('distanceToLower')),
+                             show(g.get('stockContext', {}).get('nearestUpperLevel')) + ' / ' + show(g.get('stockContext', {}).get('distanceToUpper')), len(g['candidates']),
+                             '; '.join(f"{c['strike']} @ {c['optionClose']} | session {show(c.get('sessionVolume'))}, bar {show(c.get('signalBarVolume'))}, last 5 bars {show(c.get('recentFiveBarVolume'))}" for c in g['candidates'])] for g in groups]))
         parts.append(f'<p class="meta">Raw qualifying contract evaluations: {sum(r.get("rawQualifyingContractSignals", 0) for r in rows)} · Stock/side evaluation groups suppressed by cooldown: {sum(r.get("cooldownSuppressedGroups", 0) for r in rows)}. These count repeated evaluations, not trades.</p>')
-    parts.append('<h2 id="signals">Contract signal details</h2><p class="meta">Times are completed signal candles’ start times in ET, not delivery times or fill timestamps.</p>')
+    parts.append('<h2 id="signals">Contract signal details</h2><p class="meta">Times are completed signal candles’ start times in ET. Volume is contracts traded, measured at that signal: observed RTH session volume, signal candle volume, and the last up to five completed RTH candles. Missing history can understate session volume; missing intervals are not filled.</p>')
     parts.append('<div class="toolbar"><label for="search">Filter contracts</label><input id="search" placeholder="Underlying, OCC, CALL or PUT"><span id="visible" class="muted"></span></div>')
     for underlying, c in contracts:
         side = c.get('type', '')
         side_class = 'call' if side == 'CALL' else 'put' if side == 'PUT' else ''
         parts.append(f'<section class="card contract" data-search="{esc(underlying + " " + c.get("occSymbol", "") + " " + side)}"><div class="card-h"><span class="pill {side_class}">{esc(side)}</span><b>{esc(underlying)}</b><span class="occ">{esc(c.get("occSymbol"))}</span></div><p class="meta">Strike {esc(c.get("strike"))} · {esc(c.get("moneyness"))} · {esc(c.get("rthBars"))} replay evaluation bars · {len(c.get("signals", []))} signals</p>')
-        parts.append(table(['Signal candle (ET)', 'Option close', 'ST rising streak', 'Above EMA', 'EMA stack', 'Volume'], [[s.get('firedAtEt'), s.get('optionClose'), s.get('stRisingStreak'), show(s.get('aboveEma')), show(s.get('emaStackUp')), show(s.get('volumeOk'))] for s in c.get('signals', [])]))
+        parts.append(table(['Signal candle (ET)', 'Option close', 'Session volume', 'Signal bar volume', 'Last 5 bars volume'],
+                           [[s.get('firedAtEt'), s.get('optionClose'), s.get('sessionVolume'),
+                             s.get('signalBarVolume'), s.get('recentFiveBarVolume')] for s in c.get('signals', [])]))
         parts.append('</section>')
     if not contracts:
         parts.append('<p>No qualifying contracts in this response. Coverage and rejection tables above distinguish unavailable data from filtered signals.</p>')
@@ -206,9 +231,9 @@ nav{display:flex;gap:16px;flex-wrap:wrap;margin:1rem 0}a{color:#0969da}.tiny{fon
     output.write_text('\n'.join(parts))
     output.with_suffix('.json').write_bytes(source.read_bytes())
     output.with_suffix('.metadata.json').write_text(json.dumps(dict(metadata, reportGeneratedAt=generated), indent=2) + '\n')
-    fields = ['underlying', 'occSymbol', 'type', 'strike', 'moneyness', 'evaluatedAtEt', 'firedAtEt', 'optionClose', 'stRisingStreak', 'aboveEma', 'emaStackUp', 'volumeOk']
+    fields = ['underlying', 'occSymbol', 'type', 'strike', 'moneyness', 'evaluatedAtEt', 'firedAtEt', 'optionClose', 'stRisingStreak', 'aboveEma', 'emaStackUp', 'volumeOk', 'sessionVolume', 'signalBarVolume', 'recentFiveBarVolume', 'pivotSourceSession', 'pivot', 's1', 's2', 'r1', 'r2', 'stockPrice', 'nearestLowerLevel', 'distanceToLower', 'nearestUpperLevel', 'distanceToUpper']
     with output.with_suffix('.csv').open('w', newline='') as file:
-        writer = csv.DictWriter(file, fieldnames=fields, extrasaction='ignore')
+        writer = csv.DictWriter(file, fieldnames=fields, extrasaction='ignore', lineterminator='\n')
         writer.writeheader()
         writer.writerows(signals)
     return {'report': str(output), 'session': data.get('date'), 'signals': len(events), 'contractCandidates': len(signals),

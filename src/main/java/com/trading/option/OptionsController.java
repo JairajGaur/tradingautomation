@@ -3,6 +3,7 @@ package com.trading.option;
 import com.trading.api.TimeFormat;
 import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
+import com.trading.indicator.DailyPivotCalculator;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.indicator.SupertrendService;
 import com.trading.model.Candle;
@@ -183,6 +184,16 @@ public class OptionsController {
         for (String u : syms) {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("underlying", u);
+            var now = java.time.Instant.now();
+            var reference = now.atZone(java.time.ZoneId.of("America/New_York")).toLocalDate();
+            try {
+                var history = marketDataService.fetchHistoricalBars(u,1650,"M1","RTH");
+                var levels = DailyPivotCalculator.calculate(u,history,reference,now);
+                row.put("pivotPoints",levels);
+                row.put("stockContext",DailyPivotCalculator.context(levels,history,now));
+            } catch (RuntimeException ex) {
+                row.put("pivotPoints",DailyPivotCalculator.unavailable(u,reference,null,"Stock history unavailable"));
+            }
 
             List<Map<String, Object>> contractRows = new ArrayList<>();
             UnderlyingContracts uc = optionContractService.loadUnderlying(u, bothSides);
@@ -207,6 +218,7 @@ public class OptionsController {
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
         body.put("emaStackEnabled", c.emaStackEnabled());
+        body.put("emaStackTimeframe", volStAlert.emaStackTimeframe());
         body.put("emaStackFast", c.emaStackFast());
         body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
@@ -268,6 +280,10 @@ public class OptionsController {
         for (String u : syms) {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("underlying", u);
+            var pivotAsOf = sessionDate == null ? java.time.Instant.now()
+                    : sessionDate.atTime(9,30).atZone(java.time.ZoneId.of("America/New_York")).toInstant();
+            var pivotLevels = DailyPivotCalculator.calculate(u,stockBars.get(u),sessionDate,pivotAsOf);
+            row.put("pivotPoints",pivotLevels);
 
             // 1. Pick strikes from the resolved session's actual opening price.
             java.math.BigDecimal open = stockOpenPrice(stockBars.get(u), sessionDate);
@@ -319,7 +335,16 @@ public class OptionsController {
             int contractSignals = grouped.contracts().stream().mapToInt(rep -> rep.signals().size()).sum();
             totalSignals += sigCount;
             totalContractSignals += contractSignals;
-            row.put("groupedSignals", grouped.groups());
+            List<Map<String,Object>> groupRows = new ArrayList<>();
+            for (var group : grouped.groups()) {
+                Map<String,Object> event = new LinkedHashMap<>();
+                event.put("underlying",group.underlying());event.put("type",group.type());
+                event.put("evaluatedAtEt",group.evaluatedAtEt());event.put("candidates",group.candidates());
+                event.put("stockContext",DailyPivotCalculator.context(pivotLevels,stockBars.get(u),
+                        OptionSignalGrouping.instant(group.evaluatedAtEt())));
+                groupRows.add(event);
+            }
+            row.put("groupedSignals", groupRows);
             row.put("contractSignalCount", contractSignals);
             row.put("rawQualifyingContractSignals", grouped.rawContractSignals());
             row.put("simultaneousGroupsBeforeCooldown", grouped.simultaneousGroups());
@@ -347,6 +372,7 @@ public class OptionsController {
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
         body.put("emaStackEnabled", c.emaStackEnabled());
+        body.put("emaStackTimeframe", volStAlert.emaStackTimeframe());
         body.put("emaStackFast", c.emaStackFast());
         body.put("emaStackSlow", c.emaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
@@ -456,6 +482,9 @@ public class OptionsController {
             sm.put("aboveEma", s.aboveEma());
             sm.put("emaStackUp", s.emaStackUp());
             sm.put("volumeOk", s.volumeOk());
+            sm.put("sessionVolume", s.sessionVolume());
+            sm.put("signalBarVolume", s.signalBarVolume());
+            sm.put("recentFiveBarVolume", s.recentFiveBarVolume());
             sigs.add(sm);
         }
         m.put("signals", sigs);

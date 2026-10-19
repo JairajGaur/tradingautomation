@@ -1,0 +1,19 @@
+{
+  "endpoint": "http://localhost:8080/api/options/vol-st/replay",
+  "mode": "LIVE",
+  "gitHead": "75939db3d1eaccf8c3c2ebbbbe3237e3a9f3a611",
+  "workingTree": "Uncommitted daily pivot endpoint, calculator, live/replay context, Bruno request, tests and report changes. Saved source fingerprint below belongs to the older replay capture.",
+  "sourceSha256": "c35c9a1a528f82c64d72894abed175e6b5543f98a9177b4e2ddd0f9577b02957",
+  "restartVerified": "Not run for pivot changes: automatic approval reviewer model is at capacity.",
+  "buildValidation": "All main/test Java compiled with Java 17; 128 JUnit tests passed, including Spring wiring. Gradle approval failed before execution.",
+  "runtimeOverrides": {
+    "app.engine.trading-enabled": false,
+    "app.alerts.enabled": false,
+    "app.alert-review.enabled": false,
+    "app.llm.enabled": false
+  },
+  "sourceUnchangedDuringCapture": true,
+  "captureTimestamp": "2026-10-18T21:48:44 EDT",
+  "reportGeneratedAt": "2026-10-19T00:31:21-04:00",
+  "runtimeVerification": "PREVIEW: reuses the saved October 18 replay; pivot implementation has not been run against current stock history because automatic approval review is at capacity. Pivot levels are intentionally unavailable until a fresh capture."
+}

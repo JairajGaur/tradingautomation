@@ -1,0 +1,18 @@
+{
+  "endpoint": "http://localhost:8080/api/options/vol-st/replay",
+  "mode": "LIVE",
+  "gitHead": "75939db3d1eaccf8c3c2ebbbbe3237e3a9f3a611",
+  "workingTree": "Committed dynamic expiry/grouping changes plus uncommitted replay volume reporting and report layout updates.",
+  "sourceSha256": "c35c9a1a528f82c64d72894abed175e6b5543f98a9177b4e2ddd0f9577b02957",
+  "restartVerified": "scripts/stop.sh then scripts/start.sh for fresh latest-code capture.",
+  "buildValidation": "Clean build passed: 117 tests, zero failures/errors, including volume causality regression.",
+  "runtimeOverrides": {
+    "app.engine.trading-enabled": false,
+    "app.alerts.enabled": false,
+    "app.alert-review.enabled": false,
+    "app.llm.enabled": false
+  },
+  "sourceUnchangedDuringCapture": true,
+  "captureTimestamp": "2026-10-18T21:48:44 EDT",
+  "reportGeneratedAt": "2026-10-18T21:49:02-04:00"
+}

@@ -237,3 +237,77 @@ Verification: 116 tests pass. Live AAPL selected 2026-10-19 with 11 contracts lo
 selected session and expiry 2026-10-16. Prior dated reports remain historical snapshots and were
 not regenerated after this expiry change. Metadata discovery confirms an expiry, not every
 synthetic strike; unavailable generated strikes remain per-contract diagnostics.
+
+## Contract volume presentation (2026-10-18)
+
+Replay candidates now include `sessionVolume`, `signalBarVolume`, and `recentFiveBarVolume`.
+They are measured only from the validated completed candles available at the historical evaluation:
+observed RTH volume for that contract through its signal, the signal candle's volume, and the last
+up to five completed candles from that same RTH session. Values are option contracts traded, not
+stock shares, quotes or open interest. Missing bars may understate session volume; missing intervals
+are never filled with invented volume. Prior-session and future/uncompleted bars are excluded.
+These fields remain available even when the volume condition is disabled, and do not alter signals.
+
+The report's contract tables show candle time, option close and these three volume quantities.
+Per user request the ST rising streak, Above EMA, EMA stack and boolean Volume columns are removed
+from the displayed contract table. Existing gates remain active and boolean diagnostics remain in
+source JSON/CSV. Group rows include each candidate's volume. Missing fields in older captures are
+shown as unavailable, not zero. Expiry and last-session scope are explicit in the new report.
+
+Latest expiry/volume report: [2026-10-16 session, generated 2026-10-18](option-vol-st-replay-2026-10-16-expiry-volume-2026-10-18.html). Uses fresh dynamic expiry capture with 117 passing tests and unchanged source fingerprint.
+
+## Independent fast/slow option EMA timeframe (2026-10-19)
+
+`app.alerts.option-vol-st.ema-stack-timeframe` sets the EMA fast/slow comparison's candle
+interval independently of the main option `timeframe`. YAML defaults to M1; blank/omitted
+inherits the option interval. Example: main M1, EMA stack M5 with periods 9 and 20. The gate
+still requires fast EMA > slow EMA, not a fresh crossover. The separate close-above-EMA leg
+retains the main option interval, and underlying HA retains its own setting.
+
+Live, inspection and replay share completed aggregation/quality validation. Select the same
+interval or a whole-number multiple of the source option interval (with M1, M3/M5/M15 work).
+Finer or incompatible intervals fail with `EMA_STACK_INVALID_TIMEFRAME`. Higher buckets
+require complete source candles, sufficient EMA warmup, freshness and no missing target
+intervals in the recent gap window. Source warmup includes aggregation/alignment allowance;
+large timeframe/period combinations may exceed the broker's available 1200 source bars and
+must remain unavailable rather than emit unseeded signals. Existing targeted recovery handles
+missing source history. Replay uses historical evaluation time without future bars.
+
+Replay/inspection settings expose the effective `emaStackTimeframe`; future reports show it
+in the runtime-rules table. Older dated snapshots retain their original M1 behavior/settings.
+
+EMA timeframe validation: all main/test Java compiled with Java 17; 121 tests passed via local JUnit Platform using cached dependencies after automatic Gradle access approval timed out. Includes Spring wiring, M5/M15 aggregation, forming-bucket exclusion, missing bars/warmup and base-frame inheritance. No Gradle clean-build claim for this change.
+
+## Standard daily stock pivots (2026-10-19)
+
+`GET /api/pivots/{ticker}` supports any stock, independent of the option watchlist. The matching
+Bruno request is `bruno/tradingautomation/Pivots/Get Daily Stock Pivots.bru`; change `pivotTicker`.
+Returns prior-session H/L/C, source date, P=(H+L+C)/3, R1=2P−L, S1=2P−H,
+R2=P+(H−L), S2=P−(H−L), rounded to four decimals after full-precision calculation.
+
+Live groups, inspection and replay use the shared calculator. Pivots are informational and
+never suppress/rank an option alert. Replay's source session strictly precedes the replay date;
+stock context uses only a fresh completed stock candle available at each evaluation. Nearest
+lower/upper boundaries can be any of S2/S1/P/R1/R2, with nonnegative dollar distances in stock
+price units. No level beyond the available set is extrapolated.
+
+Full normal RTH M1 history is required (390 unique candles, 09:30–15:59 ET). Missing/conflicting
+bars return unavailable and do not fall back to an older complete session. Early-close sessions
+currently return unavailable until an exchange calendar is supported. Identical duplicates are
+canonicalized through existing BarQuality. Extended-hours and current/future-session H/L/C
+are excluded. Endpoint returns 503 for insufficient history and 400 for invalid symbols;
+pivot unavailability does not block strategy alerts. Live history is cached per stock/wall minute.
+
+Reports add a source-OHLC/pivot table, stock close and nearest-boundary distances to grouped
+alerts, and pivot/context fields in CSV. Missing data is explicitly unavailable, never zero or
+fabricated. Verification: all source compiled with Java 17 and 128 JUnit tests passed, including
+Spring wiring, formulas, prior-Friday selection, causality, gap/conflict handling and endpoint errors.
+Fresh runtime capture is blocked by automatic approval review (selected model at capacity).
+The [layout preview](option-vol-st-replay-2026-10-16-pivots-preview-2026-10-19.html) preserves
+older replay data, prominently marks that limitation, and does not invent pivot values.
+
+Populated pivot report: [2026-10-16 session, captured/generated 2026-10-19](option-vol-st-replay-2026-10-16-pivots-2026-10-19.html).
+User-captured responses verified numerically: 12 pivot sets and 88 historical contexts, 147 candidates.
+Current capture includes SPCX and disables M3 ST confirmation; avoid direct count comparisons with
+previous reports. Original source JSON is preserved; source version/startup flags are not independently
+verified. Endpoint sample [AAPL](stock-pivots-AAPL-2026-10-19.json) verifies live prior-Friday pivots.

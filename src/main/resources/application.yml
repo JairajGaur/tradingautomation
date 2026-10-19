@@ -410,6 +410,7 @@ app:
       ema-period: 20                 # EMA the option close must stay at/above
       ema-above-candles: 3           # close >= EMA required on this many of the last bars
       ema-stack-enabled: true        # require fast EMA above slow EMA on the option
+      ema-stack-timeframe: "M1"     # independent EMA9/EMA20 timeframe; M3/M5/M15 etc.
       ema-stack-fast: 9             # fast EMA for the stack check
       ema-stack-slow: 20             # slow EMA for the stack check (20 > 45 = option uptrend)
       volume-enabled: true           # master on/off for the volume leg
@@ -421,7 +422,7 @@ app:
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
       # Optional 3-minute supertrend check. When true, also require that the 3-minute supertrend
       # is UP in addition to the regular supertrend being UP. Default false (backward compatible).
-      three-min-st-enabled: true
+      three-min-st-enabled: false
       # Timeframe for the 3-minute supertrend check. Default "M3" (3-minute bars). This can be
       # changed to other timeframes like "M15" for a 15-minute supertrend check if desired.
       three-min-st-timeframe: "M3"

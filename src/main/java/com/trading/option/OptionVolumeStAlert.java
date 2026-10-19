@@ -65,20 +65,22 @@ public class OptionVolumeStAlert implements Alert {
     private final OptionBarDataManager optionBars;
     private final SupertrendService supertrend;
     private final OptionHaDirectionFilter haFilter;
+    private final com.trading.service.StockPivotService pivots;
     private final OptionSignalGrouping.Cooldown liveCooldown = new OptionSignalGrouping.Cooldown();
 
-    public OptionVolumeStAlert(AppProperties props,
-                               OptionUniverseLoader underlyings,
-                               OptionContractService contracts,
-                               OptionBarDataManager optionBars,
-                               SupertrendService supertrend,
-                               OptionHaDirectionFilter haFilter) {
-        this.props = props;
-        this.underlyings = underlyings;
-        this.contracts = contracts;
-        this.optionBars = optionBars;
-        this.supertrend = supertrend;
-        this.haFilter = haFilter;
+    public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
+                               OptionContractService contracts, OptionBarDataManager optionBars,
+                               SupertrendService supertrend, OptionHaDirectionFilter haFilter) {
+        this(props,underlyings,contracts,optionBars,supertrend,haFilter,null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
+                               OptionContractService contracts, OptionBarDataManager optionBars,
+                               SupertrendService supertrend, OptionHaDirectionFilter haFilter,
+                               com.trading.service.StockPivotService pivots) {
+        this.props=props;this.underlyings=underlyings;this.contracts=contracts;
+        this.optionBars=optionBars;this.supertrend=supertrend;this.haFilter=haFilter;this.pivots=pivots;
     }
 
     private AppProperties.Alerts.OptionVolStCfg cfg() {
@@ -144,7 +146,16 @@ public class OptionVolumeStAlert implements Alert {
                     AlertHit hit = evaluateContract(lc.contract(), tf, day, c, asOf);
                     if (hit != null) contractHits.add(hit);
                 }
-                hits.addAll(groupHits(underlying, contractHits, asOf));
+                var groups = groupHits(underlying, contractHits, asOf);
+                if (pivots != null && !groups.isEmpty()) {
+                    var context = pivots.current(underlying,asOf);
+                    var levels = context.pivotPoints();
+                    String detail = levels.available() ? "\nStock pivots (" + levels.sourceSession() + "): P " + levels.pivot()
+                            + " | S1 " + levels.s1() + " S2 " + levels.s2() + " | R1 " + levels.r1() + " R2 " + levels.r2()
+                            : "\nStock pivots unavailable: " + levels.note();
+                    for (var group : groups) hits.add(new AlertHit(group.alertId(),group.ticker(),group.state(),
+                            group.message()+detail,group.direction(),group.price(),group.timeframe()));
+                } else hits.addAll(groups);
             } catch (Exception e) {
                 log.warn("[OptionVolumeStAlert] {} failed (ignored): {}", underlying, e.getMessage());
             }
@@ -222,7 +233,7 @@ public class OptionVolumeStAlert implements Alert {
         boolean stRising = stRisingStreak(bars) >= Math.max(1, c.stRisingCandles());
         boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
         boolean emaStack = !c.emaStackEnabled()
-                || emaStackUp(bars, c.emaStackFast(), c.emaStackSlow());
+                || emaStackUpAt(bars, asOf);
         boolean volOk = !c.volumeEnabled()
                 || goodVolume(bars, c.minSessionVolume(), c.volumeLookback(), day);
 
@@ -252,7 +263,12 @@ public class OptionVolumeStAlert implements Alert {
         var c = cfg();
         int needed = Math.max(supertrend.length() + Math.max(1, c.stRisingCandles()),
                 Math.max(1, c.emaPeriod()) + Math.max(1, c.emaAboveCandles()) - 1);
-        if (c.emaStackEnabled()) needed = Math.max(needed, Math.max(c.emaStackFast(), c.emaStackSlow()));
+        if (c.emaStackEnabled()) {
+            int source = TimeframeSupport.minutesOf(optionTimeframe());
+            int target = TimeframeSupport.minutesOf(emaStackTimeframe());
+            int ratio = source > 0 && target >= source && target % source == 0 ? target / source : 1;
+            needed = Math.max(needed, Math.max(1, Math.max(c.emaStackFast(), c.emaStackSlow())) * ratio + ratio - 1);
+        }
         if (c.volumeEnabled()) needed = Math.max(needed, c.volumeLookback());
         return Math.max(needed, c.barQuality() == null ? 0 : c.barQuality().minWarmupBars());
     }
@@ -270,7 +286,12 @@ public class OptionVolumeStAlert implements Alert {
 
     private BarQuality.Result assessOption(List<Candle> source, String tf, Instant asOf) {
         var result = BarQuality.assess(source, TimeframeSupport.minutesOf(tf), asOf, minimumBars(), policy());
-        if (!result.valid() || !cfg().threeMinStEnabled()) return result;
+        if (!result.valid()) return result;
+        if (cfg().emaStackEnabled()) {
+            var emaQuality = emaStackBars(result.completed(), tf, asOf);
+            if (!emaQuality.valid()) return new BarQuality.Result(result.completed(), "EMA_STACK_" + emaQuality.reason());
+        }
+        if (!cfg().threeMinStEnabled()) return result;
         int target = TimeframeSupport.minutesOf(cfg().threeMinStTimeframe());
         int minutes = TimeframeSupport.minutesOf(tf);
         if (target < minutes || target % minutes != 0) return new BarQuality.Result(result.completed(), "INVALID_M3_TIMEFRAME");
@@ -279,6 +300,30 @@ public class OptionVolumeStAlert implements Alert {
         var higher = BarQuality.assess(aggregated, target, asOf, 3,
                 new BarQuality.Policy(1, policy().graceSeconds(), policy().gapWindow(), 0));
         return higher.valid() ? result : new BarQuality.Result(result.completed(), "M3_" + higher.reason());
+    }
+
+    public String emaStackTimeframe() {
+        String configured = cfg().emaStackTimeframe();
+        return configured == null || configured.isBlank() ? optionTimeframe() : configured.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    /** Shared completed-bucket selection for live, inspection and historical replay. */
+    private BarQuality.Result emaStackBars(List<Candle> completed, String sourceTimeframe, Instant asOf) {
+        int source = TimeframeSupport.minutesOf(sourceTimeframe);
+        int target = TimeframeSupport.minutesOf(emaStackTimeframe());
+        if (source < 1 || target < source || target % source != 0) {
+            return new BarQuality.Result(List.of(), "INVALID_TIMEFRAME");
+        }
+        var bars = source == target ? completed : BarQuality.completeAggregates(completed, source, target, asOf);
+        var p = policy();
+        return BarQuality.assess(bars, target, asOf,
+                Math.max(1, Math.max(cfg().emaStackFast(), cfg().emaStackSlow())),
+                source == target ? p : new BarQuality.Policy(p.maxAgeBars(), p.graceSeconds(), p.gapWindow(), 0));
+    }
+
+    private boolean emaStackUpAt(List<Candle> completed, Instant asOf) {
+        var quality = emaStackBars(completed, optionTimeframe(), asOf);
+        return quality.valid() && emaStackUp(quality.completed(), cfg().emaStackFast(), cfg().emaStackSlow());
     }
 
     /**
@@ -483,7 +528,7 @@ public class OptionVolumeStAlert implements Alert {
         int streak = stRisingStreak(bars);
         boolean stRising = streak >= Math.max(1, c.stRisingCandles());
         boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
-        boolean emaStack = !c.emaStackEnabled() || emaStackUp(bars, c.emaStackFast(), c.emaStackSlow());
+        boolean emaStack = !c.emaStackEnabled() || emaStackUpAt(bars, asOf);
 
         VolumeStat vs = volumeStat(bars, day, c.volumeLookback());
         boolean volOk;
@@ -516,7 +561,15 @@ public class OptionVolumeStAlert implements Alert {
     public record ReplaySignal(
             String occSymbol, String type, String strike, String moneyness,
             String firedAtEt, String optionClose, int stRisingStreak,
-            boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt) {}
+            boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt,
+            Long sessionVolume, Long signalBarVolume, Long recentFiveBarVolume) {
+        public ReplaySignal(String occSymbol, String type, String strike, String moneyness,
+                            String firedAtEt, String optionClose, int stRisingStreak,
+                            boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt) {
+            this(occSymbol, type, strike, moneyness, firedAtEt, optionClose, stRisingStreak,
+                    aboveEma, emaStackUp, volumeOk, evaluatedAtEt, null, null, null);
+        }
+    }
 
     /** The replay outcome for one contract: candidate signals + bars examined. */
     public record ContractReplay(
@@ -623,17 +676,25 @@ public class OptionVolumeStAlert implements Alert {
 
             boolean stRising = stRisingStreak(upTo) >= Math.max(1, c.stRisingCandles());
             boolean aboveEma = closeAboveEma(upTo, c.emaPeriod(), c.emaAboveCandles());
-            boolean emaStack = !c.emaStackEnabled() || emaStackUp(upTo, c.emaStackFast(), c.emaStackSlow());
+            boolean emaStack = !c.emaStackEnabled() || emaStackUpAt(upTo, bar.timestamp());
             boolean volOk = !c.volumeEnabled()
                     || goodVolume(upTo, c.minSessionVolume(), c.volumeLookback(), date.toString());
             if (!(stRising && aboveEma && emaStack && volOk)) continue;
 
             // Fire — record the signal at the last COMPLETED bar (i-1), apply cooldown.
             Candle completed = upTo.get(upTo.size() - 1);
+            var sessionBars = upTo.stream().filter(candle -> {
+                var et = candle.timestamp().atZone(RZONE);
+                return et.toLocalDate().equals(date) && !et.toLocalTime().isBefore(RTH_OPEN)
+                        && et.toLocalTime().isBefore(RTH_CLOSE);
+            }).toList();
+            long observedSessionVolume = sessionBars.stream().mapToLong(Candle::volume).sum();
+            long lastFiveVolume = sessionBars.subList(Math.max(0, sessionBars.size() - 5), sessionBars.size())
+                    .stream().mapToLong(Candle::volume).sum();
             signals.add(new ReplaySignal(occ, type, strike, moneyness,
                     com.trading.api.TimeFormat.toEt(completed.timestamp()),
                     completed.close().toPlainString(), stRisingStreak(upTo), aboveEma, emaStack, volOk,
-                    com.trading.api.TimeFormat.toEt(bar.timestamp())));
+                    com.trading.api.TimeFormat.toEt(bar.timestamp()), observedSessionVolume, completed.volume(), lastFiveVolume));
             cooldownUntil = bar.timestamp().plusSeconds(cooldownSec);
         }
         return new ContractReplay(occ, type, strike, moneyness, rthBars, signals, java.util.Map.copyOf(rejected), largeCandleRejections);

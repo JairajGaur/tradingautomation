@@ -1,0 +1,39 @@
+meta {
+  name: Get Daily Stock Pivots
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/pivots/{{pivotTicker}}
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+vars:pre-request {
+  pivotTicker: SPY
+}
+
+tests {
+  test("Returns available pivots or an explicit data-coverage error", function () {
+    expect([200, 503]).to.include(res.status);
+    expect(res.body.informationalOnly).to.equal(true);
+    expect(res.body.pivotPoints).to.have.property("available");
+  });
+}
+
+docs {
+  # Standard daily pivots for any stock
+  Change pivotTicker to any supported underlying; membership in option-tickers.txt is not required.
+  Uses the previous complete RTH session's high/low/close, never today's unfinished range.
+  Returns P, R1, R2, S1, S2, source date and OHLC. stockContext uses a fresh completed
+  current-session stock candle to show nearest lower/upper levels and dollar distances.
+  Off-hours stock context may be unavailable while pivot levels remain valid.
+  503 means missing/incomplete prior-session history; 400 means invalid symbol.
+  Requires a complete normal 390-minute RTH session; early-close calendar support is not yet available.
+  Informational only: no orders, no messages and no signal filtering.
+}
