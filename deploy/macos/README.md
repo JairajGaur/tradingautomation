@@ -18,9 +18,14 @@
 
 The installer registers the morning job for the logged-in user. Initial deployment
 builds/tests and starts the server; the server then restarts on failure and on login.
-The Mac must be powered on and the user logged in. A sleeping Mac may run a missed
-calendar job on wake; keep it awake for reliable morning execution. FileVault/login
-can prevent automatic startup after reboot until the user logs in.
+The Mac must be powered on and the user logged in. The server and updater use
+macOS `caffeinate -i` to prevent automatic sleep due to inactivity while either runs.
+The display can still turn off. Keep the Mac plugged in and a laptop lid open;
+this does not override manual Sleep, lid closure, shutdown, or a drained battery.
+If the Mac is already sleeping, the job cannot wake it; a missed calendar job may
+run on wake. FileVault/login can prevent startup after reboot until login.
+After pulling this change on an existing deployment, run the updater once so the
+server restarts with the sleep assertion. Check it with `pmset -g assertions`.
 
 Commit and push changes from anywhere to the selected branch. Each morning the Mac
 fetches and fast-forwards, runs a clean build including tests, stops the server,

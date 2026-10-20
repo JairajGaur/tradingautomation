@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Dedicated deployment checkout only. Run as its owner, not root.
 set -euo pipefail
+# Keep the Mac awake through build and restart, including when the server is stopped.
+if [[ "$(uname -s)" == Darwin && "${DEPLOY_AWAKE_GUARD:-}" != 1 ]]; then
+  exec /usr/bin/caffeinate -i /usr/bin/env DEPLOY_AWAKE_GUARD=1 /bin/bash "$0" "$@"
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 REMOTE="${DEPLOY_REMOTE:-origin}"
