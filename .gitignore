@@ -22,3 +22,10 @@ logs/
 
 # Runtime (start.sh PID file)
 .run/
+
+# Generated reports stay local; keep reusable guides and context notes tracked.
+/reports/*
+!/reports/*-GUIDE.md
+!/reports/KNOWLEDGE-GRAPH.md
+!/reports/OBSIDIAN-SYNC-PENDING.md
+!/reports/CLEANUP-*.md

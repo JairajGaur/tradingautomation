@@ -33,3 +33,10 @@ After meaningful implementation, configuration, report or architectural changes:
   context update in the repository and report that Obsidian synchronization remains pending.
 
 Do not store credentials, tokens, `.env` contents or sensitive broker responses in context notes.
+
+## Generated report policy
+
+Never commit or push generated reports, captured report data, previews, comparison
+snapshots or reproduction archives. Keep these local under `reports/`, which is
+ignored except for reusable report guides and context notes. Report generation
+scripts and templates may be committed. Do not force-add ignored report artifacts.
