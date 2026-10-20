@@ -11,9 +11,9 @@
 4. Commit and push these deployment scripts first. On this dedicated clone, run:
 
    ```bash
-   bash scripts/install-macos-schedule.sh
+   bash scripts/deploy/install-macos-schedule.sh
    # Stop any existing start.sh/bootRun instance on THIS Mac first.
-   bash scripts/daily-update.sh
+   bash scripts/deploy/daily-update.sh
    ```
 
 The installer registers the morning job for the logged-in user. Initial deployment
@@ -44,14 +44,14 @@ Successful revision: `.run/deployed-revision`. Git HEAD can be newer after failu
 Arrange log rotation. After a forced termination, if no updater remains running,
 remove the stale `.run/daily-update.lockdir` before retrying.
 
-Run an update now: `bash scripts/daily-update.sh`.
+Run an update now: `bash scripts/deploy/daily-update.sh`.
 Disable daily updates:
 
 ```bash
 launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.tradingautomation.update.plist"
 ```
 
-Do not use scripts/start.sh alongside this LaunchAgent. Installation is required on
+Do not use scripts/app/start.sh alongside this LaunchAgent. Installation is required on
 the other Mac; adding these files does not schedule or restart this development Mac.
 
 ## Switch an existing deployment to master
@@ -62,10 +62,60 @@ In the deployment checkout, with no tracked local edits:
 git fetch origin
 git switch master  # creates a tracking branch if only origin/master exists
 git pull --ff-only origin master
-bash scripts/install-macos-schedule.sh
-bash scripts/daily-update.sh
+bash scripts/deploy/install-macos-schedule.sh
+bash scripts/deploy/daily-update.sh
 ```
 
 Reinstalling replaces the saved branch and scheduled job configuration with `master`.
 For a new machine, clone with
 `git clone --branch master https://github.com/JairajGaur/tradingautomation.git`.
+
+## Stop the entire managed deployment
+
+Run as the same login user that installed it:
+
+```bash
+bash scripts/deploy/stop-macos-deployment.sh
+```
+
+This disables both LaunchAgents across future logins, stops the scheduled updater
+and server, and stops a manual updater started with the new PID-recording script.
+It preserves credentials, JARs and logs. Older manual updater runs without the PID
+record must be stopped with Ctrl-C in their original terminal. Separate bootRun or
+scripts/app/start.sh instances are outside this managed deployment.
+
+To resume, rerun the installer, then daily-update.sh. If a terminated update left
+`.run/daily-update.lockdir`, check no updater remains before removing that directory.
+
+## Migration from the old flat scripts folder
+
+On an already configured deployment Mac, stop the deployment with its old script
+**before pulling** the folder reorganization:
+
+```bash
+bash scripts/stop-macos-deployment.sh
+git pull --ff-only origin master
+bash scripts/deploy/install-macos-schedule.sh
+bash scripts/deploy/daily-update.sh
+```
+
+The first command above is the old path and is only for this migration. If you
+already pulled, use `bash scripts/deploy/stop-macos-deployment.sh` instead.
+Reinstalling updates both LaunchAgent plist paths. The schedule stays 08:30.
+
+## Missing Java Runtime / JDK 17
+
+With Homebrew installed, run:
+
+```bash
+brew install --cask temurin@17
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+"$JAVA_HOME/bin/java" -version
+"$JAVA_HOME/bin/javac" -version
+bash scripts/deploy/install-macos-schedule.sh
+bash scripts/deploy/daily-update.sh
+```
+
+Without Homebrew, install the macOS JDK 17 package from https://adoptium.net/.
+Use the package matching your Mac (Apple Silicon or Intel). An explicitly set
+JAVA_HOME must point to a full JDK, including bin/java and bin/javac.

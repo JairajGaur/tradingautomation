@@ -2,15 +2,15 @@
 #
 # Start the trading-automation app in the background with env vars from .env.
 #
-#   ./scripts/start.sh
+#   ./scripts/app/start.sh
 #
 # Reads ./.env (copy from .env.example first). Writes a PID to ./.run/app.pid and
-# logs to ./logs/app.out. Use ./scripts/stop.sh to stop it.
+# logs to ./logs/app.out. Use ./scripts/app/stop.sh to stop it.
 
 set -euo pipefail
 
-# Resolve project root (this script lives in scripts/).
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve project root (this script lives two directories below the project root: scripts/).
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 ENV_FILE="$ROOT/.env"
@@ -44,12 +44,12 @@ fi
 # ── Already running? ─────────────────────────────────────────────────────────
 mkdir -p "$RUN_DIR" "$ROOT/logs"
 if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "Already running (PID $(cat "$PID_FILE")). Use ./scripts/stop.sh first."
+  echo "Already running (PID $(cat "$PID_FILE")). Use ./scripts/app/stop.sh first."
   exit 1
 fi
 if lsof -ti "tcp:$PORT" >/dev/null 2>&1; then
   echo "ERROR: port $PORT is already in use by PID(s): $(lsof -ti tcp:$PORT | tr '\n' ' ')"
-  echo "       Stop that process (or ./scripts/stop.sh) before starting."
+  echo "       Stop that process (or ./scripts/app/stop.sh) before starting."
   exit 1
 fi
 

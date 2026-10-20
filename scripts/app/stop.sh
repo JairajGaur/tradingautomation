@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Stop the trading-automation app started by scripts/start.sh.
+# Stop the trading-automation app started by scripts/app/start.sh.
 #
-#   ./scripts/stop.sh
+#   ./scripts/app/stop.sh
 #
 # Stops the process recorded in ./.run/app.pid; falls back to whatever is bound
 # to the server port if the PID file is missing/stale.
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 PID_FILE="$ROOT/.run/app.pid"

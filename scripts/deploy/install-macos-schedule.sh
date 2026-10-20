@@ -1,11 +1,19 @@
 #!/bin/bash
 # Run once from a dedicated clean clone on the deployment Mac, as the login user.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 case "$ROOT" in *'&'*|*'<'*|*'>'*|*'"'*) echo 'Use a checkout path without XML special characters'; exit 1;; esac
 [[ "$(uname -s)" == Darwin ]] || { echo 'macOS required'; exit 1; }
 [[ -f "$ROOT/.env" ]] || { echo 'Create .env first; see deploy/macos/README.md'; exit 1; }
-JAVA_HOME="$(/usr/libexec/java_home -v 17)"
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)" || JAVA_HOME=""
+fi
+if [[ ! -x "${JAVA_HOME:-}/bin/java" || ! -x "${JAVA_HOME:-}/bin/javac" ]]; then
+  echo 'ERROR: JDK 17 was not found. Install it with: brew install --cask temurin@17' >&2
+  echo 'Then retry, or set JAVA_HOME to your installed JDK 17 directory.' >&2
+  exit 1
+fi
+export JAVA_HOME
 BRANCH="${DEPLOY_BRANCH:-master}"
 [[ "$(git -C "$ROOT" branch --show-current)" == "$BRANCH" ]] || { echo "Check out $BRANCH before installing the schedule"; exit 1; }
 [[ "$BRANCH" =~ ^[a-zA-Z0-9_./-]+$ ]] || { echo 'Check out a named deployment branch'; exit 1; }
@@ -18,7 +26,7 @@ cat > "$AGENTS/com.tradingautomation.server.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>com.tradingautomation.server</string>
-<key>ProgramArguments</key><array><string>/bin/bash</string><string>$ROOT/scripts/run-deployed.sh</string></array>
+<key>ProgramArguments</key><array><string>/bin/bash</string><string>$ROOT/scripts/deploy/run-deployed.sh</string></array>
 <key>WorkingDirectory</key><string>$ROOT</string>
 <key>EnvironmentVariables</key><dict><key>JAVA_HOME</key><string>$JAVA_HOME</string></dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
@@ -32,7 +40,7 @@ cat > "$AGENTS/com.tradingautomation.update.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>com.tradingautomation.update</string>
-<key>ProgramArguments</key><array><string>/bin/bash</string><string>$ROOT/scripts/daily-update.sh</string></array>
+<key>ProgramArguments</key><array><string>/bin/bash</string><string>$ROOT/scripts/deploy/daily-update.sh</string></array>
 <key>WorkingDirectory</key><string>$ROOT</string>
 <key>EnvironmentVariables</key><dict><key>JAVA_HOME</key><string>$JAVA_HOME</string><key>DEPLOY_BRANCH</key><string>$BRANCH</string></dict>
 <key>StartCalendarInterval</key><dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
@@ -42,6 +50,8 @@ cat > "$AGENTS/com.tradingautomation.update.plist" <<PLIST
 PLIST
 plutil -lint "$AGENTS/com.tradingautomation.server.plist" "$AGENTS/com.tradingautomation.update.plist"
 DOMAIN="gui/$(id -u)"
+launchctl enable "$DOMAIN/com.tradingautomation.server"
+launchctl enable "$DOMAIN/com.tradingautomation.update"
 if launchctl print "$DOMAIN/com.tradingautomation.update" >/dev/null 2>&1; then
   launchctl bootout "$DOMAIN" "$AGENTS/com.tradingautomation.update.plist"
 fi

@@ -4,17 +4,17 @@
 # (app.llm.* / GET /api/llm/analyze). Safe to run repeatedly — it reuses a server
 # that is already up and only pulls the model if it is missing.
 #
-#   ./scripts/llm-start.sh                 # defaults to the model in application.yml
-#   LLM_MODEL=qwen3:14b ./scripts/llm-start.sh
+#   ./scripts/llm/llm-start.sh                 # defaults to the model in application.yml
+#   LLM_MODEL=qwen3:14b ./scripts/llm/llm-start.sh
 #
 # Writes a PID to ./.run/ollama.pid and logs to ./logs/ollama.out. Stop it with
-# ./scripts/llm-stop.sh. This is INDEPENDENT of the trading app — bring the LLM
+# ./scripts/llm/llm-stop.sh. This is INDEPENDENT of the trading app — bring the LLM
 # up/down without touching start.sh/stop.sh.
 
 set -euo pipefail
 
-# Resolve project root (this script lives in scripts/).
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve project root (this script lives two directories below the project root: scripts/).
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 RUN_DIR="$ROOT/.run"
@@ -85,4 +85,4 @@ fi
 echo ""
 echo "LLM ready. The app's analyst (app.llm.enabled=true) will use '$MODEL'."
 echo "Try it:  curl \"$BASE_URL/api/version\""
-echo "Stop it: ./scripts/llm-stop.sh"
+echo "Stop it: ./scripts/llm/llm-stop.sh"

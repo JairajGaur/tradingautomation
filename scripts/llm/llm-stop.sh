@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Stop the local LLM runtime (Ollama) started by scripts/llm-start.sh — or just
+# Stop the local LLM runtime (Ollama) started by scripts/llm/llm-start.sh — or just
 # unload a single model from memory while leaving the server (and other models) up.
 #
-#   ./scripts/llm-stop.sh                 # unload all loaded models, then stop the server
-#   ./scripts/llm-stop.sh qwen3:14b       # unload ONLY that model; server stays running
+#   ./scripts/llm/llm-stop.sh                 # unload all loaded models, then stop the server
+#   ./scripts/llm/llm-stop.sh qwen3:14b       # unload ONLY that model; server stays running
 #
 # With no argument: stops the process recorded in ./.run/ollama.pid, falling back
 # to any 'ollama serve' process if the PID file is missing/stale.
@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 PID_FILE="$ROOT/.run/ollama.pid"

@@ -5,7 +5,7 @@ set -euo pipefail
 if [[ "$(uname -s)" == Darwin && "${DEPLOY_AWAKE_GUARD:-}" != 1 ]]; then
   exec /usr/bin/caffeinate -i /usr/bin/env DEPLOY_AWAKE_GUARD=1 /bin/bash "$0" "$@"
 fi
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 REMOTE="${DEPLOY_REMOTE:-origin}"
 BRANCH="${DEPLOY_BRANCH:-$(cat .run/deploy-branch 2>/dev/null || echo master)}"
@@ -13,7 +13,15 @@ SERVICE="${DEPLOY_SERVICE:-tradingautomation.service}"
 HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 export GIT_TERMINAL_PROMPT=0
 if [[ "$(uname -s)" == Darwin ]]; then
-  export JAVA_HOME="${JAVA_HOME:-$(/usr/libexec/java_home -v 17)}"
+  if [[ -z "${JAVA_HOME:-}" ]]; then
+    JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)" || JAVA_HOME=""
+  fi
+  if [[ ! -x "${JAVA_HOME:-}/bin/java" || ! -x "${JAVA_HOME:-}/bin/javac" ]]; then
+    echo 'ERROR: JDK 17 was not found. Install it with: brew install --cask temurin@17' >&2
+    echo 'Then retry, or set JAVA_HOME to your installed JDK 17 directory.' >&2
+    exit 1
+  fi
+  export JAVA_HOME
   export PATH="$JAVA_HOME/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
   DOMAIN="gui/$(id -u)"
   PLIST="$HOME/Library/LaunchAgents/com.tradingautomation.server.plist"
@@ -31,7 +39,8 @@ fi
 mkdir -p .run logs
 LOCK_DIR="$ROOT/.run/daily-update.lockdir"
 mkdir "$LOCK_DIR" 2>/dev/null || { echo 'Another update is running; skipping.'; exit 0; }
-trap 'rmdir "$LOCK_DIR"' EXIT
+printf '%s\n' "$$" > "$LOCK_DIR/pid"
+trap 'rm -f "$LOCK_DIR/pid"; rmdir "$LOCK_DIR"' EXIT
 exec >>logs/daily-update.log 2>&1
 trap 'echo "Update failed at $(date +%Y-%m-%dT%H:%M:%S%z), line $LINENO"' ERR
 echo "Update started: $(date +%Y-%m-%dT%H:%M:%S%z)"

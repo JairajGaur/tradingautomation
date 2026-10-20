@@ -3,7 +3,7 @@
 # Report the status of the local LLM runtime (Ollama) used by the app's advisory
 # analyst layer (app.llm.* / GET /api/llm/analyze).
 #
-#   ./scripts/llm-status.sh
+#   ./scripts/llm/llm-status.sh
 #
 # Shows: whether the server is reachable, its version, the recorded PID, the
 # installed models, which models are currently loaded in memory (size, quant,
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 PID_FILE="$ROOT/.run/ollama.pid"
@@ -58,7 +58,7 @@ if ! curl -fsS "$BASE_URL/api/version" >/dev/null 2>&1; then
     echo "PID file : $PID_FILE (PID $(cat "$PID_FILE") — stale, process not answering)"
   fi
   echo ""
-  echo "Start it with: ./scripts/llm-start.sh"
+  echo "Start it with: ./scripts/llm/llm-start.sh"
   exit 1
 fi
 

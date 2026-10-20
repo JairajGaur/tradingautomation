@@ -60,7 +60,7 @@ curl --fail http://127.0.0.1:8080/api/health
 ```
 
 The first update creates `.run/server.jar`. Start the service manually only after
-that succeeds. Never use scripts/start.sh alongside this systemd service.
+that succeeds. Never use scripts/app/start.sh alongside this systemd service.
 The liveness check does not prove broker authentication or trading readiness.
 
 ## Operations
@@ -82,3 +82,7 @@ newer if a build or deployment fails. Previous JAR rollback reuses the current
 external environment. Logs need your normal retention/logrotate policy.
 
 No remote host is configured or scheduled by merely adding these repository files.
+
+After upgrading from the flat scripts folder, reinstall the update service unit
+from deploy/systemd/ and run `sudo systemctl daemon-reload` so ExecStart uses
+`scripts/deploy/daily-update.sh`.
