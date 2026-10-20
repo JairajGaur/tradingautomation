@@ -6,7 +6,8 @@ case "$ROOT" in *'&'*|*'<'*|*'>'*|*'"'*) echo 'Use a checkout path without XML s
 [[ "$(uname -s)" == Darwin ]] || { echo 'macOS required'; exit 1; }
 [[ -f "$ROOT/.env" ]] || { echo 'Create .env first; see deploy/macos/README.md'; exit 1; }
 JAVA_HOME="$(/usr/libexec/java_home -v 17)"
-BRANCH="$(git -C "$ROOT" branch --show-current)"
+BRANCH="${DEPLOY_BRANCH:-master}"
+[[ "$(git -C "$ROOT" branch --show-current)" == "$BRANCH" ]] || { echo "Check out $BRANCH before installing the schedule"; exit 1; }
 [[ "$BRANCH" =~ ^[a-zA-Z0-9_./-]+$ ]] || { echo 'Check out a named deployment branch'; exit 1; }
 AGENTS="$HOME/Library/LaunchAgents"
 mkdir -p "$AGENTS" "$ROOT/.run" "$ROOT/logs"

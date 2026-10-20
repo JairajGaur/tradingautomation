@@ -1,7 +1,7 @@
 # Daily deployment on macOS — 08:30 Eastern
 
 1. Install Git and JDK 17 on the other Mac. Clone this repository into a dedicated
-   folder; check out the branch you want deployed. Configure noninteractive Git
+   folder; check out `master`, the deployment branch. Configure noninteractive Git
    authentication (SSH deploy key and verified known_hosts, or Keychain credentials).
 2. Create `.env` from `.env.example`, supply credentials, and `chmod 600 .env`.
    This file is sourced as Bash; use only trusted configuration. Review current
@@ -27,7 +27,7 @@ run on wake. FileVault/login can prevent startup after reboot until login.
 After pulling this change on an existing deployment, run the updater once so the
 server restarts with the sleep assertion. Check it with `pmset -g assertions`.
 
-Commit and push changes from anywhere to the selected branch. Each morning the Mac
+Commit and push changes from anywhere to `master`. Each morning the Mac
 fetches and fast-forwards, runs a clean build including tests, stops the server,
 installs the new JAR, and starts it. Unpushed edits do not sync. Dirty or diverged
 checkouts fail without overwriting changes. Keep machine overrides in `.env`.
@@ -53,3 +53,19 @@ launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.tradingautomati
 
 Do not use scripts/start.sh alongside this LaunchAgent. Installation is required on
 the other Mac; adding these files does not schedule or restart this development Mac.
+
+## Switch an existing deployment to master
+
+In the deployment checkout, with no tracked local edits:
+
+```bash
+git fetch origin
+git switch master  # creates a tracking branch if only origin/master exists
+git pull --ff-only origin master
+bash scripts/install-macos-schedule.sh
+bash scripts/daily-update.sh
+```
+
+Reinstalling replaces the saved branch and scheduled job configuration with `master`.
+For a new machine, clone with
+`git clone --branch master https://github.com/JairajGaur/tradingautomation.git`.

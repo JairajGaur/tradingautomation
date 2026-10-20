@@ -18,7 +18,7 @@ Install Git, Bash, JDK 17, curl, sudo, and util-linux (flock). Create a `trading
 user and clone your repository into `/opt/tradingautomation`, owned by that user.
 Set up noninteractive Git access as `trading` (for example, a read-only SSH deploy
 key and a verified known_hosts entry). Allow outbound access for Git and Gradle.
-Check out the deployment branch, default `main`.
+Check out the deployment branch, default `master`.
 
 Create `/opt/tradingautomation/.env` on that machine using `.env.example` as the
 reference. Use systemd EnvironmentFile syntax: plain KEY=value lines, no `export`,

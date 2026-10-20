@@ -8,7 +8,7 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 REMOTE="${DEPLOY_REMOTE:-origin}"
-BRANCH="${DEPLOY_BRANCH:-$(cat .run/deploy-branch 2>/dev/null || echo main)}"
+BRANCH="${DEPLOY_BRANCH:-$(cat .run/deploy-branch 2>/dev/null || echo master)}"
 SERVICE="${DEPLOY_SERVICE:-tradingautomation.service}"
 HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 export GIT_TERMINAL_PROMPT=0
