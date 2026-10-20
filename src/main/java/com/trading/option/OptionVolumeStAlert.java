@@ -67,7 +67,15 @@ public class OptionVolumeStAlert implements Alert {
     private final OptionStockTrendFilter stockTrend;
     private final com.trading.llm.PivotAlertNarrator pivotNarrator;
     private final com.trading.service.StockPivotService pivots;
-    private final OptionSignalGrouping.Cooldown liveCooldown = new OptionSignalGrouping.Cooldown();
+    private final java.util.Map<String, OptionEmaLatch> liveLatches = new java.util.concurrent.ConcurrentHashMap<>();
+
+    OptionEmaLatch latch(String underlying) { return liveLatches.computeIfAbsent(underlying, ignored -> new OptionEmaLatch()); }
+
+    public OptionStockTrendFilter.Series replayLatchSeries(String underlying) {
+        return stockTrend == null ? null : stockTrend.loadLowest(underlying, false);
+    }
+
+    public String rearmTimeframe() { return stockTrend == null ? null : stockTrend.lowestEmaTimeframe(); }
 
     public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
                                OptionContractService contracts, OptionBarDataManager optionBars,
@@ -148,6 +156,8 @@ public class OptionVolumeStAlert implements Alert {
         for (String underlying : underlyings.getUnderlyings()) {
             try {
                 Instant asOf = Instant.now();
+                // Observe EMA changes even when HA, option loading or another entry gate fails.
+                latch(underlying).update(stockTrend == null ? null : stockTrend.latchSeries(underlying, asOf), asOf);
                 List<AlertHit> contractHits = new ArrayList<>();
                 java.util.Map<String,Long> candleVolumes=new java.util.HashMap<>();
                 Set<Type> allowedSides = bothSides;
@@ -212,7 +222,7 @@ public class OptionVolumeStAlert implements Alert {
         List<AlertHit> groups = new ArrayList<>();
         for (var side : sides.entrySet()) {
             String key = OptionSignalGrouping.key(underlying, side.getKey().name());
-            if (!liveCooldown.allows(key, tick, cfg().cooldownMinutes())) continue;
+            if (!latch(underlying).allows(side.getKey().name())) continue;
             var ordered = side.getValue().stream().sorted(java.util.Comparator
                     .comparing((AlertHit hit) -> OptionContract.parse(hit.ticker()).strike())
                     .thenComparing(AlertHit::ticker)).toList();
@@ -241,7 +251,7 @@ public class OptionVolumeStAlert implements Alert {
                         .append(OptionContract.parse(hit.ticker()).strike().toPlainString()).append(" @ ")
                         .append(hit.price().toPlainString()).append(" — ").append(hit.ticker());
             }
-            groups.add(new AlertHit(id(), underlying, "OPTGROUP|" + key + "|" + tick.getEpochSecond(),
+            groups.add(new AlertHit(id(), underlying, "OPTGROUP|" + key + "|" + tick.getEpochSecond() + "|" + latch(underlying).generation(),
                     message.toString(), side.getKey() == Type.CALL ? AlertMessageFormat.Dir.UP : AlertMessageFormat.Dir.DOWN,
                     null, optionTimeframe()));
         }
@@ -250,14 +260,14 @@ public class OptionVolumeStAlert implements Alert {
 
     @Override public String dedupeKey(AlertHit hit) {
         String[] parts = hit.state().split("\\|");
-        return parts.length == 4 && parts[0].equals("OPTGROUP")
+        return parts.length == 5 && parts[0].equals("OPTGROUP")
                 ? OptionSignalGrouping.key(parts[1], parts[2]) : hit.ticker();
     }
 
     @Override public void onDeliveryAttempted(AlertHit hit) {
         String[] parts = hit.state().split("\\|");
-        if (parts.length == 4 && parts[0].equals("OPTGROUP")) {
-            liveCooldown.record(OptionSignalGrouping.key(parts[1], parts[2]), Instant.ofEpochSecond(Long.parseLong(parts[3])));
+        if (parts.length == 5 && parts[0].equals("OPTGROUP")) {
+            latch(parts[1]).consume(parts[2], Long.parseLong(parts[4]));
         }
     }
 

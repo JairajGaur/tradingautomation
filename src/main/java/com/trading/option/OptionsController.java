@@ -251,8 +251,8 @@ public class OptionsController {
      * For each underlying it finds the stock's OPEN price (today's 09:30 bar), generates the
      * near-the-money contracts (both sides) off that open, fetches each contract's max M1 bars,
      * and walks them bar-by-bar — evaluating the legs on only the data up to each bar (no
-     * lookahead), recording every fired signal with its timestamp and applying the configured
-     * {@code cooldown-minutes} between stock/side alert groups.
+     * lookahead), allowing one delivered group per continuous lowest-stock-EMA direction.
+     * A valid EMA break and recovery rearms that side; no timed cooldown applies.
      *
      * <p>{@code GET /api/options/vol-st/replay} (all underlyings) or {@code ?underlying=AAPL}.
      * Uses the latest session with an opening bar in the returned stock history, including
@@ -341,9 +341,9 @@ public class OptionsController {
                 rawCandidates.add(rep);
             }
             var referenceHistory=stockBars.get(u);
-            var grouped = OptionSignalGrouping.replay(u, rawCandidates, c.cooldownMinutes(),c.contractRanking(),
+            var grouped = OptionSignalGrouping.replayByEma(u, rawCandidates, c.contractRanking(),
                     OptionContractRanking.enabled(c.contractRanking()) ? optionContractService.strikeIncrementFor(u) : null,
-                    at->OptionContractRanking.stockPriceAt(referenceHistory,at,c.barQuality()));
+                    at->OptionContractRanking.stockPriceAt(referenceHistory,at,c.barQuality()), volStAlert.replayLatchSeries(u));
             grouped.contracts().forEach(rep -> contractRows.add(replayMap(rep)));
             int sigCount = grouped.groups().size();
             int contractSignals = grouped.contracts().stream().mapToInt(rep -> rep.signals().size()).sum();
@@ -365,7 +365,8 @@ public class OptionsController {
             row.put("contractSignalCount", contractSignals);
             row.put("rawQualifyingContractSignals", grouped.rawContractSignals());
             row.put("simultaneousGroupsBeforeCooldown", grouped.simultaneousGroups());
-            row.put("cooldownSuppressedGroups", grouped.cooldownSuppressedGroups());
+            row.put("emaStateSuppressedGroups", grouped.cooldownSuppressedGroups());
+            row.put("cooldownSuppressedGroups", 0);
             row.put("rankingSkippedGroups", grouped.rankingSkippedGroups());
             row.put("contractsWithSignals", contractRows.size());
             row.put("contractsWithSessionData", contractsWithSessionData);
@@ -410,11 +411,13 @@ public class OptionsController {
         body.put("pivotFilter", c.pivotFilter());
         body.put("stockHigherStEnabled", c.stockHigherStEnabled());
         body.put("stockHigherStTimeframe", c.stockHigherStTimeframe());
-        body.put("cooldownMinutes", c.cooldownMinutes());
+        body.put("cooldownMinutes", 0);
+        body.put("realertPolicy", "LOWEST_STOCK_EMA_STATE");
+        body.put("rearmTimeframe", volStAlert.rearmTimeframe());
         body.put("totalSignals", totalSignals);
         body.put("totalContractSignals", totalContractSignals);
         body.put("signalCounting", "UNDERLYING_SIDE_GROUP");
-        body.put("cooldownScope", "UNDERLYING_SIDE");
+        body.put("cooldownScope", "DISABLED");
         body.put("expirySelection", "NEAREST_LISTED");
         body.put("rankingApplied", OptionContractRanking.enabled(c.contractRanking()));
         body.put("contractRanking", c.contractRanking());
@@ -424,7 +427,7 @@ public class OptionsController {
         body.put("note", "Strikes picked off the stock's OPEN price. Options have no deep dated "
                 + "history (most-recent-N bars); replay uses the last completed stock opening session. "
                 + "Option bars, including expired contracts, may be unavailable or incomplete. "
-                + "Replay and live alerts group qualifying strikes by stock and side with a shared cooldown. "
+                + "Replay and live allow one alert per continuous lowest-timeframe stock EMA direction. A valid EMA state break and recovery rearms the side; missing data does not. "
                 + (OptionContractRanking.enabled(c.contractRanking())
                     ? "One highest-candle-volume contract is selected within the nearby qualifying-strike band. "
                     : "All qualifying strikes are retained without ranking. ") + "Candidate strikes are fixed at the open "

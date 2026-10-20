@@ -231,6 +231,7 @@ public record AppProperties(
                 @DefaultValue("true")  boolean volumeEnabled,
                 @DefaultValue("500")   long minSessionVolume,
                 @DefaultValue("10")    int volumeLookback,
+                /** Legacy contract-replay compatibility only; production grouping uses stock EMA state. */
                 @DefaultValue("15")    int cooldownMinutes,
                 @DefaultValue("OPTION ST - ") String messagePrefix,
                 @DefaultValue("")      String telegramChatId,

@@ -36,11 +36,12 @@ class OptionSignalGroupingTest {
         assertEquals(2, result.groups().size());
         assertEquals(2, result.groups().get(0).candidates().size());
     }
-    @Test void liveCooldownStartsOnDeliveryAttemptAndCannotBeBypassedByChangingStrike() {
+    @Test void liveEmaLatchStartsOnDeliveryAttemptAndCannotBeBypassedByTimeOrStrike() {
         AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
         when(props.alerts().optionVolSt().cooldownMinutes()).thenReturn(30);
         when(props.alerts().optionVolSt().timeframe()).thenReturn("M1");
         var alert = new OptionVolumeStAlert(props, null, null, null, null, null);
+        alert.latch("SPY").observe(START.minusSeconds(60), -1);
         var low = hit("SPY261016P00768000");
         var high = hit("SPY261016P00770000");
         var groups = alert.groupHits("SPY", List.of(high, low), START);
@@ -55,8 +56,10 @@ class OptionSignalGroupingTest {
         assertTrue(alert.groupHits("SPY", List.of(high), START.plusSeconds(60)).isEmpty());
         assertTrue(alert.groupHits("SPY", List.of(), START.plusSeconds(120)).isEmpty());
         assertTrue(alert.groupHits("SPY", List.of(low), START.plusSeconds(1740)).isEmpty());
-        assertEquals(1, alert.groupHits("SPY", List.of(high), START.plusSeconds(1800)).size());
+        assertTrue(alert.groupHits("SPY", List.of(high), START.plusSeconds(1800)).isEmpty());
+        alert.latch("SPY").observe(START.plusSeconds(1800), 1);
         assertEquals(1, alert.groupHits("SPY", List.of(hit("SPY261016C00770000")), START.plusSeconds(60)).size());
+        alert.latch("QQQ").observe(START, -1);
         assertEquals(1, alert.groupHits("QQQ", List.of(hit("QQQ261016P00600000")), START.plusSeconds(60)).size());
     }
     private OptionVolumeStAlert.ContractReplay rankedContract(String occ,String strike,long volume,int... minutes) {
@@ -88,6 +91,7 @@ class OptionSignalGroupingTest {
         when(props.alerts().optionVolSt().contractRanking()).thenReturn(cfg);
         when(props.alerts().optionVolSt().cooldownMinutes()).thenReturn(30);
         var alert=new OptionVolumeStAlert(props,null,null,null,null,null);
+        alert.latch("SPY").observe(START.minusSeconds(60), 1);
         var a=hit("SPY261019C00100000");var b=hit("SPY261019C00102500");var far=hit("SPY261019C00105000");
         var volumes=java.util.Map.of(a.ticker(),100L,b.ticker(),200L,far.ticker(),9999L);
         var group=alert.groupHits("SPY",List.of(a,b,far),START,new BigDecimal("100"),new BigDecimal("2.5"),volumes).get(0);

@@ -70,12 +70,17 @@ public class OptionStockTrendFilter {
     }
 
     private Series load(String underlying, boolean ema, boolean refresh) {
+        return load(underlying, ema, refresh, false);
+    }
+
+    private Series load(String underlying, boolean ema, boolean refresh, boolean lowestOnly) {
         var cfg = props.alerts().optionVolSt();
         int fast = Math.max(1, cfg.stockEmaStackFast()), slow = Math.max(1, cfg.stockEmaStackSlow());
         try {
             var frames = new ArrayList<Frame>();
             var timeframes = TimeframeSupport.minuteTimeframes(
                     ema ? cfg.stockEmaStackTimeframe() : cfg.stockHigherStTimeframe(), ema ? cfg.timeframe() : "M3");
+            if (lowestOnly) timeframes = List.of(lowestEmaTimeframe());
             for (String tf : timeframes) {
                 int minutes = TimeframeSupport.minutesOf(tf);
                 String source = TimeframeSupport.isSynthetic(tf) ? "M1" : tf;
@@ -94,6 +99,24 @@ public class OptionStockTrendFilter {
                     "Stock {} {} unavailable: {}", underlying, ema ? "EMA" : "higher ST", ex.getMessage());
             return new Series(List.of(), ema, fast, slow);
         }
+    }
+
+    /** Load only the lowest stock EMA interval for repeat-alert state, even if confirmation is off. */
+    public Series latchSeries(String underlying, Instant asOf) {
+        var series = loadLowest(underlying, false);
+        if (series.frames().isEmpty() || series.frames().get(0).completedAt(asOf).isEmpty())
+            series = loadLowest(underlying, true);
+        return series;
+    }
+
+    public Series loadLowest(String underlying, boolean refresh) {
+        return load(underlying, true, refresh, true);
+    }
+
+    public String lowestEmaTimeframe() {
+        var c = props.alerts().optionVolSt();
+        return TimeframeSupport.minuteTimeframes(c.stockEmaStackTimeframe(), c.timeframe()).stream()
+                .min(java.util.Comparator.comparingInt(TimeframeSupport::minutesOf)).orElseThrow();
     }
 
     public boolean current(String underlying, OptionContract.Type side, Instant asOf, boolean ema) {

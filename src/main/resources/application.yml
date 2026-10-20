@@ -462,8 +462,9 @@ app:
         min-warmup-bars: 0                  # 0 = derive minimum from enabled indicators
         ha-warmup-bars: 20                  # completed stock candles required to seed HA
 
-      # Shared cooldown and alert delivery.
-      cooldown-minutes: 10                  # all strikes of the same stock + CALL/PUT side
+      # Repeat alerts rearm only after the lowest stock EMA direction breaks and returns.
+      # CALL fast > slow; PUT fast < slow. Missing data never rearms. No timed cooldown.
+      # Alert delivery.
       message-prefix: "OPTION - "
       # SEPARATE channel. Blank → the alert is skipped (no fallback).
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"

@@ -36,6 +36,16 @@ class OptionEmaTimeframeTest {
         }
         return result;
     }
+    @Test void latchLoadsOnlySmallestIntervalEvenWhenStockConfirmationIsDisabled() {
+        var filter=filter("M30,M5,M1");
+        when(props.alerts().optionVolSt().stockEmaStackEnabled()).thenReturn(false);
+        when(stock.getBars("AAPL","M1",100)).thenReturn(history(1,true));
+        var series=filter.latchSeries("AAPL",asOf);
+        assertEquals("M1",filter.lowestEmaTimeframe());assertEquals(1,series.frames().size());
+        assertTrue(series.matches(OptionContract.Type.CALL,asOf));
+        verify(stock,never()).getBars(eq("AAPL"),eq("M30"),anyInt());
+        verify(stock,never()).getBars(eq("AAPL"),eq("M5"),anyInt());
+    }
     @Test void nativeStockTimeframesConfirmCallAndPutIndependentlyOfOptionTimeframe() {
         var filter=filter("M1,M5");
         when(props.alerts().optionVolSt().timeframe()).thenReturn("M15");
