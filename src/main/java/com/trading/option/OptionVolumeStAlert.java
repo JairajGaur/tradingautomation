@@ -7,7 +7,6 @@ import com.trading.alert.OrbSupport;
 import com.trading.config.AppProperties;
 import com.trading.indicator.EmaCalculator;
 import com.trading.indicator.CandleRangeAtrFilter;
-import com.trading.indicator.SupertrendCalculator;
 import com.trading.indicator.SupertrendCalculator.Direction;
 import com.trading.indicator.SupertrendCalculator.Point;
 import com.trading.indicator.SupertrendService;
@@ -44,8 +43,8 @@ import java.util.Set;
  *   <li>option close ≥ its {@code emaPeriod}-EMA on each of the last {@code emaAboveCandles} bars
  *       (colour-agnostic);</li>
  *   <li>good volume (optional) — session floor + rising, two-part.</li>
- *   <li>3-minute Supertrend (optional) — when enabled, requires that the 3-minute supertrend is also UP.
- *       This adds an additional filter to ensure the option contract meets a more stringent trend condition.</li>
+ *   <li>Stock higher Supertrend (optional) — UP for CALL, DOWN for PUT on every configured interval.
+ *       Stock EMA alignment independently confirms the same direction on every configured EMA interval.</li>
  * </ol>
  * Fires a single UP signal per qualifying OCC. The {@link com.trading.alert.AlertEngine} discovers
  * it via {@code List<Alert>}, polls it every minute, and gates it to market hours. The stock
@@ -65,6 +64,8 @@ public class OptionVolumeStAlert implements Alert {
     private final OptionBarDataManager optionBars;
     private final SupertrendService supertrend;
     private final OptionHaDirectionFilter haFilter;
+    private final OptionStockTrendFilter stockTrend;
+    private final com.trading.llm.PivotAlertNarrator pivotNarrator;
     private final com.trading.service.StockPivotService pivots;
     private final OptionSignalGrouping.Cooldown liveCooldown = new OptionSignalGrouping.Cooldown();
 
@@ -74,13 +75,29 @@ public class OptionVolumeStAlert implements Alert {
         this(props,underlyings,contracts,optionBars,supertrend,haFilter,null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
                                OptionContractService contracts, OptionBarDataManager optionBars,
                                SupertrendService supertrend, OptionHaDirectionFilter haFilter,
                                com.trading.service.StockPivotService pivots) {
+        this(props, underlyings, contracts, optionBars, supertrend, haFilter, pivots, null);
+    }
+
+    public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
+                               OptionContractService contracts, OptionBarDataManager optionBars,
+                               SupertrendService supertrend, OptionHaDirectionFilter haFilter,
+                               com.trading.service.StockPivotService pivots, OptionStockTrendFilter stockTrend) {
+        this(props,underlyings,contracts,optionBars,supertrend,haFilter,pivots,stockTrend,null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OptionVolumeStAlert(AppProperties props, OptionUniverseLoader underlyings,
+                               OptionContractService contracts, OptionBarDataManager optionBars,
+                               SupertrendService supertrend, OptionHaDirectionFilter haFilter,
+                               com.trading.service.StockPivotService pivots, OptionStockTrendFilter stockTrend,
+                               com.trading.llm.PivotAlertNarrator pivotNarrator) {
         this.props=props;this.underlyings=underlyings;this.contracts=contracts;
         this.optionBars=optionBars;this.supertrend=supertrend;this.haFilter=haFilter;this.pivots=pivots;
+        this.stockTrend=stockTrend;this.pivotNarrator=pivotNarrator;
     }
 
     private AppProperties.Alerts.OptionVolStCfg cfg() {
@@ -132,6 +149,7 @@ public class OptionVolumeStAlert implements Alert {
             try {
                 Instant asOf = Instant.now();
                 List<AlertHit> contractHits = new ArrayList<>();
+                java.util.Map<String,Long> candleVolumes=new java.util.HashMap<>();
                 Set<Type> allowedSides = bothSides;
                 if (c.haDirectionEnabled()) {
                     var direction = haFilter.current(underlying, asOf);
@@ -143,19 +161,16 @@ public class OptionVolumeStAlert implements Alert {
 
                 for (LoadedContract lc : uc.contracts()) {
                     if (!lc.loaded()) continue;
-                    AlertHit hit = evaluateContract(lc.contract(), tf, day, c, asOf);
+                    AlertHit hit = evaluateContract(lc.contract(), tf, day, c, asOf, candleVolumes);
                     if (hit != null) contractHits.add(hit);
                 }
-                var groups = groupHits(underlying, contractHits, asOf);
-                if (pivots != null && !groups.isEmpty()) {
-                    var context = pivots.current(underlying,asOf);
-                    var levels = context.pivotPoints();
-                    String detail = levels.available() ? "\nStock pivots (" + levels.sourceSession() + "): P " + levels.pivot()
-                            + " | S1 " + levels.s1() + " S2 " + levels.s2() + " | R1 " + levels.r1() + " R2 " + levels.r2()
-                            : "\nStock pivots unavailable: " + levels.note();
-                    for (var group : groups) hits.add(new AlertHit(group.alertId(),group.ticker(),group.state(),
-                            group.message()+detail,group.direction(),group.price(),group.timeframe()));
-                } else hits.addAll(groups);
+                BigDecimal stockPrice=null;
+                if (OptionContractRanking.enabled(c.contractRanking()) && !contractHits.isEmpty()) {
+                    try { stockPrice=OptionContractRanking.stockPriceAt(pivots.history(underlying),asOf,c.barQuality()); }
+                    catch (RuntimeException ex) { log.warn("[OptionVolumeStAlert] Ranking stock reference unavailable for {}",underlying); }
+                }
+                var groups = groupHits(underlying, contractHits, asOf, stockPrice,uc.strikeIncrement(),candleVolumes);
+                for (var group : groups) hits.add(withPivotNarrative(underlying,group,asOf));
             } catch (Exception e) {
                 log.warn("[OptionVolumeStAlert] {} failed (ignored): {}", underlying, e.getMessage());
             }
@@ -163,8 +178,33 @@ public class OptionVolumeStAlert implements Alert {
         return hits;
     }
 
-    /** Group by stock and side; numeric strike order is display order, never a ranking. */
+    private AlertHit withPivotNarrative(String underlying, AlertHit group, Instant asOf) {
+        if (pivotNarrator==null || pivots==null) return group;
+        try {
+            Type side=group.direction()==AlertMessageFormat.Dir.UP ? Type.CALL : Type.PUT;
+            var context=pivots.current(underlying,asOf);
+            var c=cfg();
+            var decision=OptionPivotFilter.enabled(c.pivotFilter())
+                    ? new OptionPivotFilter.Series(underlying,pivots.history(underlying),
+                        asOf.atZone(ET).toLocalDate(),c.pivotFilter(),c.barQuality()).at(side,asOf)
+                    : OptionPivotFilter.disabled();
+            String detail=pivotNarrator.summarize(underlying,side,context,decision);
+            if (detail==null || detail.isBlank()) return group;
+            return new AlertHit(group.alertId(),group.ticker(),group.state(),group.message()+detail,
+                    group.direction(),group.price(),group.timeframe());
+        } catch (RuntimeException ex) {
+            log.debug("[OptionVolumeStAlert] Optional pivot message omitted for {}",underlying);
+            return group;
+        }
+    }
+
+    /** Group by stock/side, optionally select one nearby high-volume contract. */
     List<AlertHit> groupHits(String underlying, List<AlertHit> contracts, Instant evaluatedAt) {
+        return groupHits(underlying,contracts,evaluatedAt,null,null,java.util.Map.of());
+    }
+
+    List<AlertHit> groupHits(String underlying, List<AlertHit> contracts, Instant evaluatedAt,
+                             BigDecimal stockPrice, BigDecimal strikeGap, java.util.Map<String,Long> candleVolumes) {
         Instant tick = evaluatedAt.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
         java.util.Map<Type, List<AlertHit>> sides = new java.util.EnumMap<>(Type.class);
         for (AlertHit hit : contracts) sides.computeIfAbsent(OptionContract.parse(hit.ticker()).type(),
@@ -177,11 +217,30 @@ public class OptionVolumeStAlert implements Alert {
                     .comparing((AlertHit hit) -> OptionContract.parse(hit.ticker()).strike())
                     .thenComparing(AlertHit::ticker)).toList();
             StringBuilder message = new StringBuilder(messagePrefix()).append(underlying).append(' ')
-                    .append(side.getKey()).append(" — ").append(com.trading.api.TimeFormat.toEt(tick))
-                    .append("\nQualifying contracts (unranked):");
-            for (var hit : ordered) message.append("\n")
-                    .append(OptionContract.parse(hit.ticker()).strike().toPlainString()).append(" @ ")
-                    .append(hit.price().toPlainString()).append(" — ").append(hit.ticker());
+                    .append(side.getKey()).append(" — ").append(com.trading.api.TimeFormat.toEt(tick));
+            if (OptionContractRanking.enabled(cfg().contractRanking())) {
+                var selection=OptionContractRanking.select(ordered.stream().map(hit->new OptionContractRanking.Candidate(
+                        hit.ticker(),OptionContract.parse(hit.ticker()).strike(),candleVolumes.get(hit.ticker()))).toList(),
+                        stockPrice,strikeGap,cfg().contractRanking());
+                if (selection==null) {
+                    log.warn("[OptionVolumeStAlert] No rankable contract for {} {}: stock/volume/gap data unavailable",underlying,side.getKey());
+                    continue;
+                }
+                var chosen=ordered.stream().filter(hit->hit.ticker().equals(selection.occSymbol())).findFirst().orElseThrow();
+                message.append("\nSelected contract: ").append(chosen.ticker())
+                        .append("\nStrike ").append(OptionContract.parse(chosen.ticker()).strike().toPlainString())
+                        .append(" @ ").append(chosen.price().toPlainString())
+                        .append("\nSignal candle volume: ").append(selection.signalCandleVolume()).append(" contracts")
+                        .append("\nStock: ").append(stockPrice.toPlainString()).append(" | Strike distance: ")
+                        .append(selection.strikeDistance().toPlainString())
+                        .append("\nHighest candle volume among ").append(selection.nearbyContracts())
+                        .append(" nearby contracts (").append(selection.qualifyingContracts()).append(" qualified).");
+            } else {
+                message.append("\nQualifying contracts (unranked):");
+                for (var hit : ordered) message.append("\n")
+                        .append(OptionContract.parse(hit.ticker()).strike().toPlainString()).append(" @ ")
+                        .append(hit.price().toPlainString()).append(" — ").append(hit.ticker());
+            }
             groups.add(new AlertHit(id(), underlying, "OPTGROUP|" + key + "|" + tick.getEpochSecond(),
                     message.toString(), side.getKey() == Type.CALL ? AlertMessageFormat.Dir.UP : AlertMessageFormat.Dir.DOWN,
                     null, optionTimeframe()));
@@ -210,6 +269,12 @@ public class OptionVolumeStAlert implements Alert {
 
     private AlertHit evaluateContract(OptionContract contract, String tf, String day,
                                       AppProperties.Alerts.OptionVolStCfg c, Instant asOf) {
+        return evaluateContract(contract,tf,day,c,asOf,null);
+    }
+
+    private AlertHit evaluateContract(OptionContract contract, String tf, String day,
+                                      AppProperties.Alerts.OptionVolStCfg c, Instant asOf,
+                                      java.util.Map<String,Long> candleVolumes) {
         String occ = contract.occSymbol();
         BarQuality.Result quality = liveBars(occ, tf, asOf);
         if (!quality.valid()) {
@@ -225,26 +290,36 @@ public class OptionVolumeStAlert implements Alert {
         }
 
         // Gate 0: only ST-UP contracts are considered at all.
-        if (!stDirectionUp(bars)) return null;
+        if (optionStEnabled() && !stDirectionUp(bars)) return null;
 
         // New gate: check that the supertrend on configured timeframe is also UP (if enabled)
-        if (c.threeMinStEnabled() && !threeMinStDirectionUp(bars, c.threeMinStTimeframe(), asOf)) return null;
+        if (c.stockHigherStEnabled() && !stockTrendCurrent(contract, asOf, false)) return null;
 
-        boolean stRising = stRisingStreak(bars) >= Math.max(1, c.stRisingCandles());
-        boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
-        boolean emaStack = !c.emaStackEnabled()
-                || emaStackUpAt(bars, asOf);
+        boolean stRising = !stRisingEnabled() || stRisingStreak(bars) >= Math.max(1, c.stRisingCandles());
+        boolean aboveEma = !emaAboveEnabled() || closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
+        boolean emaStack = !c.stockEmaStackEnabled()
+                || stockTrendCurrent(contract, asOf, true);
         boolean volOk = !c.volumeEnabled()
                 || goodVolume(bars, c.minSessionVolume(), c.volumeLookback(), day);
 
         if (!(stRising && aboveEma && emaStack && volOk)) return null;
         if (c.haDirectionEnabled() && !haFilter.current(contract.underlying(), asOf).allows(contract.type())) return null;
 
+        if (!pivotDecision(contract, asOf).passes()) return null;
         Candle last = bars.get(bars.size() - 1);
+        if (candleVolumes!=null) candleVolumes.put(occ,last.volume());
         String state = "OPTST_" + day + "_" + occ;   // internal candidate state; grouped delivery owns cooldown
         return new AlertHit(id(), occ, state,
                 optionMessage(contract, last.close()),
                 AlertMessageFormat.Dir.UP, last.close(), tf);
+    }
+
+    private OptionPivotFilter.Decision pivotDecision(OptionContract contract, Instant asOf) {
+        if (!OptionPivotFilter.enabled(cfg().pivotFilter())) return OptionPivotFilter.disabled();
+        try {
+            return new OptionPivotFilter.Series(contract.underlying(), pivots.history(contract.underlying()),
+                    asOf.atZone(ET).toLocalDate(), cfg().pivotFilter(), cfg().barQuality()).at(contract.type(), asOf);
+        } catch (RuntimeException ex) { return OptionPivotFilter.unavailable("PIVOT_STOCK_UNAVAILABLE"); }
     }
 
     private CandleRangeAtrFilter.Result candleSize(List<Candle> completed) {
@@ -259,22 +334,24 @@ public class OptionVolumeStAlert implements Alert {
 
     private BarQuality.Policy policy() { return BarQuality.Policy.from(cfg().barQuality()); }
 
+    public boolean optionStEnabled() { return cfg().optionStEnabled(); }
+    public boolean stRisingEnabled() { return optionStEnabled() && cfg().stRisingEnabled(); }
+    public boolean emaAboveEnabled() { return cfg().emaAboveEnabled(); }
+
     private int minimumBars() {
         var c = cfg();
-        int needed = Math.max(supertrend.length() + Math.max(1, c.stRisingCandles()),
-                Math.max(1, c.emaPeriod()) + Math.max(1, c.emaAboveCandles()) - 1);
-        if (c.emaStackEnabled()) {
-            int source = TimeframeSupport.minutesOf(optionTimeframe());
-            int target = TimeframeSupport.minutesOf(emaStackTimeframe());
-            int ratio = source > 0 && target >= source && target % source == 0 ? target / source : 1;
-            needed = Math.max(needed, Math.max(1, Math.max(c.emaStackFast(), c.emaStackSlow())) * ratio + ratio - 1);
-        }
+        int needed = 2;
+        if (optionStEnabled()) needed=Math.max(needed,supertrend.length()+(stRisingEnabled()?Math.max(1,c.stRisingCandles()):1));
+        if (emaAboveEnabled()) needed=Math.max(needed,Math.max(1,c.emaPeriod())+Math.max(1,c.emaAboveCandles())-1);
+        // The independent candle-size cap still needs ATR even if the ST signal is disabled.
+        if (c.largeCandleFilterEnabled() && c.maxCandleAtr()!=null && c.maxCandleAtr().signum()>0)
+            needed=Math.max(needed,supertrend.length());
         if (c.volumeEnabled()) needed = Math.max(needed, c.volumeLookback());
         return Math.max(needed, c.barQuality() == null ? 0 : c.barQuality().minWarmupBars());
     }
 
     private BarQuality.Result liveBars(String occ, String tf, Instant asOf) {
-        int count = Math.max(props.engine().warmupBars(), minimumBars() + 1);
+        int count = (int)Math.min(1200L, Math.max((long)props.engine().warmupBars(), (long)minimumBars() + 1));
         var quality = assessOption(optionBars.getBars(occ, tf, count), tf, asOf);
         if (!quality.valid()) {
             log.info("[OptionVolumeStAlert] Recovering {} {} after {}", occ, tf, quality.reason());
@@ -285,45 +362,24 @@ public class OptionVolumeStAlert implements Alert {
     }
 
     private BarQuality.Result assessOption(List<Candle> source, String tf, Instant asOf) {
-        var result = BarQuality.assess(source, TimeframeSupport.minutesOf(tf), asOf, minimumBars(), policy());
-        if (!result.valid()) return result;
-        if (cfg().emaStackEnabled()) {
-            var emaQuality = emaStackBars(result.completed(), tf, asOf);
-            if (!emaQuality.valid()) return new BarQuality.Result(result.completed(), "EMA_STACK_" + emaQuality.reason());
-        }
-        if (!cfg().threeMinStEnabled()) return result;
-        int target = TimeframeSupport.minutesOf(cfg().threeMinStTimeframe());
-        int minutes = TimeframeSupport.minutesOf(tf);
-        if (target < minutes || target % minutes != 0) return new BarQuality.Result(result.completed(), "INVALID_M3_TIMEFRAME");
-        var aggregated = target == minutes ? result.completed()
-                : BarQuality.completeAggregates(result.completed(), minutes, target, asOf);
-        var higher = BarQuality.assess(aggregated, target, asOf, 3,
-                new BarQuality.Policy(1, policy().graceSeconds(), policy().gapWindow(), 0));
-        return higher.valid() ? result : new BarQuality.Result(result.completed(), "M3_" + higher.reason());
+        return BarQuality.assess(source, TimeframeSupport.minutesOf(tf), asOf, minimumBars(), policy());
     }
 
-    public String emaStackTimeframe() {
-        String configured = cfg().emaStackTimeframe();
+    public List<String> stockEmaStackTimeframes() {
+        return TimeframeSupport.minuteTimeframes(cfg().stockEmaStackTimeframe(), optionTimeframe());
+    }
+
+    public List<String> stockHigherStTimeframes() {
+        return TimeframeSupport.minuteTimeframes(cfg().stockHigherStTimeframe(), "M3");
+    }
+
+    public String stockEmaStackTimeframe() {
+        String configured = cfg().stockEmaStackTimeframe();
         return configured == null || configured.isBlank() ? optionTimeframe() : configured.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
-    /** Shared completed-bucket selection for live, inspection and historical replay. */
-    private BarQuality.Result emaStackBars(List<Candle> completed, String sourceTimeframe, Instant asOf) {
-        int source = TimeframeSupport.minutesOf(sourceTimeframe);
-        int target = TimeframeSupport.minutesOf(emaStackTimeframe());
-        if (source < 1 || target < source || target % source != 0) {
-            return new BarQuality.Result(List.of(), "INVALID_TIMEFRAME");
-        }
-        var bars = source == target ? completed : BarQuality.completeAggregates(completed, source, target, asOf);
-        var p = policy();
-        return BarQuality.assess(bars, target, asOf,
-                Math.max(1, Math.max(cfg().emaStackFast(), cfg().emaStackSlow())),
-                source == target ? p : new BarQuality.Policy(p.maxAgeBars(), p.graceSeconds(), p.gapWindow(), 0));
-    }
-
-    private boolean emaStackUpAt(List<Candle> completed, Instant asOf) {
-        var quality = emaStackBars(completed, optionTimeframe(), asOf);
-        return quality.valid() && emaStackUp(quality.completed(), cfg().emaStackFast(), cfg().emaStackSlow());
+    private boolean stockTrendCurrent(OptionContract contract, Instant asOf, boolean ema) {
+        return stockTrend != null && stockTrend.current(contract.underlying(), contract.type(), asOf, ema);
     }
 
     /**
@@ -366,22 +422,6 @@ public class OptionVolumeStAlert implements Alert {
             if (close.compareTo(ema) < 0) return false;   // below EMA on this bar
         }
         return true;
-    }
-
-    /**
-     * True when the option's fast EMA is above its slow EMA on the latest COMPLETED bar
-     * ({@code EMA(fast) > EMA(slow)}) — an uptrend confirmation on the option itself.
-     */
-    private boolean emaStackUp(List<Candle> bars, int fast, int slow) {
-        int f = Math.max(1, fast), s = Math.max(1, slow);
-        if (bars == null || bars.size() < 2) return false;
-        List<Candle> completed = bars; // callers supply timestamp-validated completed bars
-        if (completed.size() < s) return false;                      // need warm-up for the slow EMA
-        List<BigDecimal> closes = new ArrayList<>(completed.size());
-        for (Candle b : completed) closes.add(b.close());
-        BigDecimal emaFast = EmaCalculator.calculate(closes, f);
-        BigDecimal emaSlow = EmaCalculator.calculate(closes, s);
-        return emaFast.compareTo(emaSlow) > 0;
     }
 
     /**
@@ -429,54 +469,6 @@ public class OptionVolumeStAlert implements Alert {
         return !withLine.isEmpty() && withLine.get(withLine.size() - 1).direction() == Direction.UP;
     }
 
-    /**
-     * Whether the 3-minute supertrend direction is in the UP direction.
-     * This method calculates the supertrend for the given timeframe and checks if it's currently UP.
-     */
-    private boolean threeMinStDirectionUp(List<Candle> bars, String timeframe, Instant asOf) {
-        // We need to calculate a supertrend with the specified timeframe
-        int length = 3;
-        BigDecimal factor = BigDecimal.valueOf(3);
-
-        try {
-            // Normalize the timeframe to make sure it's valid
-            timeframe = MarketDataService.normaliseTimespan(timeframe);
-        } catch (IllegalArgumentException e) {
-            log.warn("Invalid timeframe '{}' for 3-minute supertrend calculation: {}", timeframe, e.getMessage());
-            return false;
-        }
-
-        int sourceMinutes = TimeframeSupport.minutesOf(optionTimeframe());
-        int targetMinutes = TimeframeSupport.minutesOf(timeframe);
-        // A higher timeframe must contain whole source candles. Never relabel
-        // M1 prices as M3, or invent finer bars from a coarser source.
-        if (sourceMinutes <= 0 || targetMinutes < sourceMinutes
-                || targetMinutes % sourceMinutes != 0) return false;
-        List<Candle> recentBars = targetMinutes == sourceMinutes
-                ? bars : BarQuality.completeAggregates(bars, sourceMinutes, targetMinutes, asOf);
-        var quality = BarQuality.assess(recentBars, targetMinutes, asOf, length,
-                new BarQuality.Policy(1, policy().graceSeconds(), policy().gapWindow(), 0));
-        if (!quality.valid()) return false;
-        recentBars = quality.completed();
-
-        try {
-            // Calculate the supertrend with a 3-bar length and factor of 3.0
-            List<Point> points = SupertrendCalculator.calculate(recentBars, length, factor);
-
-            // All supplied points are timestamp-confirmed completed candles.
-            int lastCompletedIndex = points.size() - 1;
-            if (lastCompletedIndex >= 0 && points.get(lastCompletedIndex) != null) {
-                Point lastPoint = points.get(lastCompletedIndex);
-                return lastPoint.supertrend() != null && lastPoint.direction() == Direction.UP;
-            }
-        } catch (Exception e) {
-            // If there's any error in calculation, return false to be conservative
-            log.warn("Error calculating {} supertrend for option contract: {}", timeframe, e.getMessage());
-        }
-
-        return false;
-    }
-
     private List<Point> completedStPoints(List<Candle> bars) {
         List<Point> pts = supertrend.calculate(bars);
         List<Point> withLine = new ArrayList<>();
@@ -495,7 +487,7 @@ public class OptionVolumeStAlert implements Alert {
             String occSymbol, String type, String strike, String moneyness,
             int barsUsed, boolean stDirectionUp, boolean stRising, int stRisingStreak,
             boolean aboveEma, boolean emaStackUp, boolean volumeOk, long sessionVolume,
-            double recentAvgVol, double olderAvgVol, boolean qualifies, boolean threeMinStUp, boolean haDirectionOk, String haColor, boolean candleSizeOk, BigDecimal candleRangeAtr, String note) {}
+            double recentAvgVol, double olderAvgVol, boolean qualifies, boolean stockHigherStOk, boolean haDirectionOk, String haColor, boolean candleSizeOk, BigDecimal candleRangeAtr, String note, OptionPivotFilter.Decision pivotFilter) {}
 
     /** The configured option timeframe (normalised). */
     public String optionTimeframe() {
@@ -521,14 +513,14 @@ public class OptionVolumeStAlert implements Alert {
 
         if (!quality.valid()) {
             return new LegEval(occ, type, strike, moneyness, bars.size(), false, false, 0,
-                    false, false, false, 0, 0, 0, false, false, false, "UNAVAILABLE", false, null, quality.reason());
+                    false, false, false, 0, 0, 0, false, false, false, "UNAVAILABLE", false, null, quality.reason(), OptionPivotFilter.unavailable("OPTION_DATA_UNAVAILABLE"));
         }
 
-        boolean stDirUp = stDirectionUp(bars);
-        int streak = stRisingStreak(bars);
-        boolean stRising = streak >= Math.max(1, c.stRisingCandles());
-        boolean aboveEma = closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
-        boolean emaStack = !c.emaStackEnabled() || emaStackUpAt(bars, asOf);
+        boolean stDirUp = !optionStEnabled() || stDirectionUp(bars);
+        int streak = stRisingEnabled() ? stRisingStreak(bars) : 0;
+        boolean stRising = !stRisingEnabled() || streak >= Math.max(1, c.stRisingCandles());
+        boolean aboveEma = !emaAboveEnabled() || closeAboveEma(bars, c.emaPeriod(), c.emaAboveCandles());
+        boolean emaStack = !c.stockEmaStackEnabled() || stockTrendCurrent(contract, asOf, true);
 
         VolumeStat vs = volumeStat(bars, day, c.volumeLookback());
         boolean volOk;
@@ -540,17 +532,20 @@ public class OptionVolumeStAlert implements Alert {
             volOk = floorOk && risingOk;
         }
 
-        // Add check for 3-minute supertrend (if enabled)
-        boolean threeMinStUp = !c.threeMinStEnabled() || threeMinStDirectionUp(bars, c.threeMinStTimeframe(), asOf);
+        // Directional underlying-stock higher ST confirmation (if enabled)
+        boolean stockHigherStOk = !c.stockHigherStEnabled() || stockTrendCurrent(contract, asOf, false);
 
         var haDirection = c.haDirectionEnabled()
                 ? haFilter.current(contract.underlying(), asOf) : null;
         boolean haOk = haDirection == null || haDirection.allows(contract.type());
         var candleSize = candleSize(bars);
-        boolean qualifies = stDirUp && stRising && aboveEma && emaStack && volOk && threeMinStUp && haOk && candleSize.passes();
+        var pivotDecision = pivotDecision(contract, asOf);
+        boolean qualifies = pivotDecision.passes() && stDirUp && stRising && aboveEma && emaStack && volOk && stockHigherStOk && haOk && candleSize.passes();
         return new LegEval(occ, type, strike, moneyness, bars.size(), stDirUp, stRising, streak,
-                aboveEma, emaStack, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, threeMinStUp, haOk, haDirection == null ? "DISABLED" : haDirection.color(),
-                candleSize.passes(), candleSize.rangeAtr(), candleSize.reason());
+                aboveEma, emaStack, volOk, vs.sessionVolume, vs.recentAvg, vs.olderAvg, qualifies, stockHigherStOk, haOk, haDirection == null ? "DISABLED" : haDirection.color(),
+                candleSize.passes(), candleSize.rangeAtr(), !emaStack ? "STOCK_EMA_NOT_CONFIRMED"
+                        : !stockHigherStOk ? "STOCK_HIGHER_ST_NOT_CONFIRMED"
+                        : !pivotDecision.passes() ? pivotDecision.reason() : candleSize.reason(), pivotDecision);
     }
 
     // =======================================================================
@@ -562,7 +557,14 @@ public class OptionVolumeStAlert implements Alert {
             String occSymbol, String type, String strike, String moneyness,
             String firedAtEt, String optionClose, int stRisingStreak,
             boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt,
-            Long sessionVolume, Long signalBarVolume, Long recentFiveBarVolume) {
+            Long sessionVolume, Long signalBarVolume, Long recentFiveBarVolume, OptionPivotFilter.Decision pivotFilter) {
+        public ReplaySignal(String occSymbol, String type, String strike, String moneyness,
+                            String firedAtEt, String optionClose, int stRisingStreak,
+                            boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt,
+                            Long sessionVolume, Long signalBarVolume, Long recentFiveBarVolume) {
+            this(occSymbol,type,strike,moneyness,firedAtEt,optionClose,stRisingStreak,aboveEma,emaStackUp,
+                    volumeOk,evaluatedAtEt,sessionVolume,signalBarVolume,recentFiveBarVolume,null);
+        }
         public ReplaySignal(String occSymbol, String type, String strike, String moneyness,
                             String firedAtEt, String optionClose, int stRisingStreak,
                             boolean aboveEma, boolean emaStackUp, boolean volumeOk, String evaluatedAtEt) {
@@ -601,16 +603,21 @@ public class OptionVolumeStAlert implements Alert {
      * @param date    the ET session date to replay
      */
     public ContractReplay replayContract(OptionContract contract, List<Candle> allBars, LocalDate date) {
-        return replayContract(contract, allBars, date, true);
+        return replayContract(contract, allBars, date, true, null);
     }
 
     /** Unthrottled candidates for the stock/side replay coordinator. */
     public ContractReplay replayCandidates(OptionContract contract, List<Candle> allBars, LocalDate date) {
-        return replayContract(contract, allBars, date, false);
+        return replayContract(contract, allBars, date, false, null);
+    }
+
+    public ContractReplay replayCandidates(OptionContract contract, List<Candle> allBars, LocalDate date,
+                                           List<Candle> stockHistory) {
+        return replayContract(contract, allBars, date, false, stockHistory);
     }
 
     private ContractReplay replayContract(OptionContract contract, List<Candle> allBars, LocalDate date,
-                                          boolean legacyContractCooldown) {
+                                          boolean legacyContractCooldown, List<Candle> stockHistory) {
         AppProperties.Alerts.OptionVolStCfg c = cfg();
         String occ = contract.occSymbol();
         String type = contract.type().name();
@@ -630,6 +637,15 @@ public class OptionVolumeStAlert implements Alert {
         allBars.sort(java.util.Comparator.comparing(Candle::timestamp));
         OptionHaDirectionFilter.Series haSeries = c.haDirectionEnabled()
                 ? haFilter.load(contract.underlying()) : null;
+        var stockTrendSeries = c.stockEmaStackEnabled() && stockTrend != null
+                ? stockTrend.load(contract.underlying(), true) : null;
+        var stockStSeries = c.stockHigherStEnabled() && stockTrend != null
+                ? stockTrend.load(contract.underlying(), false) : null;
+        if (OptionPivotFilter.enabled(c.pivotFilter()) && stockHistory == null) {
+            try { stockHistory = pivots.history(contract.underlying()); }
+            catch (RuntimeException ex) { stockHistory = List.of(); }
+        }
+        var pivotSeries = new OptionPivotFilter.Series(contract.underlying(), stockHistory, date, c.pivotFilter(), c.barQuality());
         long cooldownSec = 60L * Math.max(0, c.cooldownMinutes());
         java.time.Instant cooldownUntil = null;
         int rthBars = 0;
@@ -669,17 +685,29 @@ public class OptionVolumeStAlert implements Alert {
                 largeCandleRejections++;
                 continue;
             }
-            if (!stDirectionUp(upTo)) continue;
+            if (optionStEnabled() && !stDirectionUp(upTo)) continue;
 
             // Add check for supertrend on configured timeframe in replay too (if enabled)
-            if (c.threeMinStEnabled() && !threeMinStDirectionUp(upTo, c.threeMinStTimeframe(), bar.timestamp())) continue;
+            if (c.stockHigherStEnabled() && (stockStSeries == null
+                    || !Boolean.TRUE.equals(stockStSeries.matches(contract.type(), bar.timestamp())))) {
+                rejected.merge("STOCK_HIGHER_ST_NOT_CONFIRMED", 1, Integer::sum);
+                continue;
+            }
 
-            boolean stRising = stRisingStreak(upTo) >= Math.max(1, c.stRisingCandles());
-            boolean aboveEma = closeAboveEma(upTo, c.emaPeriod(), c.emaAboveCandles());
-            boolean emaStack = !c.emaStackEnabled() || emaStackUpAt(upTo, bar.timestamp());
+            boolean stRising = !stRisingEnabled() || stRisingStreak(upTo) >= Math.max(1, c.stRisingCandles());
+            boolean aboveEma = !emaAboveEnabled() || closeAboveEma(upTo, c.emaPeriod(), c.emaAboveCandles());
+            boolean emaStack = !c.stockEmaStackEnabled() || (stockTrendSeries != null
+                    && Boolean.TRUE.equals(stockTrendSeries.matches(contract.type(), bar.timestamp())));
+            if (!emaStack) rejected.merge("STOCK_EMA_NOT_CONFIRMED", 1, Integer::sum);
             boolean volOk = !c.volumeEnabled()
                     || goodVolume(upTo, c.minSessionVolume(), c.volumeLookback(), date.toString());
             if (!(stRising && aboveEma && emaStack && volOk)) continue;
+
+            var pivotDecision = pivotSeries.at(contract.type(), bar.timestamp());
+            if (!pivotDecision.passes()) {
+                rejected.merge(pivotDecision.reason(), 1, Integer::sum);
+                continue;
+            }
 
             // Fire — record the signal at the last COMPLETED bar (i-1), apply cooldown.
             Candle completed = upTo.get(upTo.size() - 1);
@@ -693,8 +721,8 @@ public class OptionVolumeStAlert implements Alert {
                     .stream().mapToLong(Candle::volume).sum();
             signals.add(new ReplaySignal(occ, type, strike, moneyness,
                     com.trading.api.TimeFormat.toEt(completed.timestamp()),
-                    completed.close().toPlainString(), stRisingStreak(upTo), aboveEma, emaStack, volOk,
-                    com.trading.api.TimeFormat.toEt(bar.timestamp()), observedSessionVolume, completed.volume(), lastFiveVolume));
+                    completed.close().toPlainString(), stRisingEnabled() ? stRisingStreak(upTo) : 0, aboveEma, emaStack, volOk,
+                    com.trading.api.TimeFormat.toEt(bar.timestamp()), observedSessionVolume, completed.volume(), lastFiveVolume, pivotDecision));
             cooldownUntil = bar.timestamp().plusSeconds(cooldownSec);
         }
         return new ContractReplay(occ, type, strike, moneyness, rthBars, signals, java.util.Map.copyOf(rejected), largeCandleRejections);

@@ -19,22 +19,32 @@ class OptionVolumeStReplayTest {
     private final OptionContract contract = OptionContract.of("AAPL", date,
             OptionContract.Type.CALL, BigDecimal.valueOf(250), OptionContract.Moneyness.ATM);
     private final AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
+    private final com.trading.service.BarDataManager stockBars = mock(com.trading.service.BarDataManager.class);
     private final OptionHaDirectionFilter haFilter = mock(OptionHaDirectionFilter.class);
 
     private OptionVolumeStAlert alert(boolean m3, boolean volume, int cooldown) {
         var cfg = props.alerts().optionVolSt();
+        when(cfg.optionStEnabled()).thenReturn(true);
+        when(cfg.stRisingEnabled()).thenReturn(true);
+        when(cfg.emaAboveEnabled()).thenReturn(true);
+
         when(cfg.timeframe()).thenReturn("M1");
         when(cfg.stRisingCandles()).thenReturn(1);
         when(cfg.emaPeriod()).thenReturn(3);
         when(cfg.emaAboveCandles()).thenReturn(1);
-        when(cfg.threeMinStEnabled()).thenReturn(m3);
-        when(cfg.threeMinStTimeframe()).thenReturn("M3");
+        when(cfg.stockHigherStEnabled()).thenReturn(m3);
+        when(cfg.stockHigherStTimeframe()).thenReturn("M3");
         when(cfg.volumeEnabled()).thenReturn(volume);
         when(cfg.minSessionVolume()).thenReturn(100_000L);
         when(cfg.cooldownMinutes()).thenReturn(cooldown);
+        when(stockBars.getBars(eq("AAPL"), anyString(), anyInt())).thenAnswer(invocation -> {
+            int minutes = com.trading.service.TimeframeSupport.minutesOf(invocation.getArgument(1));
+            var history = bars(Instant.parse("2026-10-16T13:30:00Z"), 390);
+            return java.util.stream.IntStream.range(0,390/minutes).mapToObj(i -> history.get(i*minutes)).toList();
+        });
         when(props.supertrend().length()).thenReturn(3);
         when(props.supertrend().factor()).thenReturn(BigDecimal.ONE);
-        return new OptionVolumeStAlert(props, null, null, null, new SupertrendService(props), haFilter);
+        return new OptionVolumeStAlert(props, null, null, null, new SupertrendService(props), haFilter, null, new OptionStockTrendFilter(props, stockBars));
     }
 
     private List<Candle> bars(Instant start, int count) {
@@ -45,6 +55,60 @@ class OptionVolumeStReplayTest {
                     p, p.add(BigDecimal.ONE), p.subtract(BigDecimal.ONE), p, 100));
         }
         return out;
+    }
+
+    @Test
+    void replaySupportsMultipleEmaAndHigherStConfirmationsWithoutFutureBars() {
+        var alert=alert(true,false,0);
+        var c=props.alerts().optionVolSt();
+        when(c.stockEmaStackEnabled()).thenReturn(true);
+        when(c.stockEmaStackFast()).thenReturn(2);
+        when(c.stockEmaStackSlow()).thenReturn(3);
+        when(c.stockEmaStackTimeframe()).thenReturn("M1,M5");
+        when(c.stockHigherStTimeframe()).thenReturn("M3,M5");
+        var source=bars(Instant.parse("2026-10-16T13:30:00Z"),120);
+        when(stockBars.getBars(eq("AAPL"), anyString(), anyInt())).thenAnswer(invocation -> {
+            String tf = invocation.getArgument(1);
+            int minutes = com.trading.service.TimeframeSupport.minutesOf(tf);
+            return java.util.stream.IntStream.range(0,120/minutes).mapToObj(i -> source.get(i*minutes)).toList();
+        });
+        var prefix=alert.replayCandidates(contract,source.subList(0,90),date).signals();
+        var complete=alert.replayCandidates(contract,source,date).signals();
+        assertFalse(prefix.isEmpty());
+        assertEquals(prefix,complete.subList(0,prefix.size()));
+    }
+
+    @Test
+    void risingPutPremiumCanQualifyWithBearishStockConfirmations() {
+        var alert=alert(true,false,0);
+        var c=props.alerts().optionVolSt();
+        when(c.stockEmaStackEnabled()).thenReturn(true);
+        when(c.stockEmaStackFast()).thenReturn(2);
+        when(c.stockEmaStackSlow()).thenReturn(3);
+        when(c.stockEmaStackTimeframe()).thenReturn("M1,M5");
+        var start=Instant.parse("2026-10-16T13:30:00Z");
+        when(stockBars.getBars(eq("AAPL"),anyString(),anyInt())).thenAnswer(invocation -> {
+            int minutes=com.trading.service.TimeframeSupport.minutesOf(invocation.getArgument(1));
+            return java.util.stream.IntStream.range(0,120/minutes).mapToObj(i -> {
+                var p=BigDecimal.valueOf(500-i*minutes);
+                return new Candle("AAPL",start.plusSeconds(i*minutes*60L),p,p.add(BigDecimal.ONE),p.subtract(BigDecimal.ONE),p,100);
+            }).toList();
+        });
+        var put=OptionContract.of("AAPL",date,OptionContract.Type.PUT,BigDecimal.valueOf(250),OptionContract.Moneyness.ATM);
+        var premiums=bars(start,120);
+        assertFalse(alert.replayCandidates(put,premiums,date).signals().isEmpty());
+        assertTrue(alert.replayCandidates(contract,premiums,date).signals().isEmpty());
+        // Live and inspection use the identical stock-side rules while premiums trend UP.
+        var optionBars=mock(OptionBarDataManager.class);
+        when(optionBars.getBars(anyString(),eq("M1"),anyInt())).thenReturn(premiums);
+        var live=new OptionVolumeStAlert(props,null,null,optionBars,new SupertrendService(props),haFilter,null,
+                new OptionStockTrendFilter(props,stockBars));
+        var asOf=start.plusSeconds(119*60L);
+        var inspected=(OptionVolumeStAlert.LegEval)org.springframework.test.util.ReflectionTestUtils.invokeMethod(live,"evaluateLegs",put,asOf);
+        assertTrue(inspected.qualifies());
+        assertNotNull(org.springframework.test.util.ReflectionTestUtils.invokeMethod(live,"evaluateContract",put,"M1",date.toString(),c,asOf));
+        assertNull(org.springframework.test.util.ReflectionTestUtils.invokeMethod(live,"evaluateContract",contract,"M1",date.toString(),c,asOf));
+        verify(stockBars,atLeastOnce()).getBars(eq("AAPL"),eq("M5"),anyInt());
     }
 
     @Test

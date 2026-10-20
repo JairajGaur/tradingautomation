@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Trading Automation update at 07:00 New York time
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 America/New_York
+Persistent=false
+Unit=tradingautomation-update.service
+
+[Install]
+WantedBy=timers.target

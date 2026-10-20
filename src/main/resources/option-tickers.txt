@@ -15,6 +15,7 @@ MSFT
 META
 AMD
 PLTR
+GOOGL
 
 [default]
 SPY

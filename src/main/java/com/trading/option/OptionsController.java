@@ -214,19 +214,30 @@ public class OptionsController {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timeframe", volStAlert.optionTimeframe());
+        body.put("optionStEnabled", volStAlert.optionStEnabled());
+        body.put("stRisingEnabled", volStAlert.stRisingEnabled());
+        body.put("emaAboveEnabled", volStAlert.emaAboveEnabled());
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
-        body.put("emaStackEnabled", c.emaStackEnabled());
-        body.put("emaStackTimeframe", volStAlert.emaStackTimeframe());
-        body.put("emaStackFast", c.emaStackFast());
-        body.put("emaStackSlow", c.emaStackSlow());
+        body.put("stockEmaStackEnabled", c.stockEmaStackEnabled());
+        body.put("stockEmaStackTimeframe", volStAlert.stockEmaStackTimeframe());
+        body.put("stockEmaStackTimeframes", volStAlert.stockEmaStackTimeframes());
+        body.put("stockHigherStTimeframes", volStAlert.stockHigherStTimeframes());
+        body.put("stockHigherStEnabled", c.stockHigherStEnabled());
+        body.put("stockHigherStTimeframe", c.stockHigherStTimeframe());
+        body.put("timeframeConfirmation", "ALL");
+        body.put("trendConfirmationDataSource", "UNDERLYING_STOCK");
+        body.put("trendConfirmationDirection", "CALL_BULLISH_PUT_BEARISH");
+        body.put("stockEmaStackFast", c.stockEmaStackFast());
+        body.put("stockEmaStackSlow", c.stockEmaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
         body.put("haDirectionEnabled", c.haDirectionEnabled());
         body.put("haTimeframe", c.haTimeframe());
         body.put("largeCandleFilterEnabled", c.largeCandleFilterEnabled());
         body.put("maxCandleAtr", c.maxCandleAtr());
         body.put("barQuality", c.barQuality());
+        body.put("pivotFilter", c.pivotFilter());
         body.put("minSessionVolume", c.minSessionVolume());
         body.put("volumeLookback", c.volumeLookback());
         body.put("totalQualifying", totalQualifying);
@@ -323,13 +334,16 @@ public class OptionsController {
                     continue;   // unlisted/empty contract — skip (logged by the service)
                 }
                 if (bars == null || bars.isEmpty()) continue;
-                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayCandidates(oc, bars, sessionDate);
+                OptionVolumeStAlert.ContractReplay rep = volStAlert.replayCandidates(oc, bars, sessionDate, stockBars.get(u));
                 if (rep.rthBars() > 0) contractsWithSessionData++;
                 largeCandleRejections += rep.largeCandleRejections();
                 rep.dataQualityRejections().forEach((reason, count) -> dataQualityRejections.merge(reason, count, Integer::sum));
                 rawCandidates.add(rep);
             }
-            var grouped = OptionSignalGrouping.replay(u, rawCandidates, c.cooldownMinutes());
+            var referenceHistory=stockBars.get(u);
+            var grouped = OptionSignalGrouping.replay(u, rawCandidates, c.cooldownMinutes(),c.contractRanking(),
+                    OptionContractRanking.enabled(c.contractRanking()) ? optionContractService.strikeIncrementFor(u) : null,
+                    at->OptionContractRanking.stockPriceAt(referenceHistory,at,c.barQuality()));
             grouped.contracts().forEach(rep -> contractRows.add(replayMap(rep)));
             int sigCount = grouped.groups().size();
             int contractSignals = grouped.contracts().stream().mapToInt(rep -> rep.signals().size()).sum();
@@ -340,8 +354,11 @@ public class OptionsController {
                 Map<String,Object> event = new LinkedHashMap<>();
                 event.put("underlying",group.underlying());event.put("type",group.type());
                 event.put("evaluatedAtEt",group.evaluatedAtEt());event.put("candidates",group.candidates());
+                event.put("contractSelection",group.selection());
                 event.put("stockContext",DailyPivotCalculator.context(pivotLevels,stockBars.get(u),
                         OptionSignalGrouping.instant(group.evaluatedAtEt())));
+                event.put("pivotFilter",new OptionPivotFilter.Series(u,stockBars.get(u),sessionDate,c.pivotFilter(),c.barQuality())
+                        .at(OptionContract.Type.valueOf(group.type()),OptionSignalGrouping.instant(group.evaluatedAtEt())));
                 groupRows.add(event);
             }
             row.put("groupedSignals", groupRows);
@@ -349,6 +366,7 @@ public class OptionsController {
             row.put("rawQualifyingContractSignals", grouped.rawContractSignals());
             row.put("simultaneousGroupsBeforeCooldown", grouped.simultaneousGroups());
             row.put("cooldownSuppressedGroups", grouped.cooldownSuppressedGroups());
+            row.put("rankingSkippedGroups", grouped.rankingSkippedGroups());
             row.put("contractsWithSignals", contractRows.size());
             row.put("contractsWithSessionData", contractsWithSessionData);
             row.put("dataQualityRejections", dataQualityRejections);
@@ -368,34 +386,48 @@ public class OptionsController {
         body.put("previousSession", sessionDate != null && sessionDate.isBefore(today));
         body.put("session", "RTH 09:30–16:00 ET (last completed session)");
         body.put("timeframe", tf);
+        body.put("optionStEnabled", volStAlert.optionStEnabled());
+        body.put("stRisingEnabled", volStAlert.stRisingEnabled());
+        body.put("emaAboveEnabled", volStAlert.emaAboveEnabled());
         body.put("stRisingCandles", c.stRisingCandles());
         body.put("emaPeriod", c.emaPeriod());
         body.put("emaAboveCandles", c.emaAboveCandles());
-        body.put("emaStackEnabled", c.emaStackEnabled());
-        body.put("emaStackTimeframe", volStAlert.emaStackTimeframe());
-        body.put("emaStackFast", c.emaStackFast());
-        body.put("emaStackSlow", c.emaStackSlow());
+        body.put("stockEmaStackEnabled", c.stockEmaStackEnabled());
+        body.put("stockEmaStackTimeframe", volStAlert.stockEmaStackTimeframe());
+        body.put("stockEmaStackTimeframes", volStAlert.stockEmaStackTimeframes());
+        body.put("stockHigherStTimeframes", volStAlert.stockHigherStTimeframes());
+        body.put("timeframeConfirmation", "ALL");
+        body.put("trendConfirmationDataSource", "UNDERLYING_STOCK");
+        body.put("trendConfirmationDirection", "CALL_BULLISH_PUT_BEARISH");
+        body.put("stockEmaStackFast", c.stockEmaStackFast());
+        body.put("stockEmaStackSlow", c.stockEmaStackSlow());
         body.put("volumeEnabled", c.volumeEnabled());
         body.put("haDirectionEnabled", c.haDirectionEnabled());
         body.put("haTimeframe", c.haTimeframe());
         body.put("largeCandleFilterEnabled", c.largeCandleFilterEnabled());
         body.put("maxCandleAtr", c.maxCandleAtr());
         body.put("barQuality", c.barQuality());
-        body.put("threeMinStEnabled", c.threeMinStEnabled());
-        body.put("threeMinStTimeframe", c.threeMinStTimeframe());
+        body.put("pivotFilter", c.pivotFilter());
+        body.put("stockHigherStEnabled", c.stockHigherStEnabled());
+        body.put("stockHigherStTimeframe", c.stockHigherStTimeframe());
         body.put("cooldownMinutes", c.cooldownMinutes());
         body.put("totalSignals", totalSignals);
         body.put("totalContractSignals", totalContractSignals);
         body.put("signalCounting", "UNDERLYING_SIDE_GROUP");
         body.put("cooldownScope", "UNDERLYING_SIDE");
         body.put("expirySelection", "NEAREST_LISTED");
-        body.put("rankingApplied", false);
+        body.put("rankingApplied", OptionContractRanking.enabled(c.contractRanking()));
+        body.put("contractRanking", c.contractRanking());
+        body.put("rankingPriceReference", "LATEST_COMPLETED_RTH_STOCK_CLOSE");
+        body.put("rankingVolumeReference", "COMPLETED_SIGNAL_CANDLE");
         body.put("results", rows);
         body.put("note", "Strikes picked off the stock's OPEN price. Options have no deep dated "
                 + "history (most-recent-N bars); replay uses the last completed stock opening session. "
                 + "Option bars, including expired contracts, may be unavailable or incomplete. "
                 + "Replay and live alerts group qualifying strikes by stock and side with a shared cooldown. "
-                + "All qualifying strikes are retained without ranking. Strikes are fixed at the open "
+                + (OptionContractRanking.enabled(c.contractRanking())
+                    ? "One highest-candle-volume contract is selected within the nearby qualifying-strike band. "
+                    : "All qualifying strikes are retained without ranking. ") + "Candidate strikes are fixed at the open "
                 + "for replay, while live selection follows the current stock price.");
         body.put("timestamp", TimeFormat.nowEt());
         return ResponseEntity.ok(body);
@@ -480,11 +512,13 @@ public class OptionsController {
             sm.put("optionClose", s.optionClose());
             sm.put("stRisingStreak", s.stRisingStreak());
             sm.put("aboveEma", s.aboveEma());
-            sm.put("emaStackUp", s.emaStackUp());
+            sm.put("stockEmaStackOk", s.emaStackUp());
+            sm.put("emaStackUp", s.emaStackUp()); // legacy alias
             sm.put("volumeOk", s.volumeOk());
             sm.put("sessionVolume", s.sessionVolume());
             sm.put("signalBarVolume", s.signalBarVolume());
             sm.put("recentFiveBarVolume", s.recentFiveBarVolume());
+            sm.put("pivotFilter", s.pivotFilter());
             sigs.add(sm);
         }
         m.put("signals", sigs);
@@ -502,15 +536,17 @@ public class OptionsController {
         m.put("stRising", e.stRising());
         m.put("stRisingStreak", e.stRisingStreak());
         m.put("aboveEma", e.aboveEma());
-        m.put("emaStackUp", e.emaStackUp());
+        m.put("stockEmaStackOk", e.emaStackUp());
+        m.put("emaStackUp", e.emaStackUp()); // legacy response alias: now directional stock confirmation
         m.put("volumeOk", e.volumeOk());
         m.put("sessionVolume", e.sessionVolume());
         m.put("recentAvgVol", round1(e.recentAvgVol()));
         m.put("olderAvgVol", round1(e.olderAvgVol()));
         m.put("qualifies", e.qualifies());
-        m.put("threeMinStUp", e.threeMinStUp());
+        m.put("stockHigherStOk", e.stockHigherStOk());
         m.put("haDirectionOk", e.haDirectionOk());
         m.put("haColor", e.haColor());
+        m.put("pivotFilter", e.pivotFilter());
         m.put("candleSizeOk", e.candleSizeOk());
         m.put("candleRangeAtr", e.candleRangeAtr());
         if (e.note() != null) m.put("note", e.note());

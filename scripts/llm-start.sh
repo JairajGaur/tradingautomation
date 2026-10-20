@@ -27,7 +27,7 @@ BASE_URL="http://${HOST}"
 
 # Model to ensure is available. Defaults to the app.llm.model in application.yml;
 # override with LLM_MODEL=... for the deeper-analyst model.
-DEFAULT_MODEL="qwen3:8b"
+DEFAULT_MODEL="gemma3:27b"
 MODEL="${LLM_MODEL:-$DEFAULT_MODEL}"
 
 # Performance env (same flags Homebrew suggests): flash attention + quantised KV

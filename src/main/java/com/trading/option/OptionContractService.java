@@ -206,6 +206,10 @@ public class OptionContractService {
      * The strike increment for {@code underlying}: the per-symbol value from
      * {@code option-tickers.txt} when present, else {@code app.options.default-strike-increment}.
      */
+    public BigDecimal strikeIncrementFor(String underlying) {
+        return strikeIncrementFor(underlying, props.options());
+    }
+
     private BigDecimal strikeIncrementFor(String underlying, AppProperties.Options cfg) {
         BigDecimal fromFile = underlyings.strikeIncrementFor(underlying);
         if (fromFile != null && fromFile.compareTo(BigDecimal.ZERO) > 0) {

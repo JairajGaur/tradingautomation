@@ -394,52 +394,79 @@ app:
     # OPTIONS Supertrend alert — ST-driven with optional underlying HA side confirmation. This alert
     # DRIVES option loading (there is no scheduler): per underlying it generates the near-the-money
     # contracts (CALL + PUT) off the current stock price, loads their `timeframe` bars, KEEPS only
-    # the OCCs whose Supertrend is UP, and for each checks (all on the OPTION's own `timeframe`):
+    # the OCCs whose Supertrend is UP, and checks option conditions plus directional stock confirmation:
     #   1. Supertrend LINE rising for `st-rising-candles` completed bars;
     #   2. option close >= its `ema-period`-EMA on each of the last `ema-above-candles` bars
     #      (candle colour irrelevant — just at/above the EMA);
-    #   3. EMA stack (optional, `ema-stack-enabled`): fast EMA > slow EMA on the option
-    #      (`ema-stack-fast` > `ema-stack-slow`, default 20 > 100 = option in its own uptrend);
+    #   3. EMA stack (optional, `stock-ema-stack-enabled`): stock fast EMA > slow for CALL, < slow for PUT
+    #      (`stock-ema-stack-fast` > `stock-ema-stack-slow`, all configured stock timeframes must confirm);
     #   4. good volume (optional, `volume-enabled`): session volume >= `min-session-volume` AND
     #      volume INCREASING (recent-half avg > older-half avg over `volume-lookback` bars).
     # Fires a single UP signal per qualifying OCC. Polled every minute.
     option-vol-st:
       enabled: true
-      timeframe: "M1"                # option ST + EMA + volume timeframe (native: M1/M5/M15/...)
-      st-rising-candles: 3           # option ST line must rise this many completed bars
-      ema-period: 20                 # EMA the option close must stay at/above
-      ema-above-candles: 3           # close >= EMA required on this many of the last bars
-      ema-stack-enabled: true        # require fast EMA above slow EMA on the option
-      ema-stack-timeframe: "M1"     # independent EMA9/EMA20 timeframe; M3/M5/M15 etc.
-      ema-stack-fast: 9             # fast EMA for the stack check
-      ema-stack-slow: 20             # slow EMA for the stack check (20 > 45 = option uptrend)
-      volume-enabled: true           # master on/off for the volume leg
-      min-session-volume: 500        # cumulative session volume floor per contract (0 = off)
-      volume-lookback: 10            # rising-volume window; recent half vs older half (<2 = off)
-      cooldown-minutes: 10           # shared cooldown across all strikes of the same stock + CALL/PUT side
+      timeframe: "M1"                      # option ST + EMA + volume timeframe (native: M1/M5/M15/...)
+
+      # Option Supertrend direction and optional rising streak.
+      option-st-enabled: true              # false bypasses direction AND rising streak
+      st-rising-enabled: true              # applies only when option-st-enabled=true
+      st-rising-candles: 1                  # ST line must rise this many completed bars
+
+      # Option close-above-EMA confirmation.
+      ema-above-enabled: true
+      ema-period: 20                       # EMA the option close must stay at/above
+      ema-above-candles: 2                 # close >= EMA required on this many of the last bars
+
+      # Stock EMA confirmation: CALL fast > slow; PUT fast < slow on ALL intervals.
+      stock-ema-stack-enabled: true
+      stock-ema-stack-timeframe: "M1,M30"   # comma-separated intervals, e.g. "M1,M5,M15"
+      stock-ema-stack-fast: 9
+      stock-ema-stack-slow: 20
+
+      # Stock higher-timeframe ST: CALL UP; PUT DOWN on ALL completed intervals.
+      stock-higher-st-enabled: true
+      stock-higher-st-timeframe: "M5,M15"   # comma-separated intervals, e.g. "M3,M5,M15"
+
+      # Stock completed Heikin Ashi: green -> CALL; red -> PUT.
+      # Doji, missing or stale data blocks both sides; warmup is under bar-quality.
+      ha-direction-enabled: true
+      ha-timeframe: "M15"                  # configurable minute timeframe, e.g. M5/M15/M30
+
+      # Option volume confirmation.
+      volume-enabled: false
+      min-session-volume: 500              # cumulative volume floor per contract (0 = off) , 500
+      volume-lookback: 10                  # recent-half vs older-half average (<2 = off)
+
+      # Option signal-candle range/ATR cap, using the Swift Trend logic.
+      large-candle-filter-enabled: false
+      max-candle-atr: 3.0                   # reject range > 3x current Wilder ATR; <=0 also disables
+
+      # Stock pivot clearance; no mandatory above/below-P bias or retest.
+      pivot-filter:
+        enabled: true                      # false bypasses the entire pivot gate
+        atr-timeframe: "M5"                # completed RTH stock candles, independent of EMA/ST sessions
+        atr-period: 14
+        min-room-atr: 0.5                   # reject if next pivot is closer than 0.5 x stock ATR
+
+      # Choose one nearby qualifying contract by completed signal-candle volume.
+      contract-ranking:
+        enabled: true                      # one contract per stock/side group; false restores all
+        nearby-strike-gaps: 1               # nearest qualifying distance + 1 configured strike gap
+
+      # Shared completed-bar quality and indicator warmup requirements.
+      bar-quality:
+        max-age-bars: 1                     # age since close, in timeframe intervals
+        freshness-grace-seconds: 2          # small boundary/publication allowance
+        gap-window: 20                      # recent completed bars checked within each session
+        max-missing-bars: 1                 # total missing intervals allowed in that window
+        min-warmup-bars: 0                  # 0 = derive minimum from enabled indicators
+        ha-warmup-bars: 20                  # completed stock candles required to seed HA
+
+      # Shared cooldown and alert delivery.
+      cooldown-minutes: 10                  # all strikes of the same stock + CALL/PUT side
       message-prefix: "OPTION - "
       # SEPARATE channel. Blank → the alert is skipped (no fallback).
       telegram-chat-id: "${TELEGRAM_OPTION_VOLST_CHAT_ID:}"
-      # Optional 3-minute supertrend check. When true, also require that the 3-minute supertrend
-      # is UP in addition to the regular supertrend being UP. Default false (backward compatible).
-      three-min-st-enabled: false
-      # Timeframe for the 3-minute supertrend check. Default "M3" (3-minute bars). This can be
-      # changed to other timeframes like "M15" for a 15-minute supertrend check if desired.
-      three-min-st-timeframe: "M3"
-      # Underlying stock's latest COMPLETED HA candle: green -> CALL, red -> PUT.
-      # Doji, missing or stale data blocks both sides. Existing option legs still apply.
-      ha-direction-enabled: true
-      ha-timeframe: "M15"            # configurable minute timeframe, e.g. M5/M15/M30
-      # Same range/ATR cap as Swift Trend, applied to the OPTION's completed signal candle.
-      large-candle-filter-enabled: true
-      max-candle-atr: 3.0           # reject range > 3x current Wilder ATR; <=0 also disables
-      bar-quality:
-        max-age-bars: 1             # age since close, in timeframe intervals
-        freshness-grace-seconds: 2 # small boundary/publication allowance
-        gap-window: 20             # recent completed bars checked within each session
-        max-missing-bars: 1         # total missing intervals allowed in that window
-        min-warmup-bars: 0          # 0 = derive minimum from enabled indicators
-        ha-warmup-bars: 20          # completed stock candles required to seed HA
 
   # ── Entry guard (applies to EVERY BUY across all strategies) ──────────────
   # Two legs, checked on the latest COMPLETED bar:

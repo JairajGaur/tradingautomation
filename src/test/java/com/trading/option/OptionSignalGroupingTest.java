@@ -59,5 +59,45 @@ class OptionSignalGroupingTest {
         assertEquals(1, alert.groupHits("SPY", List.of(hit("SPY261016C00770000")), START.plusSeconds(60)).size());
         assertEquals(1, alert.groupHits("QQQ", List.of(hit("QQQ261016P00600000")), START.plusSeconds(60)).size());
     }
+    private OptionVolumeStAlert.ContractReplay rankedContract(String occ,String strike,long volume,int... minutes) {
+        var signals=java.util.Arrays.stream(minutes).mapToObj(minute->new OptionVolumeStAlert.ReplaySignal(
+                occ,"CALL",strike,"ATM",TimeFormat.toEt(START.plusSeconds(minute*60L-60)),"2.00",3,true,true,true,
+                TimeFormat.toEt(START.plusSeconds(minute*60L)),999999L,volume,volume,null)).toList();
+        return new OptionVolumeStAlert.ContractReplay(occ,"CALL",strike,"ATM",390,signals);
+    }
+    @Test void replaySelectsOneUsingCandleVolumeAndKeepsStockSideCooldown() {
+        var cfg=new AppProperties.Alerts.ContractRankingCfg(true,BigDecimal.ONE);
+        var result=OptionSignalGrouping.replay("SPY",List.of(rankedContract("a","100",100L,0,1),
+                rankedContract("b","102.5",200L,0,1),rankedContract("far","105",9999L,0,1)),30,cfg,new BigDecimal("2.5"),at->new BigDecimal("100"));
+        assertEquals(1,result.groups().size());assertEquals(1,result.groups().get(0).candidates().size());
+        assertEquals("b",result.groups().get(0).candidates().get(0).occSymbol());
+        assertEquals(6,result.rawContractSignals());assertEquals(1,result.cooldownSuppressedGroups());
+        assertEquals(1,result.contracts().stream().mapToInt(c->c.signals().size()).sum());
+        assertNotNull(result.groups().get(0).selection());
+    }
+    @Test void missingRankingReferenceDoesNotConsumeCooldownAndCanRecoverNextMinute() {
+        var cfg=new AppProperties.Alerts.ContractRankingCfg(true,BigDecimal.ONE);
+        var result=OptionSignalGrouping.replay("SPY",List.of(rankedContract("a","100",100L,0,1)),30,cfg,
+                new BigDecimal("2.5"),at->at.equals(START) ? null : new BigDecimal("100"));
+        assertEquals(1,result.rankingSkippedGroups());assertEquals(1,result.groups().size());
+        assertEquals(TimeFormat.toEt(START.plusSeconds(60)),result.groups().get(0).evaluatedAtEt());
+    }
+    @Test void liveAndReplayPickSameContractAndLiveMessageContainsOnlyWinner() {
+        var props=mock(AppProperties.class,RETURNS_DEEP_STUBS);
+        var cfg=new AppProperties.Alerts.ContractRankingCfg(true,BigDecimal.ONE);
+        when(props.alerts().optionVolSt().contractRanking()).thenReturn(cfg);
+        when(props.alerts().optionVolSt().cooldownMinutes()).thenReturn(30);
+        var alert=new OptionVolumeStAlert(props,null,null,null,null,null);
+        var a=hit("SPY261019C00100000");var b=hit("SPY261019C00102500");var far=hit("SPY261019C00105000");
+        var volumes=java.util.Map.of(a.ticker(),100L,b.ticker(),200L,far.ticker(),9999L);
+        var group=alert.groupHits("SPY",List.of(a,b,far),START,new BigDecimal("100"),new BigDecimal("2.5"),volumes).get(0);
+        assertTrue(group.message().contains(b.ticker()));assertFalse(group.message().contains(a.ticker()));assertFalse(group.message().contains(far.ticker()));
+        assertTrue(group.message().contains("Signal candle volume: 200"));
+        alert.onDeliveryAttempted(group);
+        assertTrue(alert.groupHits("SPY",List.of(a),START.plusSeconds(60),new BigDecimal("100"),new BigDecimal("2.5"),volumes).isEmpty());
+        var replay=OptionSignalGrouping.replay("SPY",List.of(rankedContract(a.ticker(),"100",100L,0),rankedContract(b.ticker(),"102.5",200L,0),
+                rankedContract(far.ticker(),"105",9999L,0)),30,cfg,new BigDecimal("2.5"),at->new BigDecimal("100"));
+        assertEquals(b.ticker(),replay.groups().get(0).selection().occSymbol());
+    }
     private AlertHit hit(String occ) { return new AlertHit("option-vol-st", occ, "test", "test", null, new BigDecimal("2.00"), "M1"); }
 }

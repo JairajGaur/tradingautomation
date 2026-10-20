@@ -63,14 +63,14 @@ class OptionsReplaySessionTest {
                 .thenReturn(List.of(contract));
         var optionBars = List.of(opening(friday));
         when(data.fetchOptionBars(contract.occSymbol(), 1200, "M1")).thenReturn(optionBars);
-        when(alert.replayCandidates(contract, optionBars, friday)).thenReturn(
+        when(alert.replayCandidates(contract, optionBars, friday, List.of(opening(friday)))).thenReturn(
                 new OptionVolumeStAlert.ContractReplay(contract.occSymbol(), "CALL", "10", "ATM", 1, List.of()));
         var controller = new OptionsController(props, null, null, contracts, null, alert, data, null);
         var body = controller.volStReplay("AAPL").getBody();
         assertNotNull(body);
         assertEquals(friday.toString(), body.get("date"));
         verify(contracts).generateContracts(eq("AAPL"), eq(BigDecimal.TEN), anySet(), eq(friday));
-        verify(alert).replayCandidates(contract, optionBars, friday);
+        verify(alert).replayCandidates(contract, optionBars, friday, List.of(opening(friday)));
     }
 
     @Test

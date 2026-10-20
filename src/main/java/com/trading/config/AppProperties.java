@@ -181,9 +181,9 @@ public record AppProperties(
          *   <li><b>Above the EMA</b> — the option close is AT OR ABOVE its {@code emaPeriod}-EMA on
          *       each of the last {@code emaAboveCandles} completed bars (candle colour doesn't
          *       matter — just {@code close ≥ EMA}).</li>
-         *   <li><b>EMA stack</b> (optional, {@code emaStackEnabled}) — the option's fast EMA is
-         *       above its slow EMA ({@code EMA(emaStackFast) > EMA(emaStackSlow)}, default 20 > 100)
-         *       on the latest completed bar — an uptrend confirmation on the option itself.</li>
+         *   <li><b>EMA stack</b> (optional, {@code stockEmaStackEnabled}) — the stock's fast EMA is
+         *       above its slow EMA for CALL, below for PUT ({@code EMA(stockEmaStackFast) > EMA(stockEmaStackSlow)}, default 20 > 100)
+         *       on every configured stock timeframe using completed candles.</li>
          *   <li><b>Good volume</b> (optional, {@code volumeEnabled}) — a two-part gate: cumulative
          *       session volume ≥ {@code minSessionVolume} (all-session liquidity floor) AND volume
          *       is INCREASING (recent-half average &gt; older-half average over {@code volumeLookback}
@@ -197,10 +197,10 @@ public record AppProperties(
          * @param emaPeriod       EMA period the option close must stay at/above (default 20)
          * @param emaAboveCandles how many of the last completed bars must have {@code close ≥ EMA}
          *                        (default 3)
-         * @param emaStackTimeframe fast/slow EMA candle interval; blank inherits option timeframe
-         * @param emaStackEnabled master on/off for the EMA-stack leg (default true)
-         * @param emaStackFast    fast EMA for the stack check (default 20)
-         * @param emaStackSlow    slow EMA for the stack check (default 100)
+         * @param stockEmaStackTimeframe comma-separated fast/slow EMA intervals; ALL must pass; blank inherits option timeframe
+         * @param stockEmaStackEnabled master on/off for the EMA-stack leg (default true)
+         * @param stockEmaStackFast    fast EMA for the stack check (default 20)
+         * @param stockEmaStackSlow    slow EMA for the stack check (default 100)
          * @param volumeEnabled   master on/off for the volume leg (default true)
          * @param minSessionVolume minimum cumulative session volume — liquidity floor (default 500;
          *                        0 disables just the floor). Only applies when {@code volumeEnabled}.
@@ -211,9 +211,8 @@ public record AppProperties(
          *                        for this many minutes (default 15). Shared by live alerts and replay.
          * @param messagePrefix   text prepended to each message (default "OPTION ST - ")
          * @param telegramChatId  separate Telegram channel; blank → the alert is skipped
-         * @param threeMinStEnabled when true, also require that the 3-minute supertrend is UP
-         *                          in addition to the regular supertrend being UP (default false)
-         * @param threeMinStTimeframe timeframe for the 3-minute supertrend check (default "M3")
+         * @param stockHigherStEnabled enable directional underlying-stock higher ST confirmation (default false)
+         * @param stockHigherStTimeframe comma-separated stock higher ST timeframes (default "M3")
          * @param haDirectionEnabled filter option sides by completed underlying HA color
          * @param haTimeframe underlying HA minute timeframe (default M15)
          * @param largeCandleFilterEnabled apply Swift Trend's range/ATR cap to option candles
@@ -225,26 +224,44 @@ public record AppProperties(
                 @DefaultValue("3")     int stRisingCandles,
                 @DefaultValue("20")    int emaPeriod,
                 @DefaultValue("3")     int emaAboveCandles,
-                @DefaultValue("true")  boolean emaStackEnabled,
-                @DefaultValue("") String emaStackTimeframe,
-                @DefaultValue("20")    int emaStackFast,
-                @DefaultValue("100")   int emaStackSlow,
+                @DefaultValue("true")  boolean stockEmaStackEnabled,
+                @DefaultValue("") String stockEmaStackTimeframe,
+                @DefaultValue("20")    int stockEmaStackFast,
+                @DefaultValue("100")   int stockEmaStackSlow,
                 @DefaultValue("true")  boolean volumeEnabled,
                 @DefaultValue("500")   long minSessionVolume,
                 @DefaultValue("10")    int volumeLookback,
                 @DefaultValue("15")    int cooldownMinutes,
                 @DefaultValue("OPTION ST - ") String messagePrefix,
                 @DefaultValue("")      String telegramChatId,
-                @DefaultValue("false") boolean threeMinStEnabled,
+                @DefaultValue("false") boolean stockHigherStEnabled,
                 /**
-                 * Timeframe for the 3-minute supertrend check (default "M3").
+                 * Comma-separated stock Supertrend intervals (default "M3"); CALL needs UP, PUT DOWN on ALL.
                  */
-                @DefaultValue("M3")    String threeMinStTimeframe,
+                @DefaultValue("M3")    String stockHigherStTimeframe,
                 @DefaultValue("false") boolean haDirectionEnabled,
                 @DefaultValue("M15") String haTimeframe,
                 @DefaultValue BarQualityCfg barQuality,
                 @DefaultValue("false") boolean largeCandleFilterEnabled,
-                @DefaultValue("3.0") BigDecimal maxCandleAtr
+                @DefaultValue("3.0") BigDecimal maxCandleAtr,
+                @DefaultValue PivotFilterCfg pivotFilter,
+                @DefaultValue ContractRankingCfg contractRanking,
+                @DefaultValue("true") boolean optionStEnabled,
+                @DefaultValue("true") boolean stRisingEnabled,
+                @DefaultValue("true") boolean emaAboveEnabled
+        ) {}
+
+        public record ContractRankingCfg(
+                @DefaultValue("false") boolean enabled,
+                @DefaultValue("1") BigDecimal nearbyStrikeGaps
+        ) {}
+
+        /** Stock pivot clearance; disabled by default for configurations that omit it. */
+        public record PivotFilterCfg(
+                @DefaultValue("false") boolean enabled,
+                @DefaultValue("M5") String atrTimeframe,
+                @DefaultValue("14") int atrPeriod,
+                @DefaultValue("0.5") BigDecimal minRoomAtr
         ) {}
 
         public record BarQualityCfg(

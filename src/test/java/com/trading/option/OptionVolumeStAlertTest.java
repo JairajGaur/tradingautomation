@@ -38,54 +38,27 @@ class OptionVolumeStAlertTest {
         verifyNoInteractions(contracts);
     }
 
-    private OptionVolumeStAlert alert(String sourceTimeframe) {
-        AppProperties props = mock(AppProperties.class, RETURNS_DEEP_STUBS);
-        when(props.alerts().optionVolSt().timeframe()).thenReturn(sourceTimeframe);
-        return new OptionVolumeStAlert(props, null, null, null, null, null);
-    }
-
-    private boolean gate(String source, String target, List<Candle> bars) {
-        return Boolean.TRUE.equals(ReflectionTestUtils.invokeMethod(
-                alert(source), "threeMinStDirectionUp", bars.subList(0, Math.max(0, bars.size() - 1)), target,
-                bars.isEmpty() ? Instant.parse("2026-10-16T13:30:00Z") : bars.get(bars.size() - 1).timestamp()));
-    }
-
-    private List<Candle> risingBars(int count) {
-        List<Candle> bars = new ArrayList<>();
-        Instant start = Instant.parse("2026-10-16T13:30:00Z");
-        for (int i = 0; i < count; i++) {
-            BigDecimal price = BigDecimal.valueOf(10 + i);
-            bars.add(new Candle("TEST", start.plusSeconds(60L * i), price,
-                    price.add(BigDecimal.ONE), price.subtract(BigDecimal.ONE), price, 100));
-        }
-        return bars;
-    }
-
     @Test
-    void m3NeedsEnoughAggregatedBarsToWarmUp() {
-        // M1 has already flipped UP while M3 is still at its initial DOWN seed.
-        assertTrue(gate("M1", "M1", risingBars(12)));
-        assertFalse(gate("M1", "M3", risingBars(12)));
-        assertFalse(gate("M1", "M3", risingBars(6)));
-        assertTrue(gate("M1", "M3", risingBars(60)));
-    }
-
-    @Test
-    void formingM3CandleCannotChangeCompletedDirection() {
-        List<Candle> bars = risingBars(61);
-        assertTrue(gate("M1", "M3", bars));
-        Candle forming = bars.get(60);
-        bars.set(60, new Candle("TEST", forming.timestamp(), BigDecimal.ONE,
-                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, 100));
-        assertTrue(gate("M1", "M3", bars));
-    }
-
-    @Test
-    void unavailableOrIncompatibleTimeframesFailClosed() {
-        assertFalse(gate("M1", "M3", List.of()));
-        assertFalse(gate("M1", "D", risingBars(60)));
-        assertFalse(gate("M5", "M3", risingBars(60)));
-        assertFalse(gate("M5", "M7", risingBars(60)));
-        assertFalse(gate("M1", "invalid", risingBars(60)));
+    void optionalPivotNarrationNeverSuppressesAnOtherwiseQualifyingGroup() {
+        var props=mock(AppProperties.class,RETURNS_DEEP_STUBS);
+        var pivots=mock(com.trading.service.StockPivotService.class);
+        var narrator=mock(com.trading.llm.PivotAlertNarrator.class);
+        var alert=new OptionVolumeStAlert(props,null,null,null,null,null,pivots,null,narrator);
+        var group=new com.trading.alert.AlertHit("option-vol-st","AAPL","OPTGROUP|AAPL|CALL|123",
+                "OPTION - AAPL CALL\nQualifying contracts",com.trading.alert.AlertMessageFormat.Dir.UP,null,"M1");
+        var asOf=Instant.parse("2026-10-19T15:00:00Z");
+        when(pivots.current("AAPL",asOf)).thenThrow(new RuntimeException("stock unavailable"));
+        assertSame(group,ReflectionTestUtils.invokeMethod(alert,"withPivotNarrative","AAPL",group,asOf));
+        reset(pivots);
+        when(narrator.summarize(eq("AAPL"),eq(OptionContract.Type.CALL),isNull(),any())).thenThrow(new RuntimeException("LLM unavailable"));
+        assertSame(group,ReflectionTestUtils.invokeMethod(alert,"withPivotNarrative","AAPL",group,asOf));
+        reset(narrator);
+        when(narrator.summarize(eq("AAPL"),eq(OptionContract.Type.CALL),isNull(),any())).thenReturn("");
+        assertSame(group,ReflectionTestUtils.invokeMethod(alert,"withPivotNarrative","AAPL",group,asOf));
+        when(narrator.summarize(eq("AAPL"),eq(OptionContract.Type.CALL),isNull(),any())).thenReturn("\nPivot view: Stock is above daily pivot.");
+        com.trading.alert.AlertHit enriched=ReflectionTestUtils.invokeMethod(alert,"withPivotNarrative","AAPL",group,asOf);
+        assertEquals(group.state(),enriched.state());assertEquals(group.ticker(),enriched.ticker());
+        assertEquals(group.direction(),enriched.direction());assertTrue(enriched.message().startsWith(group.message()));
+        assertFalse(enriched.message().contains("S1"));
     }
 }

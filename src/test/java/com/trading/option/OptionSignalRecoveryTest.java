@@ -21,6 +21,10 @@ class OptionSignalRecoveryTest {
     private final OptionBarDataManager bars = mock(OptionBarDataManager.class);
     private final Instant start = Instant.parse("2026-10-16T13:30:00Z");
     private OptionVolumeStAlert alert() {
+        when(props.alerts().optionVolSt().optionStEnabled()).thenReturn(true);
+        when(props.alerts().optionVolSt().stRisingEnabled()).thenReturn(true);
+        when(props.alerts().optionVolSt().emaAboveEnabled()).thenReturn(true);
+
         when(props.alerts().optionVolSt().timeframe()).thenReturn("M1");
         when(props.alerts().optionVolSt().emaPeriod()).thenReturn(20);
         when(props.alerts().optionVolSt().emaAboveCandles()).thenReturn(3);
@@ -73,18 +77,15 @@ class OptionSignalRecoveryTest {
     }
 
     @Test
-    void incompleteM3BucketTriggersRecoveryRatherThanInventingMissingMinute() {
+    void stockTimeframesDoNotIncreaseOptionWarmupOrRequireOptionAggregation() {
         var alert = alert();
-        when(props.alerts().optionVolSt().threeMinStEnabled()).thenReturn(true);
-        when(props.alerts().optionVolSt().threeMinStTimeframe()).thenReturn("M3");
-        var incomplete = history(90);
-        incomplete.remove(86);
-        when(bars.getBars("TEST", "M1", 100)).thenReturn(incomplete);
-        when(bars.refreshBars("TEST", "M1", 1200)).thenReturn(history(90));
-        assertTrue(quality(alert, 90).valid());
-        verify(bars).refreshBars("TEST", "M1", 1200);
-        when(bars.refreshBars("TEST", "M1", 1200)).thenReturn(incomplete);
-        assertTrue(quality(alert, 90).reason().startsWith("M3_"));
+        when(props.alerts().optionVolSt().stockHigherStEnabled()).thenReturn(true);
+        when(props.alerts().optionVolSt().stockHigherStTimeframe()).thenReturn("M30,M60");
+        when(props.alerts().optionVolSt().stockEmaStackEnabled()).thenReturn(true);
+        when(props.alerts().optionVolSt().stockEmaStackTimeframe()).thenReturn("M30,M60");
+        when(bars.getBars("TEST", "M1", 100)).thenReturn(history(60));
+        assertTrue(quality(alert, 60).valid());
+        verify(bars, never()).refreshBars(anyString(), anyString(), anyInt());
     }
 
     @Test
@@ -152,5 +153,18 @@ class OptionSignalRecoveryTest {
         when(bars.getBars("TEST", "M1", 100)).thenReturn(history(10));
         when(bars.refreshBars("TEST", "M1", 1200)).thenReturn(history(10));
         assertEquals("INSUFFICIENT_WARMUP", quality(alert, 10).reason());
+    }
+    @Test
+    void rankingVolumeIsCapturedFromTheCompletedSignalCandleNotTheFormingBar() {
+        var alert=alert();var source=history(61);
+        var closed=source.get(59);var forming=source.get(60);
+        source.set(59,new Candle("TEST",closed.timestamp(),closed.open(),closed.high(),closed.low(),closed.close(),17));
+        source.set(60,new Candle("TEST",forming.timestamp(),forming.open(),forming.high(),forming.low(),forming.close(),999999));
+        when(bars.getBars("TEST","M1",100)).thenReturn(source);
+        var contract=new OptionContract("TEST","AAPL",java.time.LocalDate.of(2026,10,16),OptionContract.Type.CALL,BigDecimal.TEN,OptionContract.Moneyness.ATM);
+        var volumes=new java.util.HashMap<String,Long>();
+        var hit=ReflectionTestUtils.invokeMethod(alert,"evaluateContract",contract,"M1","2026-10-16",props.alerts().optionVolSt(),start.plusSeconds(3600),volumes);
+        assertNotNull(hit);assertEquals(17L,volumes.get("TEST"));
+        verify(bars,times(1)).getBars("TEST","M1",100);
     }
 }

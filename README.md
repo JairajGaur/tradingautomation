@@ -968,3 +968,10 @@ Check `market-hours` config and your server timezone. The guard uses `America/Ne
 
 **Gradle deprecation warnings about Gradle 10**
 Informational only — does not affect the build.
+
+## Automatic deployment on another machine
+
+For daily **08:30 Eastern on macOS**, use the [macOS setup guide](deploy/macos/README.md).
+It pulls pushed changes, clean-builds/tests, and restarts a managed JAR with startup
+validation and previous-JAR fallback. Linux systemd templates are documented in
+[the Linux deployment guide](deploy/README.md).

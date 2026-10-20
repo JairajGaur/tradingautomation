@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull, clean build, test and deploy Trading Automation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=trading
+WorkingDirectory=/opt/tradingautomation
+Environment=DEPLOY_BRANCH=main
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ExecStart=/bin/bash /opt/tradingautomation/scripts/daily-update.sh
+TimeoutStartSec=30min
+UMask=0077

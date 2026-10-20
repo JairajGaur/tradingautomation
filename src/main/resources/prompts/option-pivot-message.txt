@@ -1,0 +1,8 @@
+Write a short, plain-English pivot explanation for the {symbol} {side} alert.
+You are explaining already-calculated stock context, not deciding whether to trade.
+Select the clearest wording from the verified alternatives below. Return only the JSON object
+required by the supplied schema, with the selected text as summary.
+Do not add numbers, levels, targets, predictions, recommendations or claims of a bounce/retest.
+The schema alternatives are the complete factual boundary for this message.
+Verified wording alternatives:
+{wordings}

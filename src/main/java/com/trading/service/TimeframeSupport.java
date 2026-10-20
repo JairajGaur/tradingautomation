@@ -38,6 +38,19 @@ public final class TimeframeSupport {
         }
     }
 
+    /** Comma-separated minute intervals, preserving order and removing duplicate spellings. */
+    public static java.util.List<String> minuteTimeframes(String configured, String fallback) {
+        String value = configured == null || configured.isBlank() ? fallback : configured;
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("No minute timeframes configured");
+        var result = new java.util.LinkedHashSet<String>();
+        for (String token : value.split(",", -1)) {
+            int minutes = minutesOf(token);
+            if (minutes < 1) throw new IllegalArgumentException("Invalid minute timeframe: " + token);
+            result.add("M" + minutes);
+        }
+        return java.util.List.copyOf(result);
+    }
+
     /** Whether {@code timeframe} is a minute multiple the broker serves natively. */
     public static boolean isNativeMinute(String timeframe) {
         int m = minutesOf(timeframe);
